@@ -1,0 +1,36 @@
+import { StyleSheet } from 'react-native';
+import { COLORS, RADIUS } from '../../../shared/디자인/tokens';
+
+
+export const styles = StyleSheet.create({
+  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  logoBadge: { width: 30, height: 30, borderRadius: 9, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
+  logo: { fontSize: 20, fontWeight: '700', color: COLORS.primary },
+  content: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 16, gap: 22 },
+  teamCard: { backgroundColor: COLORS.primary, borderRadius: 24, paddingVertical: 28, paddingHorizontal: 24, alignItems: 'center', gap: 10 },
+  categoryTag: { backgroundColor: 'rgba(255,255,255,0.1)', paddingVertical: 4, paddingHorizontal: 10, borderRadius: RADIUS.pill },
+  categoryTagText: { fontSize: 10, fontWeight: '700', color: COLORS.mint },
+  teamName: { fontSize: 22, fontWeight: '700', color: '#fff', textAlign: 'center' },
+  teamMemberCount: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)' },
+  avatar: { width: 36, height: 36, borderRadius: 9999, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  hostId: { fontSize: 14, fontWeight: '700', color: COLORS.ink },
+  hostLabel: { fontSize: 12, color: COLORS.inkMuted48 },
+  sectionLabel: { fontSize: 13, fontWeight: '500', color: COLORS.inkMuted48 },
+  description: { fontSize: 15, color: COLORS.ink, lineHeight: 22 },
+  inviteButton: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.goldTint, paddingVertical: 6, paddingHorizontal: 12, borderRadius: RADIUS.pill },
+  inviteButtonText: { fontSize: 12.5, fontWeight: '600', color: COLORS.primary },
+  memberRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  memberId: { fontSize: 14, fontWeight: '600', color: COLORS.ink, flex: 1 },
+  hostTag: { backgroundColor: COLORS.goldTint, paddingVertical: 3, paddingHorizontal: 9, borderRadius: RADIUS.pill },
+  hostTagText: { fontSize: 10, fontWeight: '600', color: COLORS.gold },
+  footer: { paddingHorizontal: 24, paddingBottom: 24, paddingTop: 8 },
+  joinButton: { height: 50, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
+  joinButtonText: { fontSize: 17, fontWeight: '600' },
+  blockOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, backgroundColor: 'rgba(3,50,54,0.4)' },
+  blockCard: { width: '100%', maxWidth: 300, backgroundColor: '#fff', borderRadius: 22, padding: 22, gap: 14 },
+  blockTitle: { fontSize: 16.5, fontWeight: '700', color: COLORS.ink },
+  blockDesc: { fontSize: 13.5, color: COLORS.inkMuted48, lineHeight: 19 },
+  blockOkButton: { height: 46, borderRadius: RADIUS.pill, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
+  blockOkText: { fontSize: 15, fontWeight: '600', color: '#fff' },
+});

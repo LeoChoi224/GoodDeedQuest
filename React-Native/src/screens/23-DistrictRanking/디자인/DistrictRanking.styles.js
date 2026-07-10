@@ -1,0 +1,36 @@
+import { StyleSheet } from 'react-native';
+import { COLORS } from '../../../shared/디자인/tokens';
+
+
+export const styles = StyleSheet.create({
+  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  logoBadge: { width: 30, height: 30, borderRadius: 9, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
+  logo: { fontSize: 20, fontWeight: '700', color: COLORS.primary },
+  content: { paddingHorizontal: 24, paddingTop: 10, paddingBottom: 24, gap: 18 },
+  title: { fontSize: 22, fontWeight: '700', color: COLORS.ink },
+  subtitle: { fontSize: 13, color: COLORS.inkMuted48, marginTop: 2 },
+  listHeader: { fontSize: 13, fontWeight: '700', color: COLORS.ink },
+  rankRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, marginBottom: 8 },
+  rankBadge: { width: 28, height: 28, borderRadius: 9999, alignItems: 'center', justifyContent: 'center' },
+  rankBadgeText: { fontSize: 13, fontWeight: '700' },
+  rankName: { fontSize: 14.5, fontWeight: '700', color: COLORS.ink },
+  mineTag: { fontSize: 10, fontWeight: '700', color: COLORS.primary, backgroundColor: COLORS.goldTint, paddingVertical: 2, paddingHorizontal: 7, borderRadius: 9999 },
+  mineTagText: { fontSize: 10, fontWeight: '700', color: COLORS.primary },
+  rankScore: { fontSize: 14, fontWeight: '700', color: COLORS.primary },
+  tileCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.hairline, borderRadius: 18, padding: 16, gap: 12 },
+  tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tile: { width: '18%', minWidth: 64, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 12, borderWidth: 1, alignItems: 'center', gap: 2 },
+  tileName: { fontSize: 12.5, fontWeight: '700', textAlign: 'center' },
+  tileRank: { fontSize: 10, fontWeight: '600' },
+  mapHint: { fontSize: 11.5, color: COLORS.inkMuted48, textAlign: 'center' },
+  myRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, backgroundColor: COLORS.primary },
+  myBadge: { width: 34, height: 34, borderRadius: 9999, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
+  myBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  myLabel: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.65)' },
+  myScore: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
+  facilityCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.hairline, borderRadius: 16, padding: 14, flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  facilityIcon: { width: 38, height: 38, borderRadius: 9999, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center' },
+  facilityName: { fontSize: 14, fontWeight: '700', color: COLORS.ink },
+  facilityAddress: { fontSize: 12, color: COLORS.inkMuted48 },
+  facilityDesc: { fontSize: 12.5, color: COLORS.ink, lineHeight: 18, marginTop: 2 },
+});

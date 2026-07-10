@@ -1,0 +1,37 @@
+import { StyleSheet } from 'react-native';
+import { COLORS, RADIUS } from '../../../shared/디자인/tokens';
+
+
+export const styles = StyleSheet.create({
+  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  logoBadge: { width: 30, height: 30, borderRadius: 9, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
+  logo: { fontSize: 20, fontWeight: '700', color: COLORS.primary },
+  searchSection: { paddingHorizontal: 20, paddingTop: 18, gap: 14 },
+  title: { fontSize: 24, fontWeight: '600', color: COLORS.ink, lineHeight: 32 },
+  searchBar: { height: 48, backgroundColor: COLORS.parchment, borderWidth: 1, borderColor: COLORS.hairline, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16 },
+  searchInput: { flex: 1, fontSize: 15, color: COLORS.ink },
+  filterChip: { height: 36, paddingHorizontal: 16, borderRadius: RADIUS.pill, borderWidth: 1, borderColor: COLORS.hairline, backgroundColor: COLORS.parchment, alignItems: 'center', justifyContent: 'center' },
+  filterChipSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  filterChipText: { fontSize: 13, fontWeight: '600', color: COLORS.ink },
+  filterChipTextSelected: { color: '#fff' },
+  list: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 20, gap: 12 },
+  roomCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.hairline, borderRadius: 18, padding: 16, gap: 10 },
+  categoryTag: { backgroundColor: '#F0FAF2', paddingVertical: 4, paddingHorizontal: 9, borderRadius: RADIUS.pill },
+  categoryTagText: { fontSize: 10, fontWeight: '700', color: COLORS.primary },
+  memberCountText: { fontSize: 12, color: COLORS.inkMuted48 },
+  roomName: { fontSize: 16, fontWeight: '700', color: COLORS.ink },
+  hostAvatar: { width: 22, height: 22, borderRadius: 9999, alignItems: 'center', justifyContent: 'center' },
+  hostAvatarText: { fontSize: 10, fontWeight: '700', color: '#fff' },
+  hostId: { fontSize: 12.5, color: COLORS.inkMuted48 },
+  joinButton: { height: 42, borderRadius: RADIUS.pill, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  joinButtonText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  toast: { position: 'absolute', left: '50%', bottom: 56, transform: [{ translateX: -100 }], backgroundColor: COLORS.ink, borderRadius: RADIUS.pill, paddingVertical: 12, paddingHorizontal: 20 },
+  toastText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  pwOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, backgroundColor: 'rgba(3,50,54,0.4)' },
+  pwCard: { width: '100%', maxWidth: 300, backgroundColor: '#fff', borderRadius: 22, padding: 22, gap: 14 },
+  pwTitle: { fontSize: 16.5, fontWeight: '700', color: COLORS.ink },
+  pwSubtitle: { fontSize: 13, color: COLORS.inkMuted48, lineHeight: 18 },
+  pwInput: { height: 48, backgroundColor: COLORS.parchment, borderWidth: 1, borderColor: COLORS.hairline, borderRadius: 14, paddingHorizontal: 16, fontSize: 15, color: COLORS.ink },
+  pwSubmit: { height: 48, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
+  pwSubmitText: { fontSize: 15, fontWeight: '600' },
+});

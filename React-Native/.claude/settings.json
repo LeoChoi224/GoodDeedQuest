@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node \"/private/tmp/claude-501/-Users-yangjeong-un-Desktop-rn/39be1e3c-58dd-4044-88b6-5815b241d08c/scratchpad/safearea-codemod.mjs\")",
+      "Bash(node -e ' *)",
+      "Bash(node \"/private/tmp/claude-501/-Users-yangjeong-un-Desktop-rn/39be1e3c-58dd-4044-88b6-5815b241d08c/scratchpad/modal-codemod.mjs\")"
+    ]
+  }
+}
