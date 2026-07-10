@@ -153,3 +153,23 @@ node_modules/
 *.njsproj
 *.sln
 *.sw?
+
+# React-Native expo
+.claude/
+node_modules/
+.expo/
+dist/
+web-build/
+.DS_Store
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+npm-debug.*
+*.jsbundle
+*.log
+
+# Antigravity agent configurations and rules
+.agents/
