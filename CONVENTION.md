@@ -189,6 +189,7 @@ good-deed-quest/
 │   │   │   └── MapScreen.js
 │   │   ├── quest_recommend/
 │   │   │   ├── RecommendScreen.js
+
 │   │   │   └── CoachScreen.js (AI 코치 채팅 화면 통합)
 │   │   ├── quest_verification/
 │   │   │   └── VerificationScreen.js
