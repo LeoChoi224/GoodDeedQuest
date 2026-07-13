@@ -11,9 +11,6 @@
 ## Testing
 - [ ] 테스트 완료
 
-## Issues & Solutions
-- 작업 중 발생한 문제와 그 해결 방법에 대해 간단히 설명해주세요.
-
 ## Next Steps
 - 
 
