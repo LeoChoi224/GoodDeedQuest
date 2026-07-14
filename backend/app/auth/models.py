@@ -11,9 +11,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.common.database import Base
-from app.common.enums import Difficulty      # 공용 enum (auth·quest 공유)
-from app.auth.enums import UserRole           # auth 전용 enum
+from backend.app.common.database import Base
+from backend.app.common.enums import Difficulty      # 공용 enum (auth·quest 공유)
+from backend.app.auth.enums import UserRole           # auth 전용 enum
 
 
 class User(Base):
