@@ -30,7 +30,7 @@ class Report(Base):
     )
     reporter_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id"),
+        ForeignKey("user.user_id"),
         nullable=False,
         index=True, # 검색 속도를 빠르게 하기 위해 인덱스를 만든다 (?)
     )
@@ -46,10 +46,9 @@ class Report(Base):
     ondelete="SET NULL"
     SET NULL은 부모 데이터가 삭제되면 FK 값을 NULL로 바꿈
     """
-
     reviewed_by: Mapped[int | None] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id", ondelete="SET NULL"),
+        ForeignKey("user.user_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )

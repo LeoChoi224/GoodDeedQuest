@@ -31,7 +31,7 @@ class CommunityPost(Base):
     )
     user_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id"),
+        ForeignKey("user.user_id"),
         nullable=False,
         index=True,
     )
@@ -79,7 +79,7 @@ class PostLike(Base):
     )
     user_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id", ondelete="CASCADE"),
+        ForeignKey("user.user_id", ondelete="CASCADE"),
         primary_key=True,
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -113,7 +113,7 @@ class Comment(Base):
     )
     user_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id", ondelete="CASCADE"),
+        ForeignKey("user.user_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -160,7 +160,7 @@ class FeedHiddenPreference(Base):
     )
     user_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id", ondelete="CASCADE"),
+        ForeignKey("user.user_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -205,7 +205,7 @@ class UserActivityLog(Base):
 
     user_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id", ondelete="CASCADE"),
+        ForeignKey("user.user_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

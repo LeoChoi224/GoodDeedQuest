@@ -47,7 +47,7 @@ class Team(Base):
 
     leader_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id"),
+        ForeignKey("user.user_id"),
         nullable=False,
     )
 
@@ -131,7 +131,7 @@ class TeamInvite(Base):
 
     user_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id"),
+        ForeignKey("user.user_id"),
         nullable=False,
     )
 
@@ -184,7 +184,7 @@ class TeamMember(Base):
 
     user_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("users.user_id"),
+        ForeignKey("user.user_id"),
         nullable=False,
     )
 
