@@ -10,21 +10,11 @@ models.py(SQLAlchemy)에 대응하는 API 요청/응답 스키마.
 - 필드명: snake_case (프론트에서 camelCase 변환이 필요하면 별도 alias 처리)
 """
 from datetime import datetime
-from enum import Enum
+
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-# ─────────────────────────────────────────────
-# Enum (models.py의 ShortFormStatus와 동일한 값 유지)
-# ─────────────────────────────────────────────
-class ShortFormStatus(str, Enum):
-    PENDING = "PENDING"
-    GENERATING = "GENERATING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-
+from backend.app.shortform.enums import ShortFormStatus
 
 # ─────────────────────────────────────────────
 # 공통 Base
