@@ -1,0 +1,35 @@
+- name: "feature"
+  color: "a2eeef"
+  description: "새로운 기능 추가"
+
+- name: "fix"
+  color: "d73a4a"
+  description: "버그 수정"
+
+- name: "chore"
+  color: "e6e6e6"
+  description: "빌드 프로세스 또는 보조 도구와 관련된 변경"
+
+- name: "refactor"
+  color: "bfd4f2"
+  description: "코드 리팩토링 (기능 변경 없음)"
+
+- name: "docs"
+  color: "c5def5"
+  description: "문서 작성 또는 수정 (README 등)"
+
+- name: "style"
+  color: "f9d0c4"
+  description: "코드 포맷팅, 스타일 수정 등 코드 의미에 영향이 없는 변경"
+
+- name: "test"
+  color: "c2f0c2"
+  description: "테스트 코드 추가 또는 수정"
+
+- name: "perf"
+  color: "fef2c0"
+  description: "성능 개선을 위한 코드 변경"
+
+- name: "ci"
+  color: "d4c5f9"
+  description: "지속적 통합(CI) 설정 파일 및 스크립트 변경"
