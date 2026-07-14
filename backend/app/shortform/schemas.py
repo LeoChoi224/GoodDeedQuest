@@ -109,8 +109,8 @@ class ShortFormRead(ORMBase):
     """숏폼 상세 조회/최종 재생 화면 응답"""
     shorts_id: int
     user_id: int
-    bgm_id: Optional[int] = None
-    title: Optional[str] = None
+    bgm_id: int
+    title: str
     ai_generated_captions: Optional[List[CaptionItem]] = None
     status: ShortFormStatus
     # final_video_s3_key 원본 대신 CDN 재생 URL로 변환해서 내려줌

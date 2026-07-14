@@ -26,10 +26,12 @@ class BackgroundMusic(Base):
     title: Mapped[str] = mapped_column(String(100), nullable=False)
     
     # 무드 필터링 및 RAG 매칭을 위한 태그 데이터 (조회 속도 향상을 위한 index 추가)
-    mood_tag: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    mood_tag: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     
     # 풀 URL 주소 대신 S3 오브젝트 Key만 보관하는 아키텍처 규칙 반영
     s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    
+    # 출처 불명 음원이 있을 수 있으므로 nullable 유지
     source_info: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     # DB 서버 타임스탬프 기준 자동 생성/수정
@@ -58,9 +60,11 @@ class ShortForm(Base):
     # TODO: User 모델이 생성되면 ForeignKey('user.user_id') 추가 + Alembic 마이그레이션 필요 (User 테이블 생성완료시 아래 코드 삭제하고 위코드 주석풀면됨)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
 
-    bgm_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('background_music.bgm_id'), nullable=True, index=True)
+    # 배경음악 없이는 숏폼 생성 불가 → 필수
+    bgm_id: Mapped[int] = mapped_column(Integer, ForeignKey('background_music.bgm_id'), nullable=False, index=True)
     
-    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # 숏폼 생성 시 제목 필수 입력
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
     
     # 일반 JSON 대신 PostgreSQL 전용 고성능 JSONB 타입 적용
     ai_generated_captions: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
