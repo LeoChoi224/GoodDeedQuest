@@ -1,0 +1,24 @@
+name: Sync Labels
+
+on:
+  push:
+    branches:
+      - dev # 디폴트 브랜치인 dev로 변경 완료
+    paths:
+      - '.github/labels.yml'
+  workflow_dispatch:
+
+jobs:
+  label-sync:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Label Sync
+        uses: EndBug/label-sync@v2
+        with:
+          config-file: .github/labels.yml
+          delete-other-labels: true

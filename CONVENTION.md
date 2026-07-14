@@ -97,14 +97,14 @@ const login = async (data) => {
 ```text
 main   (배포용 최종 브랜치)
  └── dev   (개발용 통합 브랜치)
-      ├── feature/*   (기능 개발 브랜치)
+      ├── feat/*   (기능 개발 브랜치)
       ├── release/*   (배포 준비 브랜치)
       └── hotfix/*    (긴급 버그 수정 브랜치)
 ```
 
 ### 🏷️ 브랜치 명명 규칙
-* **이슈가 있는 경우**: `feature/이슈번호-기능명` (예: `feature/23-login-api`, `feature/45-quest-recommend`)
-* **이슈가 없는 경우**: `feature/기능명` (예: `feature/login-api`, `feature/auth`)
+* **이슈가 있는 경우**: `feat/이슈번호-기능명` (예: `feat/23-login-api`, `feat/45-quest-recommend`)
+* **이슈가 없는 경우**: `feat/기능명` (예: `feat/login-api`, `feat/auth`)
 
 ---
 
@@ -189,6 +189,7 @@ good-deed-quest/
 │   │   │   └── MapScreen.js
 │   │   ├── quest_recommend/
 │   │   │   ├── RecommendScreen.js
+
 │   │   │   └── CoachScreen.js (AI 코치 채팅 화면 통합)
 │   │   ├── quest_verification/
 │   │   │   └── VerificationScreen.js
