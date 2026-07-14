@@ -8,6 +8,9 @@ from alembic import context
 from backend.app.common.config import settings
 from backend.app.common.database import Base
 
+from backend.app.shortform import models as shortform_models  # noqa: F401
+
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
