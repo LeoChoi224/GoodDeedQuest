@@ -9,10 +9,11 @@ from backend.app.common.config import settings
 from backend.app.common.database import Base
 
 # [추가] Alembic이 감지할 수 있도록 임포트
+from backend.app.auth.models import User
 from backend.app.quest.models import Quest, Category
 from backend.app.quest_recommend.models import AiRecommendationLog, AiRecommendation
+from backend.app.shop.models import Item, Purchase
 from backend.app.shortform import models as shortform_models  # noqa: F401
-from backend.app.auth.models import User
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
