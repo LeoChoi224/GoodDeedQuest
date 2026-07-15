@@ -7,7 +7,7 @@ from backend.app.map.enums import CompetitionStatus
 
 
 class VolunteerCenter(Base):
-    __tablename__ = "volunteercenter"
+    __tablename__ = "volunteer_center"
 
     # 크롤링 데이터기에 fk pk를 제외한 나머지가 모두 null이될수있음
     center_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True, comment="봉사센터 ID")
@@ -61,7 +61,7 @@ class Competition(Base):
 
 
 class CompetitionParticipant(Base):
-    __tablename__ = "competitionparticipant"
+    __tablename__ = "competition_participant"
 
     participant_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, comment="참가 고유번호")
     competition_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("competition.competition_id"), nullable=False, comment="대회 FK")
@@ -73,7 +73,7 @@ class CompetitionParticipant(Base):
 
 
 class CompetitionContribution(Base):
-    __tablename__ = "competitioncontribution"
+    __tablename__ = "competition_contribution"
 
     contribution_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, comment="기여 고유번호")
     competition_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("competition.competition_id"), nullable=False, comment="대회 FK")
