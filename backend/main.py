@@ -8,12 +8,13 @@ from backend.app.quest.router import router as quest_router
 from backend.app.quest_recommend.router import router as recommend_router
 from backend.app.quest_verification.router import router as verification_router
 from backend.app.challenge.router import router as challenge_router
-from backend.app.shorts.router import router as shorts_router
+from backend.app.shortform.router import router as shorts_router
 from backend.app.map.router import router as map_router
 from backend.app.growth.router import router as growth_router
 from backend.app.notification.router import router as notification_router
 from backend.app.admin.router import router as admin_router
 from backend.app.shop.router import router as shop_router
+# TODO router.py 작업할때 shortform, badge 라우터 임포트 예정
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
