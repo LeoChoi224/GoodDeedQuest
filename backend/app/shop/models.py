@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, BigInteger, String, Text, DateTime, ForeignKey, Boolean, Enum as SQLEnum, func
+from sqlalchemy import Integer, BigInteger, String, Text, TIMESTAMP, ForeignKey, Boolean, Enum as SQLEnum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from backend.app.common.database import Base
@@ -21,10 +21,10 @@ class Item(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="상점 노출 여부")
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), comment="등록 일시"
+        TIMESTAMP, server_default=func.now(), comment="등록 일시"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False, comment="수정 일시"
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False, comment="수정 일시"
     )
 
     def __repr__(self):
@@ -54,10 +54,10 @@ class Purchase(Base):
     )
 
     purchased_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), comment="구매 일시"
+        TIMESTAMP, server_default=func.now(), comment="구매 일시"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False, comment="수정 일시"
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False, comment="수정 일시"
     )
 
     #  테이블과의 단방향 관계 설정 (Item은 이 존재를 몰라도 됨)
