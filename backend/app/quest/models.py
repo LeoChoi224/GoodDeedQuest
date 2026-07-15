@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, BigInteger, String, Text, DateTime, ForeignKey, JSON, Boolean, Enum as SQLEnum, func
+from sqlalchemy import Integer, BigInteger, String, Text, TIMESTAMP, ForeignKey, JSON, Boolean, Enum as SQLEnum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from typing import Optional, List
@@ -17,10 +17,10 @@ class Category(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="카테고리 활성화 상태")
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), comment="생성 일시"
+        TIMESTAMP, server_default=func.now(), comment="생성 일시"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False, comment="수정 일시"
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False, comment="수정 일시"
     )
 
     # 1:N 관계 정의 (하나의 카테고리에 여러 퀘스트가 포함됨)
@@ -74,13 +74,13 @@ class Quest(Base):
         SQLEnum(QuestStatus, name="quest_status_enum"), nullable=False, default=QuestStatus.NOT_STARTED, comment="진행 상태"
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), comment="생성 일시"
+        TIMESTAMP, server_default=func.now(), comment="생성 일시"
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, nullable=True, comment="퀘스트 수행 완료 일시"
+        TIMESTAMP, nullable=True, comment="퀘스트 수행 완료 일시"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False, comment="수정 일시"
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False, comment="수정 일시"
     )
     # 관계 설정 (카테고리)
     category: Mapped["Category"] = relationship("Category", back_populates="quests")
