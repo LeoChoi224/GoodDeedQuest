@@ -17,7 +17,7 @@ from backend.app.auth.enums import UserRole, TransactionType           # auth �
 
 
 class User(Base):
-    __tablename__ = "User"
+    __tablename__ = "user"
 
     # 정수 primary_key는 기본으로 auto increment
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
