@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # AI Service URL
     AI_SERVICE_URL: str = "http://localhost:8001"
 
+    # AWS S3
+    AWS_REGION: str = "ap-northeast-2"
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    S3_BUCKET_NAME: str = ""
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),
         env_file_encoding="utf-8",

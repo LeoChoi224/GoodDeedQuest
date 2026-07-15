@@ -2,11 +2,11 @@
 from datetime import datetime
 from typing import List, Optional
 from sqlalchemy import (
-    BigInteger, Column, DateTime, ForeignKey, Integer, String, func
+    BigInteger, DateTime, ForeignKey, Integer, String, func
 )
 # PostgreSQL 전용 JSONB 및 ENUM 사용을 위한 임포트
 from sqlalchemy.dialects.postgresql import JSONB, ENUM as PGEnum
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.common.database import Base
 

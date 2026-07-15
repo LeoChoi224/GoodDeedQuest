@@ -17,13 +17,12 @@ TODO: ForeignKey('User.user_id') → 팀원 User 모델 확정 후 snake_case �
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 
-import boto3
 import httpx
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import NoResultFound  # .one() 조회 시 결과가 없으면 발생하는 예외 (라우터에서 404로 변환 예정)
 
 from app.shortform.models import ShortForm, BackgroundMusic, ShortFormStatus
 from app.shortform.schemas import (
@@ -34,63 +33,14 @@ from app.shortform.schemas import (
     ShortFormStatusRead,
     CaptionItem,
 )
-from app.core.config import settings  # AWS_REGION, S3_BUCKET_NAME, AI_SERVER_URL 등 환경설정
+
+from app.common.config import settings  # DATABASE_URL, AI_SERVICE_URL 등 환경설정 (.env 기반)
+from app.common.s3_client import (
+    generate_upload_presigned_url,
+    generate_download_presigned_url,
+)  # S3 presigned URL 발급 함수 (공용 모듈로 분리됨 - 다른 도메인도 재사용)
+
 from app.shortform.tasks import render_shortform_task  # Celery task, tasks.py에 정의 가정
-
-
-# ---------------------------------------------------------------------------
-# S3 클라이언트 & Presigned URL
-#
-# Presigned URL: S3 접근 권한을 임시로 부여하는 서명된 URL.
-# 서버가 파일을 직접 주고받지 않고, 클라이언트(RN 앱)가 이 URL로 S3에
-# 직접 업로드/다운로드하게 해서 서버 부하를 줄이는 방식.
-# ---------------------------------------------------------------------------
-
-# boto3 S3 클라이언트는 모듈 로드 시 한 번만 생성해서 재사용 (매 요청마다 새로 만들지 않음)
-_s3_client = boto3.client(
-    "s3",
-    region_name=settings.AWS_REGION,
-)
-
-PRESIGNED_UPLOAD_EXPIRE_SECONDS = 300      # 5분 - 업로드용은 짧게 (클라이언트가 바로 씀)
-PRESIGNED_DOWNLOAD_EXPIRE_SECONDS = 3600   # 1시간 - 조회용은 폴링/재생 도중 만료되지 않도록 여유
-
-
-def generate_upload_presigned_url(s3_key: str, content_type: str) -> str:
-    """
-    클라이언트가 직접 S3에 파일을 업로드할 수 있도록 presigned PUT URL 발급.
-    (배경음악 업로드, 최종 영상 업로드 등에 사용)
-
-    Args:
-        s3_key: 업로드될 S3 객체 키 (예: "shortform/{shortform_id}/output.mp4")
-        content_type: 업로드할 파일의 MIME 타입 (예: "video/mp4")
-    """
-    return _s3_client.generate_presigned_url(
-        ClientMethod="put_object",
-        Params={
-            "Bucket": settings.S3_BUCKET_NAME,
-            "Key": s3_key,
-            "ContentType": content_type,
-        },
-        ExpiresIn=PRESIGNED_UPLOAD_EXPIRE_SECONDS,
-    )
-
-
-def generate_download_presigned_url(s3_key: str) -> str:
-    """
-    저장된 s3_key를 실제 조회 가능한 presigned GET URL로 변환.
-    ShortForm.final_video_s3_key, BackgroundMusic.s3_key 등 DB에는 key만 저장되어 있으므로,
-    API 응답(schemas의 video_url, preview_url)으로 내려주기 직전에 이 함수로 변환한다.
-    """
-    return _s3_client.generate_presigned_url(
-        ClientMethod="get_object",
-        Params={
-            "Bucket": settings.S3_BUCKET_NAME,
-            "Key": s3_key,
-        },
-        ExpiresIn=PRESIGNED_DOWNLOAD_EXPIRE_SECONDS,
-    )
-
 
 # ---------------------------------------------------------------------------
 # BGM 자동 매칭 (RAG) - 자동 생성 경로 전용
@@ -110,9 +60,10 @@ def _resolve_bgm_id_for_auto_mode(db: Session, request: ShortFormCreateRequest) 
     """
     # TODO: RAG Agent 연동 (무드 벡터 검색 → 최적 BGM 매칭)으로 아래 쿼리 대체
     # 임시 fallback: 가장 최근에 등록된 BGM 하나를 그냥 가져옴 (실제 매칭 로직 아님)
+    # ⚠️ 주의: 지금은 사용자가 선택한 이미지 무드와 무관하게 항상 같은 결과가 나옴
     matched_bgm = (
         db.query(BackgroundMusic)
-        .order_by(BackgroundMusic.created_at.desc())
+        .order_by(BackgroundMusic.created_at.desc())  # 최신 등록순 정렬 → 첫 번째가 가장 최근 것
         .first()
     )
     if matched_bgm is None:
@@ -142,16 +93,17 @@ def create_shortform(
     if bgm_id is None:
         # 사용자가 BGM을 직접 고르지 않은 "자동 생성" 경로 → RAG 매칭으로 채움
         bgm_id = _resolve_bgm_id_for_auto_mode(db, request)
+    # bgm_id가 None이 아니면(=사용자가 수동으로 골랐으면) 그대로 사용, 별도 검증 없음
 
     shortform = ShortForm(
         shortform_id=str(uuid.uuid4()),  # PK는 서버에서 UUID로 미리 생성 (오토인크리먼트 X)
         user_id=user_id,
         bgm_id=bgm_id,
         status=ShortFormStatus.PENDING,  # 생성 직후엔 항상 PENDING, 아직 아무 작업도 시작 안 함
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
-    db.add(shortform)
-    db.commit()
+    db.add(shortform)     # 세션에 등록 (아직 DB에 반영 안 됨)
+    db.commit()            # 실제 DB에 INSERT 실행
     db.refresh(shortform)  # commit 이후 DB가 채워준 값(예: 트리거로 생성되는 컬럼)을 다시 읽어옴
     return shortform
 
@@ -176,7 +128,8 @@ def update_shortform_status(
 
     Args:
         final_video_s3_key: COMPLETED로 바뀔 때만 값을 넘겨서 함께 저장
-        error_message: FAILED로 바뀔 때 실패 사유를 남기기 위함 (프론트 에러 표시용)
+        error_message: FAILED로 바뀔 때만 저장되며, 그 외 상태로 전이 시
+            이전에 남아있던 실패 메시지는 자동으로 초기화된다.
     """
     shortform = (
         db.query(ShortForm)
@@ -184,11 +137,21 @@ def update_shortform_status(
         .one()  # 없으면 예외 발생 (호출부에서 shortform_id 존재를 이미 보장했다는 전제)
     )
     shortform.status = status
+
+    # final_video_s3_key는 COMPLETED 전이 시에만 넘어오므로, 그 외 호출에서는
+    # None으로 넘어와 기존 값을 건드리지 않고 그대로 둠
     if final_video_s3_key is not None:
         shortform.final_video_s3_key = final_video_s3_key
-    if error_message is not None:
+
+    # ⚠️ 이 부분이 핵심: error_message는 파라미터 유무가 아니라 "지금 바뀌는 상태가
+    # FAILED인지 아닌지"로 판단한다. 그래야 재시도가 성공(COMPLETED)했을 때
+    # 이전 실패 시도에서 남아있던 에러 메시지가 그대로 남아있는 버그를 막을 수 있음.
+    if status == ShortFormStatus.FAILED:
         shortform.error_message = error_message
-    shortform.updated_at = datetime.utcnow()
+    else:
+        shortform.error_message = None  # FAILED가 아니면 항상 초기화
+
+    shortform.updated_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(shortform)
@@ -209,6 +172,8 @@ def get_shortform_status(db: Session, shortform_id: str) -> ShortFormStatusRead:
         .one()
     )
     video_url = None
+    # COMPLETED이면서 실제 s3_key가 저장되어 있을 때만 presigned URL 발급
+    # (COMPLETED인데 s3_key가 없는 비정상 케이스도 방어)
     if shortform.status == ShortFormStatus.COMPLETED and shortform.final_video_s3_key:
         video_url = generate_download_presigned_url(shortform.final_video_s3_key)
 
@@ -216,7 +181,7 @@ def get_shortform_status(db: Session, shortform_id: str) -> ShortFormStatusRead:
         shortform_id=shortform.shortform_id,
         status=shortform.status,
         video_url=video_url,
-        error_message=shortform.error_message,
+        error_message=shortform.error_message,  # FAILED가 아니면 항상 None (위 update 로직 덕분)
     )
 
 
@@ -238,6 +203,8 @@ def queue_shortform_generation(
     동시에 상태를 GENERATING으로 바꿔서, 사용자가 중복으로 "생성하기"를
     다시 누르지 못하게 프론트에서 막을 수 있는 신호를 준다.
     """
+    # 큐잉과 동시에 GENERATING으로 바꿔서, 프론트가 폴링(get_shortform_status)했을 때
+    # 즉시 "생성 중" 상태를 확인하고 중복 클릭을 막을 수 있게 함
     update_shortform_status(db, shortform_id, ShortFormStatus.GENERATING)
 
     # .delay()는 Celery 태스크를 비동기 큐에 등록만 하고 즉시 리턴한다.
@@ -245,7 +212,7 @@ def queue_shortform_generation(
     render_shortform_task.delay(
         shortform_id=shortform_id,
         media_keys=media_keys,
-        captions=[c.model_dump() for c in captions],  # Pydantic 모델 → dict (Celery 직렬화용)
+        captions=[c.model_dump() for c in captions],  # Pydantic 모델 → dict (Celery 직렬화용, JSON으로 큐에 전달되기 때문)
     )
 
 
@@ -281,12 +248,14 @@ def generate_ai_script(
     팝업 상태로 들고 있다가 사용자가 직접 수정하는 흐름)
     """
     # shortform이 실제로 존재하는지 먼저 확인 (없는 ID로 AI 서버 호출 낭비 방지)
+    # 존재하지 않으면 .one()이 NoResultFound를 던지고, 라우터에서 404로 변환될 예정
     shortform = (
         db.query(ShortForm)
         .filter(ShortForm.shortform_id == shortform_id)
         .one()
     )
 
+    # AI 서버가 대본을 생성하는 데 필요한 최소 정보만 payload로 구성
     payload = {
         "shortform_id": shortform_id,
         "media_keys": request.media_keys,
@@ -294,8 +263,10 @@ def generate_ai_script(
     }
 
     try:
+        # 동기(sync) 방식 호출. 만약 라우터가 async def라면 httpx.AsyncClient로
+        # 바꿔서 이벤트 루프를 블로킹하지 않도록 검토 필요 (현재는 라우터 미구현 상태)
         response = httpx.post(
-            f"{settings.AI_SERVER_URL}/generate-script",
+            f"{settings.AI_SERVICE_URL}/generate-script",
             json=payload,
             timeout=AI_SCRIPT_GENERATE_TIMEOUT_SECONDS,
         )
@@ -310,10 +281,11 @@ def generate_ai_script(
             ShortFormStatus.FAILED,
             error_message=f"AI 대본 생성 서버 호출 실패: {exc}",
         )
-        raise  # 라우터에서 적절한 HTTP 에러 응답으로 변환하도록 다시 던짐
+        raise  # 라우터에서 적절한 HTTP 에러 응답으로 변환하도록 다시 던짐 (여기서 삼키지 않음)
 
     ai_result = response.json()
     # AI 서버 응답의 각 캡션 dict를 CaptionItem 객체로 변환 (타입 검증 겸함)
+    # 만약 AI 서버 응답 형식이 스키마와 안 맞으면 여기서 pydantic ValidationError 발생
     captions = [
         CaptionItem(**caption_raw) for caption_raw in ai_result.get("captions", [])
     ]
@@ -335,10 +307,11 @@ def validate_edited_captions(request: ScriptUpdateRequest) -> ScriptGenerateResp
     용도로 사용한다. 실제 최종 반영은 사용자가 "생성하기"를 눌러
     queue_shortform_generation()이 호출될 때 한 번만 일어난다.
     """
+    # DB 조회 없음, Session 파라미터도 없음 → 완전히 stateless한 순수 검증 함수
     _validate_captions(request.captions)
     return ScriptGenerateResponse(
         shortform_id=request.shortform_id,
-        captions=request.captions,
+        captions=request.captions,  # 입력받은 캡션을 그대로 되돌려줌 (검증 통과했다는 의미)
     )
 
 
