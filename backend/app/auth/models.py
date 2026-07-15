@@ -9,7 +9,7 @@ from sqlalchemy import (
     BigInteger, Integer, String, Boolean, Date, TIMESTAMP,
     Numeric, JSON, UniqueConstraint, ForeignKey, func, Enum as SqlEnum,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.common.database import Base
 from backend.app.common.enums import Difficulty      # 공용 enum (auth·quest 공유)
@@ -71,6 +71,7 @@ class User(Base):
         UniqueConstraint("email", name="uq_user_email"),
         UniqueConstraint("provider", "provider_user_id", name="uq_user_provider"),
     )
+    user_badges = relationship("UserBadge", back_populates="user")
 
 class PointTransaction(Base):
     __tablename__ = "pointTransaction"
