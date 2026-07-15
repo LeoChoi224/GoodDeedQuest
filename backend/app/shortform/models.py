@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 from sqlalchemy import (
-    BigInteger, Column, DateTime, ForeignKey, Integer, String, func
+    BigInteger, Column, TIMESTAMP, ForeignKey, Integer, String, func
 )
 # PostgreSQL 전용 JSONB 및 ENUM 사용을 위한 임포트
 from sqlalchemy.dialects.postgresql import JSONB, ENUM as PGEnum
@@ -29,9 +29,9 @@ class BackgroundMusic(Base):
     source_info: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     # DB 서버 타임스탬프 기준 자동 생성/수정
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
+        TIMESTAMP, 
         server_default=func.now(), 
         onupdate=func.now(), 
         nullable=False
@@ -74,9 +74,9 @@ class ShortForm(Base):
         server_default=ShortFormStatus.PENDING.value
     )
     
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
+        TIMESTAMP, 
         server_default=func.now(), 
         onupdate=func.now(), 
         nullable=False

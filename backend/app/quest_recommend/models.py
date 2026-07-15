@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, BigInteger, String, Text, DateTime, ForeignKey, JSON, Float, func
+from sqlalchemy import Integer, BigInteger, String, Text, TIMESTAMP, ForeignKey, JSON, Float, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from typing import Optional, List
@@ -10,11 +10,9 @@ class AiRecommendationLog(Base):
 
     ai_log_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     
-    # TODO User 테이블 개발 완료 시 아래 주석을 풀고 아래의 단순 user_id는 지우거나 주석 처리하시면 됩니다.
-    # user_id: Mapped[int] = mapped_column(
-    #     BigInteger, ForeignKey("user.user_id", ondelete="CASCADE"), nullable=False, comment="사용자 ID"
-    # )
-    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, comment="사용자 ID")
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.user_id", ondelete="CASCADE"), nullable=False, comment="사용자 ID"
+    )
     
     # 추천 요청 당시 상황 (관심사, 위치, 요일, 날씨, 레벨 등) - 필수값
     request_context: Mapped[dict] = mapped_column(
@@ -27,10 +25,10 @@ class AiRecommendationLog(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), comment="로그 생성 일시"
+        TIMESTAMP, server_default=func.now(), comment="로그 생성 일시"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, 
+        TIMESTAMP, 
         server_default=func.now(), 
         onupdate=func.now(), 
         nullable=False, 
@@ -42,8 +40,7 @@ class AiRecommendationLog(Base):
         "AiRecommendation", back_populates="log", cascade="all, delete-orphan"
     )
     
-    # TODO User 테이블 연동 시 관계 매핑 활성화
-    # user: Mapped["User"] = relationship("User", back_populates="ai_recommendation_logs")
+    user: Mapped["User"] = relationship("User")
 
     def __repr__(self):
         return f"<AiRecommendationLog ai_log_id={self.ai_log_id} user_id={self.user_id} created_at={self.created_at}>"
@@ -63,31 +60,25 @@ class AiRecommendation(Base):
         comment="추천 로그 ID"
     )
     
-    # TODO Quest 테이블 개발 완료 시 아래 주석을 풀고 아래의 단순 quest_id는 지우거나 주석 처리하시면 됩니다.
-    # quest_id: Mapped[Optional[int]] = mapped_column(
-    #     BigInteger, ForeignKey("quest.quest_id", ondelete="SET NULL"), nullable=True, comment="Quest DB 연동 ID"
-    # )
-    quest_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="Quest DB 연동 ID")
+    quest_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("quest.quest_id", ondelete="SET NULL"), nullable=True, comment="Quest DB 연동 ID"
+    )
     
     # 기획에 없던 추천 시점의 내용 백업 및 AI 즉석 생성을 위한 텍스트 필드 추가
     title: Mapped[str] = mapped_column(String(200), nullable=False, comment="추천 당시의 퀘스트 제목")
     description: Mapped[str] = mapped_column(Text, nullable=False, comment="추천 당시의 퀘스트 상세 설명")
-    recommendation_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="추천 타입 (VOLUNTEER / DAILY_GOOD_DEED)")
+    recommendation_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="추천 타입 (VOLUNTEER / GOOD_DEED)")
     
-    # 추천 점수 (유사도 매칭 점수 등, Nullable)
     score: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="추천 유사도 점수")
     
-    # 추천 사유
     reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="AI 추천 사유")
-    
-    # 추천 순위 (1~5등)
     rank: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="추천 순위")
     
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), comment="생성 일시"
+        TIMESTAMP, server_default=func.now(), comment="생성 일시"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, 
+        TIMESTAMP, 
         server_default=func.now(), 
         onupdate=func.now(), 
         nullable=False, 
@@ -97,8 +88,8 @@ class AiRecommendation(Base):
     # 관계 설정
     log: Mapped["AiRecommendationLog"] = relationship("AiRecommendationLog", back_populates="recommendations")
     
-    # TODO Quest 테이블 연동 시 관계 매핑 활성화
-    # quest: Mapped[Optional["Quest"]] = relationship("Quest", back_populates="ai_recommendations")
+    quest: Mapped[Optional["Quest"]] = relationship("Quest")
+
 
     def __repr__(self):
         return f"<AiRecommendation ai_rec_id={self.ai_rec_id} rank={self.rank} score={self.score}>"

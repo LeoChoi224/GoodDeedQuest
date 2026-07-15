@@ -13,7 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.common.database import Base
 from backend.app.common.enums import Difficulty      # 공용 enum (auth·quest 공유)
-from backend.app.auth.enums import UserRole           # auth 전용 enum
+from backend.app.auth.enums import UserRole, TransactionType           # auth 전용 enum
 
 
 class User(Base):
@@ -63,7 +63,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     # [개선] onupdate — 행이 바뀌면 updated_at 자동 갱신
     updated_at: Mapped[Optional[datetime]] = mapped_column(
-        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
     # [개선] UNIQUE 추가 (중복가입 방지). OAuth는 이메일이 없을 수도 있어 복합키가 핵심
@@ -71,3 +71,30 @@ class User(Base):
         UniqueConstraint("email", name="uq_user_email"),
         UniqueConstraint("provider", "provider_user_id", name="uq_user_provider"),
     )
+
+class PointTransaction(Base):
+    __tablename__ = "pointTransaction"
+
+    transaction_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+
+    # → User (만든 테이블이라 FK 연결)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("User.user_id"), nullable=False)
+
+    # [개선] NOT NULL → nullable. 적립/사용은 둘 중 하나만 채워짐
+    #   EARN(적립): submission_id 만  /  SPEND(사용): purchase_id 만
+
+    # → Purchase (아직 안 만든 테이블이라 FK는 주석)
+    purchase_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    # purchase_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("Purchase.purchase_id"), nullable=True)
+
+    # → QuestSubmission (만든 테이블이라 FK 연결) 아직 비활성
+    # submission_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("QuestSubmission.submission_id"), nullable=True)
+
+    amount: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # [enum] 적립/사용 (서버가 정함)
+    type: Mapped[Optional[TransactionType]] = mapped_column(SqlEnum(TransactionType, validate_strings=True), nullable=True)
+
+    balance_after: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 거래 후 잔액
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
+
