@@ -1,3 +1,4 @@
+# LangGraph 실행 시작점
 from typing import List
 
 class TeamRecommendationAgent:
@@ -8,6 +9,7 @@ class TeamRecommendationAgent:
     def recommend_team_challenges(self, user_interests: List[str], user_location: str) -> List[dict]:
         """사용자의 흥미 도메인과 지리적 위치 정보를 받아 적합한 협동 챌린지 팀을 매칭합니다."""
         # 임시 추천 알고리즘 뼈대
+        # DB 생성 후: 사용자 프로필 및 후보 DB 기반으로 변경
         suggested_teams = []
         
         if "환경" in user_interests:
