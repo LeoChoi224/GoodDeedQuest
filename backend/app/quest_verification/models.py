@@ -16,7 +16,7 @@ from backend.app.quest_verification.enums import MediaType, SubmissionStatus
 
 
 class QuestSubmission(Base):
-    __tablename__ = "questSubmission"
+    __tablename__ = "questsubmission"
 
     submission_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
