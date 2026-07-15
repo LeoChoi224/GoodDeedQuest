@@ -16,12 +16,12 @@ class Badge(Base):
 
     badge_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    icon_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    badge_category: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    description: Mapped[str] = mapped_column(String(255), nullable=False)
+    icon_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    badge_category: Mapped[str] = mapped_column(String(30), nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=True, server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True, server_default=func.now(), onupdate=func.now()
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
     user_badges = relationship("UserBadge", back_populates="badge")
@@ -34,10 +34,10 @@ class UserBadge(Base):
     user_badge_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("user.user_id"), nullable=False)
     badge_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("badge.badge_id"), nullable=False)
-    is_equipped: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, server_default="false")
-    awarded_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True, server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True, server_default=func.now(), onupdate=func.now()
+    is_equipped: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    awarded_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
     badge = relationship("Badge", back_populates="user_badges")
