@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, BigInteger, String, Text, DateTime, ForeignKey, JSON, Float, func
+from sqlalchemy import Integer, BigInteger, String, Text, TIMESTAMP, ForeignKey, JSON, Float, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from typing import Optional, List
@@ -25,10 +25,10 @@ class AiRecommendationLog(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), comment="로그 생성 일시"
+        TIMESTAMP, server_default=func.now(), comment="로그 생성 일시"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, 
+        TIMESTAMP, 
         server_default=func.now(), 
         onupdate=func.now(), 
         nullable=False, 
@@ -75,10 +75,10 @@ class AiRecommendation(Base):
     rank: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="추천 순위")
     
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), comment="생성 일시"
+        TIMESTAMP, server_default=func.now(), comment="생성 일시"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, 
+        TIMESTAMP, 
         server_default=func.now(), 
         onupdate=func.now(), 
         nullable=False, 
