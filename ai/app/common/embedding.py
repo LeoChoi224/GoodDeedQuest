@@ -8,6 +8,9 @@ from ai.app.common.llm import get_openai_client
 logger = logging.getLogger(__name__)
 
 def _embed_openai(texts: List[str], model: str) -> List[List[float]]:
+    """
+    OpenAI API를 호출하여 입력받은 텍스트 리스트를 임베딩 벡터 리스트로 변환합니다.
+    """
     client = get_openai_client()
     if not client:
         raise ValueError("OpenAI API key is not configured.")
@@ -19,6 +22,9 @@ def _embed_openai(texts: List[str], model: str) -> List[List[float]]:
     return [data.embedding for data in response.data]
 
 def _embed_gemini(texts: List[str], model: str) -> List[List[float]]:
+    """
+    Google Gemini API를 호출하여 입력받은 텍스트 리스트를 임베딩 벡터 리스트로 변환합니다.
+    """
     if not settings.GEMINI_API_KEY:
         raise ValueError("Gemini API key is not configured.")
     
@@ -102,7 +108,7 @@ if __name__ == "__main__":
     import sys
     logging.basicConfig(level=logging.INFO)
     
-    test_text = "Good Deed Quest를 통해 지구 환경을 보호합시다!"
+    test_text = "정운아~ 정운아~ 컴퓨터실에서 뭐 먹지 말랬지!"
     print(f"테스트 문장: {test_text}")
     
     # 1. 기본 프로바이더 테스트
