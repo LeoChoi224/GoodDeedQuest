@@ -63,7 +63,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     # [개선] onupdate — 행이 바뀌면 updated_at 자동 갱신
     updated_at: Mapped[Optional[datetime]] = mapped_column(
-        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
     # [개선] UNIQUE 추가 (중복가입 방지). OAuth는 이메일이 없을 수도 있어 복합키가 핵심
