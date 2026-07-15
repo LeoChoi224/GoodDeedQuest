@@ -11,10 +11,6 @@ from backend.app.common.database import Base
 # [추가] Alembic이 감지할 수 있도록 임포트
 from backend.app.admin.models import Report
 from backend.app.auth.models import User
-from backend.app.admin.models import Report
-from backend.app.challenge.models import TeamInvite,TeamMember,Team
-from backend.app.community.models import UserActivityLog,FeedHiddenPreference,Comment,PostLike,CommunityPost
-
 from backend.app.challenge.models import TeamInvite,TeamMember,Team
 from backend.app.community.models import UserActivityLog,FeedHiddenPreference,Comment,PostLike,CommunityPost
 from backend.app.quest.models import Quest, Category

@@ -16,7 +16,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from backend.app.common.database import Base
-from sqlalchemy import text
 
 
 class CommunityPost(Base):
@@ -48,7 +47,7 @@ class CommunityPost(Base):
 
     caption: Mapped[str | None] = mapped_column(Text)
 
-    is_activate: Mapped[bool] = mapped_column(
+    is_active: Mapped[bool] = mapped_column(
     Boolean,
     nullable=False,
     server_default="true",
@@ -213,5 +212,6 @@ class UserActivityLog(Base):
     access_date: Mapped[date] = mapped_column(
         Date,
         nullable=False,
+        server_default=func.current_date(),
         index=True,
     )

@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Identity,
     Text,
+    UniqueConstraint,
     func,
 )
 
@@ -22,6 +23,14 @@ class Report(Base):
     """커뮤니티 게시글 신고 및 관리자 검토 기록."""
 
     __tablename__ = "report"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "reporter_id",
+            "post_id",
+            name="uq_report_reporter_post",
+        ),
+    )
 
     report_id: Mapped[int] = mapped_column(
         BigInteger,
