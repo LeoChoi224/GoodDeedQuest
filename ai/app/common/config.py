@@ -12,6 +12,11 @@ class AISettings(BaseSettings):
     DEFAULT_LLM_MODEL: str = os.getenv("DEFAULT_LLM_MODEL", "gpt-4o")
     DEFAULT_VISION_MODEL: str = os.getenv("DEFAULT_VISION_MODEL", "gemini-1.5-flash")
 
+    # Embedding configs
+    DEFAULT_EMBEDDING_PROVIDER: str = os.getenv("DEFAULT_EMBEDDING_PROVIDER", "openai")
+    DEFAULT_OPENAI_EMBEDDING_MODEL: str = os.getenv("DEFAULT_OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    DEFAULT_GEMINI_EMBEDDING_MODEL: str = os.getenv("DEFAULT_GEMINI_EMBEDDING_MODEL", "models/text-embedding-004")
+
     class Config:
         case_sensitive = True
 
