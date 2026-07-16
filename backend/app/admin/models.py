@@ -62,10 +62,10 @@ class Report(Base):
         index=True,
     )
 
-    post_id: Mapped[int] = mapped_column(
+    post_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        ForeignKey("community_post.post_id", ondelete="CASCADE"), # ondelete 부모 데이터가 삭제되면 연결된 자식 데이터도 같이 삭제
-        nullable=False,
+        ForeignKey("community_post.post_id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 
