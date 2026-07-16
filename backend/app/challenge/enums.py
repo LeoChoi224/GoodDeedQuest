@@ -7,8 +7,6 @@ Enum은 정해진 값만 저장하도록 제한하는 자료형이다.
 Team 관련 Enum은 모두 이 파일에서 관리한다.
 """
 
-from __future__ import annotations
-
 import enum
 
 

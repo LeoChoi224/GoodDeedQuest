@@ -10,13 +10,16 @@ from backend.app.common.database import Base
 
 # [추가] Alembic이 감지할 수 있도록 임포트
 from backend.app.admin.models import Report
-from backend.app.auth.models import User
-from backend.app.challenge.models import TeamInvite,TeamMember,Team
-from backend.app.community.models import UserActivityLog,FeedHiddenPreference,Comment,PostLike,CommunityPost
-from backend.app.quest.models import Quest, Category
+from backend.app.auth.models import User, PointTransaction
+from backend.app.badge.models import Badge, UserBadge
+from backend.app.challenge.models import TeamInvite, TeamMember, Team
+from backend.app.community.models import UserActivityLog, FeedHiddenPreference, Comment, PostLike, CommunityPost
+from backend.app.map.models import VolunteerCenter, Region, City, Competition, CompetitionParticipant, CompetitionContribution
+from backend.app.quest.models import Category, Quest
 from backend.app.quest_recommend.models import AiRecommendationLog, AiRecommendation
+from backend.app.quest_verification.models import QuestSubmission
 from backend.app.shop.models import Item, Purchase
-from backend.app.shortform import models as shortform_models  # noqa: F401
+from backend.app.shortform.models import BackgroundMusic, ShortForm
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

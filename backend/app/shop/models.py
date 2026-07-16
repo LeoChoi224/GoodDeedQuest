@@ -49,7 +49,7 @@ class Purchase(Base):
     status: Mapped[PurchaseStatus] = mapped_column(
         SQLEnum(PurchaseStatus, name="purchase_status_enum"),
         nullable=False, 
-        efault=PurchaseStatus.COMPLETED,
+        default=PurchaseStatus.COMPLETED,
         comment="구매 진행 상태 (COMPLETED / REFUNDED)"
     )
 
