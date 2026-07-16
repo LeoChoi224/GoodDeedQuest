@@ -2,7 +2,7 @@ import logging
 from typing import List
 
 from langchain_openai import OpenAIEmbeddings
-from langchain_google_genai import GoogleGenAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from ai.app.common.config import settings
 
@@ -30,7 +30,7 @@ def _embed_gemini(texts: List[str], model: str) -> List[List[float]]:
     if not settings.GEMINI_API_KEY:
         raise ValueError("Gemini API key is not configured.")
     
-    embeddings_model = GoogleGenAIEmbeddings(
+    embeddings_model = GoogleGenerativeAIEmbeddings(
         google_api_key=settings.GEMINI_API_KEY,
         model=model
     )
