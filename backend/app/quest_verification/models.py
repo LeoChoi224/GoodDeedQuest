@@ -16,19 +16,19 @@ from backend.app.quest_verification.enums import MediaType, SubmissionStatus
 
 
 class QuestSubmission(Base):
-    __tablename__ = "questsubmission"
+    __tablename__ = "quest_submission"
 
     submission_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     # → User (만든 테이블이라 FK 연결)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("User.user_id"), nullable=False)  # 제출자
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("user.user_id"), nullable=False)  # 제출자
 
     # → Quest (아직 안 만든 테이블이라 FK는 주석)
     quest_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # quest_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("Quest.quest_id"), nullable=False)
 
     # → User (만든 테이블이라 FK 연결). 검토자, 없을 수 있어 nullable
-    reviewed_by: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("User.user_id"), nullable=True)
+    reviewed_by: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("user.user_id"), nullable=True)
 
     attempt_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)   # 재시도 추적
     quest_explain: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)

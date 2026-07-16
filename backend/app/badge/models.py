@@ -7,7 +7,7 @@ from typing import Optional
 from sqlalchemy import BigInteger, String, Boolean, TIMESTAMP, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.common.database import Base
+from backend.app.common.database import Base
 
 
 class Badge(Base):

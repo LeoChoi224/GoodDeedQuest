@@ -74,12 +74,12 @@ class User(Base):
     user_badges = relationship("UserBadge", back_populates="user")
 
 class PointTransaction(Base):
-    __tablename__ = "pointTransaction"
+    __tablename__ = "point_transaction"
 
     transaction_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     # → User (만든 테이블이라 FK 연결)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("User.user_id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("user.user_id"), nullable=False)
 
     # [개선] NOT NULL → nullable. 적립/사용은 둘 중 하나만 채워짐
     #   EARN(적립): submission_id 만  /  SPEND(사용): purchase_id 만
