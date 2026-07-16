@@ -66,7 +66,7 @@ class ReportResponse(BaseModel):
     report_id: int
     reporter_id: int
     reviewed_by: int | None
-    post_id: int
+    post_id: int | None
     reason: str
     status: UserReportStatus
     created_at: datetime
