@@ -117,6 +117,14 @@ class TeamInvite(Base):
 
     __tablename__ = "team_invite"
 
+    __table_args__ = (
+        UniqueConstraint(
+            "team_id",
+            "user_id",
+            name="uq_team_invite_team_user",
+        ),
+    )
+
     invite_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
@@ -125,7 +133,7 @@ class TeamInvite(Base):
 
     team_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("team.team_id"),
+        ForeignKey("team.team_id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -178,7 +186,7 @@ class TeamMember(Base):
 
     team_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("team.team_id"),
+        ForeignKey("team.team_id", ondelete="CASCADE"),
         nullable=False,
     )
 
