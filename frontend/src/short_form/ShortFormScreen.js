@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, ScrollView, TouchableOpacity, ActivityIndicator
 import api from '../common/api';
 import { Video, Film } from 'lucide-react-native';
 
-export default function ShortsScreen() {
+export default function ShortFormScreen() {
   const [loading, setLoading] = useState(false);
   const [questId, setQuestId] = useState(1);
   const [msg, setMsg] = useState('');
