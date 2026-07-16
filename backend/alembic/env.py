@@ -19,7 +19,7 @@ from backend.app.quest.models import Category, Quest
 from backend.app.quest_recommend.models import AiRecommendationLog, AiRecommendation
 from backend.app.quest_verification.models import QuestSubmission
 from backend.app.shop.models import Item, Purchase
-from backend.app.shortform.models import BackgroundMusic, ShortForm
+from backend.app.short_form.models import BackgroundMusic, ShortForm
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

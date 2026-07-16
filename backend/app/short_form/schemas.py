@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-from backend.app.shortform.enums import ShortFormStatus
+from backend.app.short_form.enums import ShortFormStatus
 
 # ─────────────────────────────────────────────
 # 공통 Base

@@ -1,5 +1,5 @@
 """
-backend/app/shortform/service.py
+backend/app/short_form/service.py
 
 숏폼 생성 도메인 서비스 레이어.
 라우터(엔드포인트)와 models/schemas 사이에서 실제 "비즈니스 로직"을 담당하는 계층.
@@ -13,10 +13,9 @@ backend/app/shortform/service.py
 - ShortForm.status 직접 DB 업데이트
 - AI 대본 생성 팝업 플로우: 대본 생성 / 수정 검증
 
-TODO: ForeignKey('User.user_id') → 팀원 User 모델 확정 후 snake_case 테이블명으로 정정
+TODO: ForeignKey('user.user_id') → 팀원 User 모델 확정 후 snake_case 테이블명으로 정정
 """
 
-import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -24,8 +23,8 @@ import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import NoResultFound  # .one() 조회 시 결과가 없으면 발생하는 예외 (라우터에서 404로 변환 예정)
 
-from app.shortform.models import ShortForm, BackgroundMusic, ShortFormStatus
-from app.shortform.schemas import (
+from app.short_form.models import ShortForm, BackgroundMusic, ShortFormStatus
+from app.short_form.schemas import (
     ShortFormCreateRequest,
     ScriptGenerateRequest,
     ScriptGenerateResponse,
@@ -40,7 +39,9 @@ from app.common.s3_client import (
     generate_download_presigned_url,
 )  # S3 presigned URL 발급 함수 (공용 모듈로 분리됨 - 다른 도메인도 재사용)
 
-from app.shortform.tasks import render_shortform_task  # Celery task, tasks.py에 정의 가정
+from app.short_form.tasks import render_shortform_task  # Celery task, tasks.py에 정의 가정
+
+# ⭐ 수정: uuid import 제거 (shorts_id는 autoincrement라 더 이상 수동 생성 안 함)
 
 # ---------------------------------------------------------------------------
 # BGM 자동 매칭 (RAG) - 자동 생성 경로 전용
@@ -95,8 +96,8 @@ def create_shortform(
         bgm_id = _resolve_bgm_id_for_auto_mode(db, request)
     # bgm_id가 None이 아니면(=사용자가 수동으로 골랐으면) 그대로 사용, 별도 검증 없음
 
+    # ⭐ 수정: shorts_id는 models.py 기준 Integer autoincrement PK라 직접 값을 넣지 않음
     shortform = ShortForm(
-        shortform_id=str(uuid.uuid4()),  # PK는 서버에서 UUID로 미리 생성 (오토인크리먼트 X)
         user_id=user_id,
         bgm_id=bgm_id,
         status=ShortFormStatus.PENDING,  # 생성 직후엔 항상 PENDING, 아직 아무 작업도 시작 안 함
@@ -117,7 +118,7 @@ def create_shortform(
 
 def update_shortform_status(
     db: Session,
-    shortform_id: str,
+    shorts_id: int,  # ⭐ 수정: shortform_id(str) → shorts_id(int)
     status: ShortFormStatus,
     final_video_s3_key: Optional[str] = None,
     error_message: Optional[str] = None,
@@ -133,8 +134,8 @@ def update_shortform_status(
     """
     shortform = (
         db.query(ShortForm)
-        .filter(ShortForm.shortform_id == shortform_id)
-        .one()  # 없으면 예외 발생 (호출부에서 shortform_id 존재를 이미 보장했다는 전제)
+        .filter(ShortForm.shorts_id == shorts_id)  # ⭐ 수정: 컬럼명 shorts_id로 변경
+        .one()  # 없으면 예외 발생 (호출부에서 shorts_id 존재를 이미 보장했다는 전제)
     )
     shortform.status = status
 
@@ -158,7 +159,7 @@ def update_shortform_status(
     return shortform
 
 
-def get_shortform_status(db: Session, shortform_id: str) -> ShortFormStatusRead:
+def get_shortform_status(db: Session, shorts_id: int) -> ShortFormStatusRead:  # ⭐ 수정: shortform_id(str) → shorts_id(int)
     """
     프론트엔드가 생성 진행 상황을 확인하기 위해 주기적으로(폴링) 호출하는 조회 함수.
 
@@ -168,7 +169,7 @@ def get_shortform_status(db: Session, shortform_id: str) -> ShortFormStatusRead:
     """
     shortform = (
         db.query(ShortForm)
-        .filter(ShortForm.shortform_id == shortform_id)
+        .filter(ShortForm.shorts_id == shorts_id)  # ⭐ 수정: 컬럼명 shorts_id로 변경
         .one()
     )
     video_url = None
@@ -178,7 +179,7 @@ def get_shortform_status(db: Session, shortform_id: str) -> ShortFormStatusRead:
         video_url = generate_download_presigned_url(shortform.final_video_s3_key)
 
     return ShortFormStatusRead(
-        shortform_id=shortform.shortform_id,
+        shorts_id=shortform.shorts_id,  # ⭐ 수정: 필드명 shorts_id로 변경
         status=shortform.status,
         video_url=video_url,
         error_message=shortform.error_message,  # FAILED가 아니면 항상 None (위 update 로직 덕분)
@@ -191,7 +192,7 @@ def get_shortform_status(db: Session, shortform_id: str) -> ShortFormStatusRead:
 
 def queue_shortform_generation(
     db: Session,
-    shortform_id: str,
+    shorts_id: int,  # ⭐ 수정: shortform_id(str) → shorts_id(int)
     media_keys: list[str],
     captions: list[CaptionItem],
 ) -> None:
@@ -205,12 +206,12 @@ def queue_shortform_generation(
     """
     # 큐잉과 동시에 GENERATING으로 바꿔서, 프론트가 폴링(get_shortform_status)했을 때
     # 즉시 "생성 중" 상태를 확인하고 중복 클릭을 막을 수 있게 함
-    update_shortform_status(db, shortform_id, ShortFormStatus.GENERATING)
+    update_shortform_status(db, shorts_id, ShortFormStatus.GENERATING)  # ⭐ 수정: shorts_id로 변경
 
     # .delay()는 Celery 태스크를 비동기 큐에 등록만 하고 즉시 리턴한다.
     # 실제 렌더링(Vision/RAG/Story/Validation/FFmpeg Agent 체인)은 워커 프로세스에서 처리.
     render_shortform_task.delay(
-        shortform_id=shortform_id,
+        shorts_id=shorts_id,  # ⭐ 수정: shortform_id → shorts_id
         media_keys=media_keys,
         captions=[c.model_dump() for c in captions],  # Pydantic 모델 → dict (Celery 직렬화용, JSON으로 큐에 전달되기 때문)
     )
@@ -233,7 +234,7 @@ MAX_CAPTION_TEXT_LENGTH = 40    # 9:16 세로 화면에서 한 줄로 표시 가
 
 def generate_ai_script(
     db: Session,
-    shortform_id: str,
+    shorts_id: int,  # ⭐ 수정: shortform_id(str) → shorts_id(int)
     request: ScriptGenerateRequest,
 ) -> ScriptGenerateResponse:
     """
@@ -251,13 +252,13 @@ def generate_ai_script(
     # 존재하지 않으면 .one()이 NoResultFound를 던지고, 라우터에서 404로 변환될 예정
     shortform = (
         db.query(ShortForm)
-        .filter(ShortForm.shortform_id == shortform_id)
+        .filter(ShortForm.shorts_id == shorts_id)  # ⭐ 수정: 컬럼명 shorts_id로 변경
         .one()
     )
 
     # AI 서버가 대본을 생성하는 데 필요한 최소 정보만 payload로 구성
     payload = {
-        "shortform_id": shortform_id,
+        "shorts_id": shorts_id,  # ⭐ 수정: shortform_id → shorts_id
         "media_keys": request.media_keys,
         "mood_tag": request.mood_tag,
     }
@@ -277,7 +278,7 @@ def generate_ai_script(
         # "다시 시도" UI를 띄울 수 있게 한다.
         update_shortform_status(
             db,
-            shortform_id,
+            shorts_id,  # ⭐ 수정: shortform_id → shorts_id
             ShortFormStatus.FAILED,
             error_message=f"AI 대본 생성 서버 호출 실패: {exc}",
         )
@@ -292,7 +293,7 @@ def generate_ai_script(
     _validate_captions(captions)  # 개수/길이 제약 검증 (수정 검증 함수와 로직 공유)
 
     return ScriptGenerateResponse(
-        shortform_id=shortform_id,
+        shorts_id=shorts_id,  # ⭐ 수정: shortform_id → shorts_id
         captions=captions,
     )
 
@@ -310,7 +311,7 @@ def validate_edited_captions(request: ScriptUpdateRequest) -> ScriptGenerateResp
     # DB 조회 없음, Session 파라미터도 없음 → 완전히 stateless한 순수 검증 함수
     _validate_captions(request.captions)
     return ScriptGenerateResponse(
-        shortform_id=request.shortform_id,
+        shorts_id=request.shorts_id,  # ⭐ 수정: request.shortform_id → request.shorts_id
         captions=request.captions,  # 입력받은 캡션을 그대로 되돌려줌 (검증 통과했다는 의미)
     )
 
