@@ -78,7 +78,7 @@ class CompetitionContribution(Base):
     contribution_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, comment="기여 고유번호")
     competition_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("competition.competition_id"), nullable=False, comment="대회 FK")
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("user.user_id"), nullable=False, comment="기여자 user FK")
-    submission_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("questsubmission.submission_id"), nullable=False, comment="퀘스트 인증 제출 FK")
+    submission_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quest_submission.submission_id"), nullable=False, comment="퀘스트 인증 제출 FK")
     region_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("region.region_id"), nullable=False, index=True, comment="기여 지역 FK")
     points: Mapped[int] = mapped_column(Integer, nullable=True, comment="획득 포인트")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), comment="생성일시")
