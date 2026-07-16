@@ -1,59 +1,50 @@
-# Empty file - pending approval
 import logging
 from typing import List
-import google.generativeai as genai
+
+from langchain_openai import OpenAIEmbeddings
+from langchain_google_genai import GoogleGenAIEmbeddings
+
 from ai.app.common.config import settings
-from ai.app.common.llm import get_openai_client
 
 logger = logging.getLogger(__name__)
 
+
 def _embed_openai(texts: List[str], model: str) -> List[List[float]]:
     """
-    OpenAI API를 호출하여 입력받은 텍스트 리스트를 임베딩 벡터 리스트로 변환합니다.
+    LangChain의 호출하여 입력받은 텍스트 리스트를 임베딩 벡터 리스트로 변환합니다.
     """
-    client = get_openai_client()
-    if not client:
+    if not settings.OPENAI_API_KEY:
         raise ValueError("OpenAI API key is not configured.")
     
-    response = client.embeddings.create(
-        input=texts,
+    embeddings_model = OpenAIEmbeddings(
+        openai_api_key=settings.OPENAI_API_KEY,
         model=model
     )
-    return [data.embedding for data in response.data]
+    return embeddings_model.embed_documents(texts)
+
 
 def _embed_gemini(texts: List[str], model: str) -> List[List[float]]:
     """
-    Google Gemini API를 호출하여 입력받은 텍스트 리스트를 임베딩 벡터 리스트로 변환합니다.
+    LangChain의 GoogleGenAIEmbeddings를 호출하여 입력받은 텍스트 리스트를 임베딩 벡터 리스트로 변환합니다.
     """
     if not settings.GEMINI_API_KEY:
         raise ValueError("Gemini API key is not configured.")
     
-    # texts가 단일 String일 경우와 List일 경우 genai.embed_content는 알아서 처리함
-    result = genai.embed_content(
-        model=model,
-        contents=texts,
-        task_type="retrieval_document"
+    embeddings_model = GoogleGenAIEmbeddings(
+        google_api_key=settings.GEMINI_API_KEY,
+        model=model
     )
-    
-    # 결과 형태 파싱
-    embeddings = result.get("embedding", [])
-    if not embeddings:
-        raise ValueError("Failed to get embeddings from Gemini.")
-    
-    # 단일 문장인 경우 [[...]] 형태로 보정
-    if isinstance(embeddings[0], float):
-        return [embeddings]
-    return embeddings
+    return embeddings_model.embed_documents(texts)
+
 
 def get_embeddings(texts: List[str], provider: str = None, model: str = None) -> List[List[float]]:
     """
-    여러 텍스트의 Embedding Vector 목록을 가져옵니다.
-    
+    여러 텍스트의 임베딩 추출 (실패 시 반대 프로바이더로 자동 Fallback)
+
     Args:
         texts (List[str]): 임베딩할 텍스트 리스트
         provider (str, optional): 사용할 API 제공자 ("openai" 또는 "gemini")
-        model (str, optional): 사용할 임베딩 모델명
-        
+        model (str, optional): 사용할 임베딩 모델명    
     Returns:
         List[List[float]]: 각 텍스트에 매칭되는 임베딩 벡터 목록
     """
@@ -72,8 +63,9 @@ def get_embeddings(texts: List[str], provider: str = None, model: str = None) ->
             return _embed_gemini(texts, target_model)
         else:
             raise ValueError(f"Unknown embedding provider: {provider}")
+            
     except Exception as e:
-        logger.warning(f"Failed to get embeddings using primary provider '{provider}': {e}. Trying fallback...")
+        logger.warning(f"Failed using primary '{provider}': {e}. Trying fallback...")
         
         # 폴백 시도 (반대 프로바이더 적용)
         fallback_provider = "gemini" if provider == "openai" else "openai"
@@ -85,8 +77,9 @@ def get_embeddings(texts: List[str], provider: str = None, model: str = None) ->
                 fallback_model = settings.DEFAULT_GEMINI_EMBEDDING_MODEL
                 return _embed_gemini(texts, fallback_model)
         except Exception as fallback_err:
-            logger.error(f"Fallback provider '{fallback_provider}' also failed: {fallback_err}")
-            raise RuntimeError("Both primary and fallback embedding providers failed.") from fallback_err
+            logger.error(f"Fallback '{fallback_provider}' also failed: {fallback_err}")
+            raise RuntimeError("Both embedding providers failed.") from fallback_err
+
 
 def get_embedding(text: str, provider: str = None, model: str = None) -> List[float]:
     """
@@ -95,13 +88,13 @@ def get_embedding(text: str, provider: str = None, model: str = None) -> List[fl
     Args:
         text (str): 임베딩할 텍스트
         provider (str, optional): 사용할 API 제공자 ("openai" 또는 "gemini")
-        model (str, optional): 사용할 임베딩 모델명
-        
+        model (str, optional): 사용할 임베딩 모델명 
     Returns:
         List[float]: 임베딩 벡터 (Float 리스트)
     """
     results = get_embeddings([text], provider=provider, model=model)
     return results[0] if results else []
+
 
 if __name__ == "__main__":
     # 로컬에서 단독 실행 시 동작을 검증하기 위한 간단한 테스트 코드
@@ -128,7 +121,6 @@ if __name__ == "__main__":
         print(f"벡터 프리뷰 (앞의 5개 값): {vec_openai[:5]}")
     except Exception as ex:
         print(f"실패: {ex}")
-
     # 3. 강제 Gemini 테스트
     print("\n--- Gemini 테스트 ---")
     try:
