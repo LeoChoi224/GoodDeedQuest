@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.common.database import Base
 
-from backend.app.shortform.enums import ShortFormStatus
+from backend.app.short_form.enums import ShortFormStatus
 
 class BackgroundMusic(Base):
     """배경음악 목록 테이블"""
@@ -43,16 +43,12 @@ class BackgroundMusic(Base):
 
 class ShortForm(Base):
     """숏폼 프로젝트 결과물 테이블"""
-    __tablename__ = 'shortform'  # 소문자 snake_case 규칙 반영
+    __tablename__ = 'short_form'  # 소문자 snake_case 규칙 반영
 
     shorts_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     
-    # User 테이블(전체 스키마 기준 PK가 user_id BIGINT이므로 BigInteger 매핑)을 참조하는 외래키
-    # TODO: 추후 backend/app/users/models.py가 생성되면 실제 테이블명 및 PK 컬럼명 재확인 필수
-    # user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('user.user_id'), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('user.user_id'), nullable=False, index=True)
 
-    # TODO: User 모델이 생성되면 ForeignKey('user.user_id') 추가 + Alembic 마이그레이션 필요 (User 테이블 생성완료시 아래 코드 삭제하고 위코드 주석풀면됨)
-    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
 
     # 배경음악 없이는 숏폼 생성 불가 → 필수
     bgm_id: Mapped[int] = mapped_column(Integer, ForeignKey('background_music.bgm_id'), nullable=False, index=True)
@@ -68,7 +64,7 @@ class ShortForm(Base):
     
     # PostgreSQL 네이티브 ENUM 타입 생성 및 기본값 자동 할당
     status: Mapped[ShortFormStatus] = mapped_column(
-        PGEnum(ShortFormStatus, name="shortform_status_enum", native_enum=True),
+        PGEnum(ShortFormStatus, name="short_form_status_enum", native_enum=True),
         nullable=False,
         default=ShortFormStatus.PENDING,
         server_default=ShortFormStatus.PENDING.value
@@ -82,5 +78,8 @@ class ShortForm(Base):
         nullable=False
     )
 
+    
     # 관계 설정
+    user: Mapped["User"] = relationship("User", back_populates="shortforms")
+
     background_music: Mapped[Optional["BackgroundMusic"]] = relationship("BackgroundMusic", back_populates="shortforms")
