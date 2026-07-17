@@ -23,7 +23,7 @@ class User(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     # → Region (아직 안 만든 테이블이라 FK는 주석)
-    region_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    region_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     # region_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("Region.region_id"), nullable=False)
 
     email: Mapped[str] = mapped_column(String(255), nullable=False)
