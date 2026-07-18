@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 from sqlalchemy import (
-    BigInteger, Column, TIMESTAMP, ForeignKey, Integer, String, func
+    BigInteger, TIMESTAMP, ForeignKey, Integer, String, Text, func
 )
 # PostgreSQL 전용 JSONB 및 ENUM 사용을 위한 임포트
 from sqlalchemy.dialects.postgresql import JSONB, ENUM as PGEnum
@@ -62,6 +62,9 @@ class ShortForm(Base):
     # 최종 생성된 비디오의 S3 오브젝트 Key 저장
     final_video_s3_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     
+    # FAILED 상태일 때만 값이 저장되고, 그 외 상태 전이 시 자동으로 None 초기화됨
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # PostgreSQL 네이티브 ENUM 타입 생성 및 기본값 자동 할당
     status: Mapped[ShortFormStatus] = mapped_column(
         PGEnum(ShortFormStatus, name="short_form_status_enum", native_enum=True),

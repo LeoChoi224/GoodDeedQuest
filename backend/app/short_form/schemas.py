@@ -116,3 +116,4 @@ class ShortFormStatusRead(BaseModel):
     shorts_id: int
     status: ShortFormStatus
     video_url: Optional[str] = None
+    error_message: Optional[str] = None
