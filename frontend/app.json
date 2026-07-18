@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "선행퀘스트",
+    "slug": "seonhaeng-quest-rn",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/brand/app-icon.png",
+    "scheme": "seonhaengquest",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/brand/app-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#033236"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.seonhaeng.quest"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand/app-icon.png",
+        "backgroundColor": "#033236"
+      },
+      "package": "com.seonhaeng.quest"
+    },
+    "plugins": ["expo-font"]
+  }
+}
