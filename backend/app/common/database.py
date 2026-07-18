@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, DeclarativeBase
 from pathlib import Path
-from config import get_setting
+from .config import get_setting
 
 DATABASE_URL = str(get_setting().DATABASE_URL)
 # Create engine

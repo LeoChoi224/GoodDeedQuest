@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str = ""
 
     
-    DEBUG: False #환경변수에 True로 바꾸면 개발시 편함
+    DEBUG: bool = False #환경변수에 True로 바꾸면 개발시 편함
     JWT_ALGORITHM: str = "HS256"
     CORS_ORIGINS: list[str] = ["http://localhost:8081"]
     
