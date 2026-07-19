@@ -10,4 +10,4 @@ def get_repository(
 ) -> Callable[[Session], DatabaseRepository]:
   def func(session: Session = Depends[get_db]):
     return DatabaseRepository(model, session)
-  return func
+  return func 
