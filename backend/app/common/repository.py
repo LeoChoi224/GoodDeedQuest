@@ -2,19 +2,9 @@ import uuid
 from typing import Generic, TypeVar
 from sqlalchemy import BinaryExpression, select
 from sqlalchemy.orm import Session
-from backend.app.auth import models
-from backend.app.admin import models
-from backend.app.badge import models
-from backend.app.challenge import models
-from backend.app.community import models
-from backend.app.map import models
-from backend.app.quest import models
-from backend.app.quest_recommend import models
-from backend.app.quest_verification import models
-from backend.app.shop import models
-from backend.app.short_form import models
+from common.database import Base
 
-Model = TypeVar("Model", bound=models.Base)
+Model = TypeVar("Model", bound=Base)
 
 class DatabaseRepository(Generic[Model]):
   def __init__(self, model: type[Model], session: Session) -> None:
