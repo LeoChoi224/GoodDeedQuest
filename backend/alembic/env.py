@@ -5,7 +5,7 @@ from sqlalchemy import pool
 
 from alembic import context
 
-from backend.app.common.config import settings
+from backend.app.common.config import get_setting
 from backend.app.common.database import Base
 
 # [추가] Alembic이 감지할 수 있도록 임포트
@@ -54,7 +54,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = settings.DATABASE_URL
+    url = get_setting().DATABASE_URL
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -73,7 +73,7 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+    config.set_main_option("sqlalchemy.url", str(get_setting().DATABASE_URL))
     
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),

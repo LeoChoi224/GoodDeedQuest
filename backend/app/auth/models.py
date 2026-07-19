@@ -23,7 +23,7 @@ class User(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     # → Region (아직 안 만든 테이블이라 FK는 주석)
-    region_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    region_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     # region_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("Region.region_id"), nullable=False)
 
     email: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -34,7 +34,7 @@ class User(Base):
     birthday: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     category: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)            # 관심 카테고리(멀티)
-    active_time: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    active_time: Mapped[Optional[list]] = mapped_column(String(50), nullable=True)
 
     # [enum] 선호 난이도 5단계 (공용 Difficulty, 사용자가 회원가입 때 선택)
     preferred_difficulty: Mapped[Optional[Difficulty]] = mapped_column(SqlEnum(Difficulty, validate_strings=True), nullable=True)
