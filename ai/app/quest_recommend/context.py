@@ -29,31 +29,31 @@ def analyze_context(state: RecommendState) -> Dict[str, Any]:
     now = datetime.now()
     weekday = now.weekday()
 
-    if weekday in [5, 6]:
+    if weekday in [5, 6]:   # 주말
         is_weekend = True 
-        day_of_week_type = "주말"
-    else:
-        is_weekend = False
-        day_of_week_type = "평일"
+        day_of_week_type = "weekend"
+    else:                   # 평일
+        is_weekend = False  
+        day_of_week_type = "weekday"
 
-    today_weather = "맑음"
+    today_weather = "sunny"  # 기본값 맑음
     try:
         current_weather = get_weather(latitude, longitude).get("current_weather", {})
         weather_code = current_weather.get("weathercode", 0)
             
         match weather_code:
             case code if code in [0, 1, 2, 3]:
-                today_weather = "맑음"
+                today_weather = "sunny"     # 맑음
             case code if code in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82]:
-                today_weather = "비"
+                today_weather = "rainy"     # 비
             case code if code in [71, 73, 75, 77, 85, 86]:
-                today_weather = "눈"
+                today_weather = "snowy"     # 눈
             case _:
-                today_weather = "흐림"
+                today_weather = "cloudy"    # 흐림
     except Exception as e:
         logger.warning(f"Failed to fetch real-time weather: {e}. Fallback to '맑음'.")
     
-    is_outdoor_feasible = False if today_weather in ["비", "눈"] else True
+    is_outdoor_feasible = False if today_weather in ["rainy", "snowy"] else True
 
     return {"context": {
         "current_date": str(now.date()),

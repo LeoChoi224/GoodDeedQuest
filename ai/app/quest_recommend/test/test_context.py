@@ -34,8 +34,8 @@ class TestContextAgent(unittest.TestCase):
         # 검증
         self.assertIsNotNone(context)
         # 실시간 API 호출이므로 네 가지 기상 분류 중 하나가 반드시 매핑되어야 함
-        self.assertIn(context["today_weather"], ["맑음", "흐림", "비", "눈"])
-        self.assertIn(context["day_of_week_type"], ["평일", "주말"])
+        self.assertIn(context["today_weather"], ["sunny", "cloudy", "rainy", "snowy"])
+        self.assertIn(context["day_of_week_type"], ["weekday", "weekend"])
         self.assertIsInstance(context["is_weekend"], bool)
         self.assertIsInstance(context["is_outdoor_feasible"], bool)
 
@@ -69,7 +69,7 @@ class TestContextAgent(unittest.TestCase):
         # 검증
         self.assertIsNotNone(context)
         # 주석 해제 전이므로 999 ID에 기반해 제주 대표 좌표(위도 33.499)로 들어가 실시간 날씨를 긁어오는지 확인
-        self.assertIn(context["today_weather"], ["맑음", "흐림", "비", "눈"])
+        self.assertIn(context["today_weather"], ["sunny", "cloudy", "rainy", "snowy"])
 
 
 if __name__ == "__main__":
