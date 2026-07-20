@@ -80,7 +80,7 @@ def _resolve_bgm_id_for_auto_mode(db: Session, request: ShortFormCreateRequest) 
 
 def create_shortform(
     db: Session,
-    user_id: str,
+    user_id: int,
     request: ShortFormCreateRequest,
 ) -> ShortForm:
     """

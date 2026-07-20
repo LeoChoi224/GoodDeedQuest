@@ -95,6 +95,16 @@ class ShortFormCreateRequest(BaseModel):
     is_auto_generated: bool = Field(default=False, description="자동 생성 경로 여부 (음악/대본 팝업 스킵)")
 
 
+class ShortFormGenerateRequest(BaseModel):
+    """
+    [영상 생성하기] 버튼 클릭 시 요청 바디.
+    사용자가 팝업에서 최종 확정한 media_keys/captions를 큐잉 단계로 전달.
+    (ShortFormMedia 정션 테이블이 없으므로 DB 저장 없이 Celery 파라미터로만 사용)
+    """
+    media_keys: List[str] = Field(..., min_length=1)
+    captions: List[CaptionItem] = Field(..., min_length=1)
+
+
 class ShortFormRead(ORMBase):
     """숏폼 상세 조회/최종 재생 화면 응답"""
     shorts_id: int
