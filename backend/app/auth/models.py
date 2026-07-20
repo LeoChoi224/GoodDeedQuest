@@ -59,6 +59,8 @@ class User(Base):
 
     current_latitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 7), nullable=True)
     current_longitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 7), nullable=True)
+    
+    last_embedded_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     # [개선] onupdate — 행이 바뀌면 updated_at 자동 갱신

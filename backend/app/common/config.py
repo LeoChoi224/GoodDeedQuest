@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     # AI Service URL
     AI_SERVICE_URL: str = "http://localhost:8001" # 보안상 문제없어서 안바꿈
 
+    # AI - LLM/Vision
+    OPENAI_API_KEY: SecretStr  # .env 파일에 적으세요
+    GEMINI_API_KEY: SecretStr  # .env 파일에 적으세요
+    DEFAULT_LLM_MODEL: str = "gpt-4o"
+    DEFAULT_VISION_MODEL: str = "gemini-1.5-flash"
+
     # AWS S3
     AWS_REGION: str = "ap-northeast-2"
     AWS_ACCESS_KEY_ID: SecretStr # 위와같은 이유로 바꿈 .env 파일에 적으세요
