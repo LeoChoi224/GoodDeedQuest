@@ -1,5 +1,5 @@
 import boto3
-from app.common.config import settings  # AWS_REGION, S3_BUCKET_NAME 등 환경설정
+from backend.app.common.config import get_setting  # AWS_REGION, S3_BUCKET_NAME 등 환경설정
 
 # ---------------------------------------------------------------------------
 # S3 클라이언트 & Presigned URL
@@ -12,7 +12,7 @@ from app.common.config import settings  # AWS_REGION, S3_BUCKET_NAME 등 환경�
 # boto3 S3 클라이언트는 모듈 로드 시 한 번만 생성해서 재사용 (매 요청마다 새로 만들지 않음)
 _s3_client = boto3.client(
     "s3",
-    region_name=settings.AWS_REGION,
+    region_name=get_setting().AWS_REGION,
 )
 
 PRESIGNED_UPLOAD_EXPIRE_SECONDS = 300      # 5분 - 업로드용은 짧게 (클라이언트가 바로 씀)
@@ -31,7 +31,7 @@ def generate_upload_presigned_url(s3_key: str, content_type: str) -> str:
     return _s3_client.generate_presigned_url(
         ClientMethod="put_object",
         Params={
-            "Bucket": settings.S3_BUCKET_NAME,
+            "Bucket": get_setting().S3_BUCKET_NAME,
             "Key": s3_key,
             "ContentType": content_type,
         },
@@ -48,7 +48,7 @@ def generate_download_presigned_url(s3_key: str) -> str:
     return _s3_client.generate_presigned_url(
         ClientMethod="get_object",
         Params={
-            "Bucket": settings.S3_BUCKET_NAME,
+            "Bucket": get_setting().S3_BUCKET_NAME,
             "Key": s3_key,
         },
         ExpiresIn=PRESIGNED_DOWNLOAD_EXPIRE_SECONDS,

@@ -2,6 +2,7 @@ fastapi>=0.110.0
 uvicorn>=0.28.0
 pydantic>=2.6.0
 pydantic-settings>=2.2.0
+email-validator>=2.1.0
 python-dotenv>=1.0.1
 
 SQLAlchemy>=2.0.0
@@ -11,6 +12,7 @@ alembic>=1.13.1
 cryptography>=42.0.0
 PyJWT>=2.8.0
 passlib[bcrypt]>=1.7.4
+bcrypt<4.1.0  # passlib 1.7.4가 bcrypt 4.1+의 내부 API 변경을 인식 못 해서 "password cannot be longer than 72 bytes" 오류 발생 (버전 고정 필요)
 
 websockets>=12.0
 redis>=5.0.0
