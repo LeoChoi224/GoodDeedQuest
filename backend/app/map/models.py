@@ -26,7 +26,6 @@ class VolunteerCenter(Base):
     # 크롤링 갱신 시각 - 오래된(사라진) 공고 판별용
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="마지막 크롤링 확인 시각")
 
-
 class Region(Base):
     __tablename__ = "region"
 
