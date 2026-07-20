@@ -25,6 +25,14 @@ from __future__ import annotations
 #    - GET   /admin/users
 #    - GET   /admin/users/{user_id}
 #    - PATCH /admin/users/{user_id}/active-status
+#
+# 6. 관리자 대시보드 API 주소
+#    - GET /admin/dashboard/summary
+#    - GET /admin/dashboard/alerts
+#
+# 7. 대시보드 응답 Schema
+#    - 오늘의 요약은 AdminDashboardSummaryResponse를 사용합니다.
+#    - 주요 알림은 여러 알림 객체를 반환하므로 list[AdminDashboardAlertResponse] 형태를 사용합니다.
 # =========================================================
 
 from fastapi import APIRouter, Depends, Query, status
@@ -35,6 +43,8 @@ from backend.app.auth.dependencies import get_current_admin
 from backend.app.common.database import get_db
 from backend.app.admin.enums import UserReportStatus
 from backend.app.admin.schema import (
+    AdminDashboardAlertResponse,
+    AdminDashboardSummaryResponse,
     AdminUserDetailResponse,
     AdminUserListResponse,
     ReportResponse,
@@ -260,3 +270,45 @@ async def update_admin_user_active_status(
     )
 
     return updated_user
+
+
+
+# 관리자 대시보드의 오늘의 요약 정보를 조회하는 API.
+@router.get(
+    "/dashboard/summary",
+    response_model=AdminDashboardSummaryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="관리자 대시보드 오늘의 요약 조회",
+)
+async def get_admin_dashboard_summary(
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+) -> AdminDashboardSummaryResponse:
+
+    # Service를 호출하여 대시보드 오늘의 요약 정보를 조회.
+    summary = await service.get_admin_dashboard_summary(
+        db=db,
+    )
+
+    return summary
+
+
+# 관리자 대시보드의 주요 알림을 조회하는 API.
+@router.get(
+    "/dashboard/alerts",
+    response_model=list[AdminDashboardAlertResponse],
+    status_code=status.HTTP_200_OK,
+    summary="관리자 대시보드 주요 알림 조회",
+)
+async def get_admin_dashboard_alerts(
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+) -> list[AdminDashboardAlertResponse]:
+    """관리자가 확인해야 할 주요 알림 목록을 조회합니다."""
+
+    # Service를 호출하여 관리자 주요 알림 목록을 조회.
+    alerts = await service.get_admin_dashboard_alerts(
+        db=db,
+    )
+
+    return alerts
