@@ -10,6 +10,14 @@ from __future__ import annotations
 # 2. HTTPException 사용
 #    - 이번 프로젝트에서는 구현을 단순하게 유지하기 위해
 #      Service에서 FastAPI의 HTTPException을 사용합니다.
+#
+# 3. 관리자 본인 계정 비활성화
+#    - 관리자가 본인 계정을 비활성화하지 못하도록 처리했습니다.
+#    - Router에서 current_admin.user_id를 Service에 전달합니다.
+#
+# 4. 다른 관리자 계정 상태 변경
+#    - 현재는 관리자 계정도 활성·비활성 상태 변경이 가능합니다.
+#    - 일반 관리자끼리 상태를 변경하지 못하게 할지 팀 정책 확인이 필요합니다.
 # =========================================================
 
 from datetime import datetime, timezone
@@ -19,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.admin import repository
 from backend.app.admin.enums import UserReportStatus
 from backend.app.admin.models import Report
+from backend.app.auth.models import User
 
 # 신고 목록을 조회하는 Service 함수.
 async def get_report_list(
@@ -229,4 +238,114 @@ async def approve_report_with_user_deactivation(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="신고 대상 사용자 비활성 처리 중 오류가 발생했습니다.",
+        ) from exc
+    
+
+
+# 관리자 화면에서 사용자 목록을 조회하는 Service 함수.
+async def get_admin_user_list(
+    db: AsyncSession,
+    *,
+    nickname: str | None = None,
+    is_active: bool | None = None,
+    skip: int = 0,
+    limit: int = 20,
+    newest_first: bool = True,
+) -> list[User]:
+    # 닉네임과 활성 상태 조건에 따라 사용자 목록을 조회.
+    # 닉네임 검색어가 존재하면 앞뒤 공백을 제거합니다.
+    normalized_nickname = nickname.strip() if nickname is not None else None
+
+    # 닉네임 검색어가 공백뿐이라면 검색 조건을 제거.
+    if normalized_nickname == "":
+        normalized_nickname = None
+
+    # Repository를 통해 조건에 맞는 사용자 목록을 조회.
+    users = await repository.get_users(
+        db=db,
+        nickname=normalized_nickname,
+        is_active=is_active,
+        skip=skip,
+        limit=limit,
+        newest_first=newest_first,
+    )
+
+    return users
+
+
+# 관리자 화면에서 사용자 상세 정보를 조회하는 Service 함수.
+async def get_admin_user_detail(
+    db: AsyncSession,
+    *,
+    user_id: int,
+) -> User:
+    # Repository를 통해 사용자 한 명을 조회.
+    user = await repository.get_user_by_id(
+        db=db,
+        user_id=user_id,
+    )
+
+    # 사용자가 존재하지 않으면 404 오류 발생.
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="사용자 정보를 찾을 수 없습니다.",
+        )
+    return user
+
+
+# 관리자 화면에서 사용자 활성·비활성 상태를 변경하는 Service 함수.
+async def update_admin_user_active_status(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    is_active: bool,
+    current_admin_id: int,
+) -> User:
+    #사용자의 활성 상태를 변경합니다.
+    try:
+        # 상태를 변경할 사용자 정보를 조회.
+        user = await get_admin_user_detail(
+            db=db,
+            user_id=user_id,
+        )
+
+        # 관리자가 자신의 계정을 비활성화하려는 경우 처리를 막습니다.
+        if user.user_id == current_admin_id and is_active is False:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="관리자는 자신의 계정을 비활성화할 수 없습니다.",
+            )
+
+        # 기존 상태와 요청 상태가 같으면 중복 변경을 막습니다.
+        if user.is_active == is_active:
+            current_status = "활성" if is_active else "비활성"
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"이미 {current_status} 상태인 사용자입니다.",
+            )
+
+        # Repository를 통해 사용자 활성 상태를 변경.
+        updated_user = await repository.update_user_active_status(
+            db=db,
+            user=user,
+            is_active=is_active,
+        )
+
+        await db.commit()
+        await db.refresh(updated_user)
+
+        return updated_user
+
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except Exception as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="사용자 활성 상태 변경 중 오류가 발생했습니다.",
         ) from exc

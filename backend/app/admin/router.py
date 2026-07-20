@@ -15,11 +15,16 @@ from __future__ import annotations
 #    - 현재 로그인 관리자 객체에서 current_admin.user_id를 사용.
 #    - 실제 User 모델의 PK 컬럼명이 user_id인지 확인 필요.
 #
-# 4. API 주소
+# 4. 신고 관리 API 주소
 #    - GET   /admin/reports
 #    - GET   /admin/reports/{report_id}
 #    - PATCH /admin/reports/{report_id}/approve/post-delete
 #    - PATCH /admin/reports/{report_id}/approve/user-deactivate
+#
+# 5. 사용자 관리 API 주소
+#    - GET   /admin/users
+#    - GET   /admin/users/{user_id}
+#    - PATCH /admin/users/{user_id}/active-status
 # =========================================================
 
 from fastapi import APIRouter, Depends, Query, status
@@ -29,19 +34,24 @@ from backend.app.auth.models import User
 from backend.app.auth.dependencies import get_current_admin
 from backend.app.common.database import get_db
 from backend.app.admin.enums import UserReportStatus
-from backend.app.admin.schema import ReportResponse
+from backend.app.admin.schema import (
+    AdminUserDetailResponse,
+    AdminUserListResponse,
+    ReportResponse,
+    UserActiveStatusUpdate,
+)
 from backend.app.admin import service
 
 
 # 관리자 신고 API를 하나로 묶는 Router를 생성.
 router = APIRouter(
-    prefix="/admin/reports",
-    tags=["Admin Reports"],
+    prefix="/admin",
+    tags=["Admin"],
 )
 
 # 관리자 신고 목록을 조회하는 API.
 @router.get(
-    "",
+    "/reports",
     response_model=list[ReportResponse],
     status_code=status.HTTP_200_OK,
     summary="관리자 신고 목록 조회",
@@ -89,7 +99,7 @@ async def get_report_list(
 
 # 관리자 신고 상세 정보를 조회하는 API.
 @router.get(
-    "/{report_id}",
+    "/reports/{report_id}",
     response_model=ReportResponse,
     status_code=status.HTTP_200_OK,
     summary="관리자 신고 상세 조회",
@@ -110,7 +120,7 @@ async def get_report_detail(
 
 # 신고된 커뮤니티 게시글을 삭제 승인하는 API.
 @router.patch(
-    "/{report_id}/approve/post-delete",
+    "/reports/{report_id}/approve/post-delete",
     response_model=ReportResponse,
     status_code=status.HTTP_200_OK,
     summary="신고 게시글 삭제 승인",
@@ -132,7 +142,7 @@ async def approve_report_post_deletion(
 
 # 신고 대상 사용자를 비활성 승인하는 API.
 @router.patch(
-    "/{report_id}/approve/user-deactivate",
+    "/reports/{report_id}/approve/user-deactivate",
     response_model=ReportResponse,
     status_code=status.HTTP_200_OK,
     summary="신고 대상 사용자 비활성 승인",
@@ -150,3 +160,103 @@ async def approve_report_user_deactivation(
     )
 
     return report
+
+
+
+# 관리자 사용자 목록을 조회하는 API.
+@router.get(
+    "/users",
+    response_model=list[AdminUserListResponse],
+    status_code=status.HTTP_200_OK,
+    summary="관리자 사용자 목록 조회",
+)
+async def get_admin_user_list(
+    # 닉네임 검색어를 선택적으로 전달.
+    nickname: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=50,
+        description="검색할 사용자 닉네임",
+    ),
+    # 사용자 활성·비활성 상태를 선택적으로 전달.
+    is_active: bool | None = Query(
+        default=None,
+        description="true이면 활성 사용자, false이면 비활성 사용자",
+    ),
+    # 사용자 목록에서 앞쪽 데이터 몇 개를 제외할지 전달.
+    skip: int = Query(
+        default=0,
+        ge=0,
+        description="건너뛸 사용자 개수",
+    ),
+    # 한 번에 조회할 사용자 개수를 전달.
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="한 번에 조회할 사용자 개수",
+    ),
+    # 최신순 또는 오래된 순 정렬 여부를 전달.
+    newest_first: bool = Query(
+        default=True,
+        description="true이면 최신 가입순, false이면 오래된 가입순",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+) -> list[AdminUserListResponse]:
+    # Service를 호출하여 조건에 맞는 사용자 목록을 조회합니다.
+    users = await service.get_admin_user_list(
+        db=db,
+        nickname=nickname,
+        is_active=is_active,
+        skip=skip,
+        limit=limit,
+        newest_first=newest_first,
+    )
+
+    return users
+
+
+# 관리자 사용자 상세 정보를 조회하는 API.
+@router.get(
+    "/users/{user_id}",
+    response_model=AdminUserDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="관리자 사용자 상세 조회",
+)
+async def get_admin_user_detail(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+) -> AdminUserDetailResponse:
+    # Service를 호출하여 사용자 상세 정보를 조회.
+    user = await service.get_admin_user_detail(
+        db=db,
+        user_id=user_id,
+    )
+
+    return user
+
+# 관리자 사용자 활성·비활성 상태를 변경하는 API.
+@router.patch(
+    "/users/{user_id}/active-status",
+    response_model=AdminUserDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="관리자 사용자 활성 상태 변경",
+)
+async def update_admin_user_active_status(
+    user_id: int,
+    request: UserActiveStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+) -> AdminUserDetailResponse:
+
+    # Service를 호출하여 사용자 활성 상태를 변경.
+    updated_user = await service.update_admin_user_active_status(
+        db=db,
+        user_id=user_id,
+        is_active=request.is_active,
+        current_admin_id=current_admin.user_id,
+    )
+
+    return updated_user
