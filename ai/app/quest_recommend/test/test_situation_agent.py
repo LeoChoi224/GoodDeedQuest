@@ -4,7 +4,7 @@ from ai.app.quest_recommend.situation_agent import analyze_situation
 
 
 class TestContextAgent(unittest.TestCase):
-    def test_analyze_context_default_sunny(self):
+    def test_analyze_situation_default_sunny(self):
         """기본 좌표(서울) 기준 실시간 날씨 API 연동 및 결과 타입 검증"""
         mock_state: RecommendState = {
             "user_id": 1,
@@ -39,7 +39,7 @@ class TestContextAgent(unittest.TestCase):
         self.assertIsInstance(situation_context["is_weekend"], bool)
         self.assertIsInstance(situation_context["is_outdoor_feasible"], bool)
 
-    def test_analyze_context_fallback_jeju_mock(self):
+    def test_analyze_situation_fallback_jeju_mock(self):
         """제주 임시 테스트 ID를 활용한 가상 기상 분기 및 예외 우회 검증"""
         mock_state: RecommendState = {
             "user_id": 2,
