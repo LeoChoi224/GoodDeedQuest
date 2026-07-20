@@ -1,6 +1,6 @@
 import unittest
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.situation_agent import analyze_context
+from ai.app.quest_recommend.situation_agent import analyze_situation
 
 
 class TestContextAgent(unittest.TestCase):
@@ -28,7 +28,7 @@ class TestContextAgent(unittest.TestCase):
         }
 
         # 노드 실행
-        result = analyze_context(mock_state)
+        result = analyze_situation(mock_state)
         situation_context = result.get("situation_context")
 
         # 검증
@@ -63,7 +63,7 @@ class TestContextAgent(unittest.TestCase):
         }
 
         # 노드 실행
-        result = analyze_context(mock_state)
+        result = analyze_situation(mock_state)
         situation_context = result.get("situation_context")
 
         # 검증
