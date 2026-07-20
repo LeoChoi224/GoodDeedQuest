@@ -9,7 +9,9 @@ def analyze_user_profile(state: RecommendState) -> Dict[str, Any]:
     """
     # State로부터 필요한 정보들을 안전하게 꺼내옵니다.
     interests = state.get("interests", [])
-    location = state.get("location", "")
+    region_id = state.get("region_id")
+    latitude = state.get("latitude")
+    longitude = state.get("longitude")
     level = state.get("level", 1)
     history_quests = state.get("history_quests", [])
     recent_recommendations = state.get("recent_recommendations", [])
@@ -25,7 +27,9 @@ def analyze_user_profile(state: RecommendState) -> Dict[str, Any]:
     # LangGraph 규격에 맞춰 user_profile 업데이트 딕셔너리 반환
     return {"user_profile": {
         "interests": interests,
-        "location": location,
+        "region_id": region_id,
+        "latitude": latitude,
+        "longitude": longitude,
         "level": level,
         "target_difficulty": target_difficulty,
         "exclusions": exclusions,

@@ -1,11 +1,22 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional
-
 from backend.app.common.enums import Difficulty
 from backend.app.auth.enums import UserRole, TransactionType
 
+class UserBase(BaseModel):
+    nickname: str
+    email: EmailStr | None = None # EmailStr을 사용하여 이메일 골뱅이(@) 및 도메인 형식을 자동 검증
+                                    # pip install pydantic[email]
+
+    @field_validator('email', mode="before")
+    @classmethod
+    def allow_empty_string_for_email(cls, v):
+        if v == "":
+            return None
+
+        return v 
 
 # ═══════════════════════════════════════
 # ① 회원가입
@@ -141,3 +152,12 @@ class AdminUserListResponse(BaseModel):
     role: UserRole
     is_active: bool
     created_at: datetime
+    
+class UserResponse(UserBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int
+    created_at: datetime
+
+class TokenData(BaseModel):
+    username: str | None = None

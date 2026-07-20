@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import httpx
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import get_current_user
-from backend.app.common.config import settings
+from backend.app.common.config import get_setting
 
 router = APIRouter(prefix="/shorts", tags=["AI Short-form Videos"])
 
@@ -17,7 +17,7 @@ async def generate_shorts_task(quest_id: int, user_name: str, bg_music_style: st
     try:
         async with httpx.AsyncClient() as client:
             await client.post(
-                f"{settings.AI_SERVICE_URL}/ai/shorts/generate",
+                f"{get_setting().AI_SERVICE_URL}/ai/shorts/generate",
                 json={"quest_id": quest_id, "user_name": user_name, "bg_music_style": bg_music_style},
                 timeout=30.0
             )

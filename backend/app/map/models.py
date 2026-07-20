@@ -23,6 +23,8 @@ class VolunteerCenter(Base):
     # 크롤링 시 좌표 매칭 실패 가능성있어서 null 허용
     latitude: Mapped[Decimal] = mapped_column(DECIMAL(10, 7), nullable=True, comment="봉사센터 위도")
     longitude: Mapped[Decimal] = mapped_column(DECIMAL(10, 7), nullable=True, comment="봉사센터 경도")
+    # 크롤링 갱신 시각 - 오래된(사라진) 공고 판별용
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="마지막 크롤링 확인 시각")
 
 
 class Region(Base):
@@ -40,7 +42,7 @@ class City(Base):
     __tablename__ = "city"
 
     city_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True, comment="행정구역 고유번호")
-    # ERD는 클라우드 자동생성본이라 아직 NULL로 되어있으나, 팀 확정 방침에 따라 NOT NULL로 지정
+    # ERD는 클라우드 자동생성본이라 아직 NULL로 되어있으나, 추구하는 방향 따라 NOT NULL로 지정
     city_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="행정구역명")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), comment="생성일시")
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="수정일시")
@@ -49,7 +51,6 @@ class City(Base):
 class Competition(Base):
     __tablename__ = "competition"
 
-    # ERD 최신본 기준 user_id, Field 컬럼 삭제됨 (지역 단위 참여 모델과 맞지 않아 정리된 것으로 확인)
     competition_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, comment="대회 고유번호")
     title: Mapped[str] = mapped_column(String(200), nullable=True, comment="대회명")
     description: Mapped[str] = mapped_column(Text, nullable=True, comment="대회 설명")
