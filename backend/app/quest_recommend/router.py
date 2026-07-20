@@ -3,7 +3,7 @@ import httpx
 from pydantic import BaseModel
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import get_current_user
-from backend.app.common.config import settings
+from backend.app.common.config import get_setting
 
 router = APIRouter(prefix="/quest-recommend", tags=["Quest AI Recommendation & Coach"])
 
@@ -16,7 +16,7 @@ async def recommend_quests(user: dict = Depends(get_current_user)):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{settings.AI_SERVICE_URL}/ai/recommend",
+                f"{get_setting().AI_SERVICE_URL}/ai/recommend",
                 json={
                     "user_id": user["id"],
                     "email": user["email"],
@@ -44,7 +44,7 @@ async def ask_coach(req: AskCoachRequest, user: dict = Depends(get_current_user)
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 # AI 서비스의 추천 도메인 하위로 통합된 RAG 엔드포인트 호출
-                f"{settings.AI_SERVICE_URL}/ai/recommend/coach",
+                f"{get_setting().AI_SERVICE_URL}/ai/recommend/coach",
                 json={"question": req.question, "user_id": user["id"]},
                 timeout=15.0
             )

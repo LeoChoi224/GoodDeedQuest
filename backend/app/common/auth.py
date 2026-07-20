@@ -22,10 +22,26 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=get_setting().ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, get_setting().SECRET_KEY, algorithm=get_setting().JWT_ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, get_setting().SECRET_KEY.get_secret_value(), algorithm=get_setting().JWT_ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+def verify_token(token: str) -> str:
+    try:
+        payload = jwt.decode(token, get_setting().SECRET_KEY.get_secret_value(), algorithms=[get_setting().JWT_ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, 
+                detail="Could not validate credentials"
+            )
+        return username
+    except jwt.PyJWTError:  # 토큰이 위조되었거나 만료 시간이 초과된 경우 자동 차단 예외 처리
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Could not validate credentials"
+        )    
+
+def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     # 뼈대용 Mock 임시 사용자 반환 로직
     if not token:
         # 인증 토큰이 없을 경우 Mock 개발 사용자 반환 (편의성)
@@ -37,7 +53,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, get_setting().SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, get_setting().SECRET_KEY.get_secret_value(), algorithms=["HS256"])
         email: str = payload.get("sub")
         user_id: int = payload.get("id")
         if email is None or user_id is None:

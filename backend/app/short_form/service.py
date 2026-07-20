@@ -12,8 +12,6 @@ backend/app/short_form/service.py
 - Celery 태스크 큐잉 (AI 파이프라인 트리거)
 - ShortForm.status 직접 DB 업데이트
 - AI 대본 생성 팝업 플로우: 대본 생성 / 수정 검증
-
-TODO: ForeignKey('user.user_id') → 팀원 User 모델 확정 후 snake_case 테이블명으로 정정
 """
 
 from datetime import datetime, timezone
@@ -23,8 +21,8 @@ import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import NoResultFound  # .one() 조회 시 결과가 없으면 발생하는 예외 (라우터에서 404로 변환 예정)
 
-from app.short_form.models import ShortForm, BackgroundMusic, ShortFormStatus
-from app.short_form.schemas import (
+from backend.app.short_form.models import ShortForm, BackgroundMusic, ShortFormStatus
+from backend.app.short_form.schemas import (
     ShortFormCreateRequest,
     ScriptGenerateRequest,
     ScriptGenerateResponse,
@@ -33,16 +31,19 @@ from app.short_form.schemas import (
     CaptionItem,
 )
 
-from app.common.config import settings  # DATABASE_URL, AI_SERVICE_URL 등 환경설정 (.env 기반)
-from app.common.s3_client import (
+from backend.app.common.config import get_setting  # DATABASE_URL, AI_SERVICE_URL 등 환경설정 (.env 기반)
+from backend.app.common.s3_client import (
     generate_upload_presigned_url,
     generate_download_presigned_url,
 )  # S3 presigned URL 발급 함수 (공용 모듈로 분리됨 - 다른 도메인도 재사용)
 
-from app.short_form.tasks import render_shortform_task  # Celery task, tasks.py에 정의 가정
+from backend.app.short_form.tasks import render_shortform_task  # Celery task, tasks.py에 정의 가정
 
 # ⭐ 수정: uuid import 제거 (shorts_id는 autoincrement라 더 이상 수동 생성 안 함)
 
+# ⭐ 수정: settings 미정의(NameError) 수정 - get_setting()만 import하고 settings.AI_SERVICE_URL로
+# 참조하던 버그. 모듈 레벨에서 한 번 호출해서 settings로 바인딩.
+settings = get_setting()
 # ---------------------------------------------------------------------------
 # BGM 자동 매칭 (RAG) - 자동 생성 경로 전용
 # ---------------------------------------------------------------------------
@@ -257,10 +258,11 @@ def generate_ai_script(
     )
 
     # AI 서버가 대본을 생성하는 데 필요한 최소 정보만 payload로 구성
+    # ⭐ 수정: request.media_keys/request.mood_tag는 ScriptGenerateRequest에 없는 필드였음
+    # → 실제 스키마 필드인 selected_media_s3_keys로 수정 (mood_tag는 스키마에 없어 제거)
     payload = {
         "shorts_id": shorts_id,  # ⭐ 수정: shortform_id → shorts_id
-        "media_keys": request.media_keys,
-        "mood_tag": request.mood_tag,
+        "media_keys": request.selected_media_s3_keys,
     }
 
     try:
@@ -292,8 +294,12 @@ def generate_ai_script(
     ]
     _validate_captions(captions)  # 개수/길이 제약 검증 (수정 검증 함수와 로직 공유)
 
+    # ⭐ 수정: ScriptGenerateResponse는 status/title이 required 필드인데 기존엔 누락되어
+    # ValidationError가 나던 부분 - shortform.status와 AI 응답의 title로 채움
     return ScriptGenerateResponse(
         shorts_id=shorts_id,  # ⭐ 수정: shortform_id → shorts_id
+        status=shortform.status,
+        title=ai_result.get("title", ""),
         captions=captions,
     )
 
@@ -310,8 +316,11 @@ def validate_edited_captions(request: ScriptUpdateRequest) -> ScriptGenerateResp
     """
     # DB 조회 없음, Session 파라미터도 없음 → 완전히 stateless한 순수 검증 함수
     _validate_captions(request.captions)
+    # ⭐ 수정: status 필드 채움 - 아직 렌더링 전 단계이므로 PENDING 고정
     return ScriptGenerateResponse(
         shorts_id=request.shorts_id,  # ⭐ 수정: request.shortform_id → request.shorts_id
+        status=ShortFormStatus.PENDING,
+        title=request.title,
         captions=request.captions,  # 입력받은 캡션을 그대로 되돌려줌 (검증 통과했다는 의미)
     )
 
@@ -328,7 +337,8 @@ def _validate_captions(captions: list[CaptionItem]) -> None:
             f"캡션은 최대 {MAX_CAPTION_COUNT}개까지 허용됩니다. (현재 {len(captions)}개)"
         )
     for caption in captions:
-        if len(caption.text) > MAX_CAPTION_TEXT_LENGTH:
+        # ⭐ 수정: caption.text -> CaptionItem 실제 필드명인 caption.caption으로 변경
+        if len(caption.caption) > MAX_CAPTION_TEXT_LENGTH:
             # 에러 메시지에 캡션 앞부분만 잘라서 보여줘서 어떤 캡션이 문제인지 식별 가능하게 함
             raise ValueError(
                 f"캡션 텍스트는 {MAX_CAPTION_TEXT_LENGTH}자를 초과할 수 없습니다: "
