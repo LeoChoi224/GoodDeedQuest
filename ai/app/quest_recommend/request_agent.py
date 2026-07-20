@@ -46,7 +46,7 @@ def analyze_request(state: RecommendState) -> Dict[str, Any]:
         prompt = (
             f"Analyze the user's quest recommendation request and extract structured constraints: "
             f"'{request_message}'"
-        )
+        )   # 사용자의 퀘스트 추천 요청을 분석하고 구조화된 제약 조건을 추출하십시오
 
         response = structured_llm.invoke(prompt)
         analysis_dict = response.model_dump()
