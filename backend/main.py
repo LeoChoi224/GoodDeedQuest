@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.app.common.config import settings
+from backend.app.common.config import get_setting
 
 # 라우터 임포트
 from backend.app.auth.router import router as auth_router
@@ -11,13 +11,14 @@ from backend.app.challenge.router import router as challenge_router
 from backend.app.short_form.router import router as shorts_router
 from backend.app.map.router import router as map_router
 from backend.app.growth.router import router as growth_router
-from backend.app.notification.router import router as notification_router
+# from backend.app.notification.router import router as notification_router  # TODO: notification 모듈 아직 없음
 from backend.app.admin.router import router as admin_router
 from backend.app.shop.router import router as shop_router
+from backend.app.badge import models as badge_models  # noqa: F401  # badge 라우터는 아직 없지만, User.user_badges relationship("UserBadge")가 참조하려면 이 모델이 로드는 돼 있어야 함
 # TODO router.py 작업할때 short_form, badge 라우터 임포트 예정
 
 app = FastAPI(
-    title=settings.PROJECT_NAME,
+    title=get_setting().PROJECT_NAME,
     description="Good Deed Quest (선행퀘스트) 메인 백엔드 API 서버",
     version="1.0.0",
     docs_url="/docs",
@@ -34,7 +35,7 @@ app.add_middleware(
 )
 
 # API v1 라우터 등록
-api_prefix = settings.API_V1_STR
+api_prefix = get_setting().API_V1_STR
 app.include_router(auth_router, prefix=api_prefix)
 app.include_router(quest_router, prefix=api_prefix)
 app.include_router(recommend_router, prefix=api_prefix)
@@ -43,7 +44,7 @@ app.include_router(challenge_router, prefix=api_prefix)
 app.include_router(shorts_router, prefix=api_prefix)
 app.include_router(map_router, prefix=api_prefix)
 app.include_router(growth_router, prefix=api_prefix)
-app.include_router(notification_router, prefix=api_prefix)
+# app.include_router(notification_router, prefix=api_prefix)  # TODO: notification 모듈 아직 없음
 app.include_router(admin_router, prefix=api_prefix)
 app.include_router(shop_router, prefix=api_prefix)
 
@@ -51,7 +52,7 @@ app.include_router(shop_router, prefix=api_prefix)
 def home():
     return {
         "status": "online",
-        "project": settings.PROJECT_NAME,
+        "project": get_setting().PROJECT_NAME,
         "docs": "/docs",
         "description": "작은 선행을 퀘스트로 - AI 기반 공익 플랫폼 Good Deed Quest"
     }

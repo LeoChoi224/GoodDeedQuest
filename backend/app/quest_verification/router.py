@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form
 import httpx
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import get_current_user
-from backend.app.common.config import settings
+from backend.app.common.config import get_setting
 
 router = APIRouter(prefix="/quest-verification", tags=["Quest AI Verification"])
 
@@ -22,7 +22,7 @@ async def verify_quest(
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{settings.AI_SERVICE_URL}/ai/verify",
+                f"{get_setting().AI_SERVICE_URL}/ai/verify",
                 data=data,
                 files=files,
                 timeout=15.0
