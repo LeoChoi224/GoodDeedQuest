@@ -55,7 +55,7 @@ def analyze_context(state: RecommendState) -> Dict[str, Any]:
     
     is_outdoor_feasible = False if today_weather in ["rainy", "snowy"] else True
 
-    return {"context": {
+    return {"situation_context": {
         "current_date": str(now.date()),
         "day_of_week_type": day_of_week_type,
         "is_weekend": is_weekend,
