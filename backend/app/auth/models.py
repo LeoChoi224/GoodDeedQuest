@@ -74,6 +74,8 @@ class User(Base):
         UniqueConstraint("provider", "provider_user_id", name="uq_user_provider"),
     )
     user_badges = relationship("UserBadge", back_populates="user")
+    shortforms = relationship("ShortForm", back_populates="user")
+    purchases = relationship("Purchase", back_populates="user")
 
 class PointTransaction(Base):
     __tablename__ = "point_transaction"
