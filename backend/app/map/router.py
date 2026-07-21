@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends, Query
 from typing import List
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from backend.app.common.database import get_db
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import get_current_user
-from backend.app.map.models import VolunteerCenter, Region
+from backend.app.map.models import VolunteerCenter, Region, Competition, CompetitionParticipant, City
 from backend.app.auth.models import User
 from backend.app.map.schemas import VolunteerCenterResponse
+from backend.app.map.enums import CompetitionStatus
+
 
 router = APIRouter(prefix="/map", tags=["Map Quests"])
 
@@ -25,6 +28,7 @@ def get_map_main(
     region = db.query(Region).filter(Region.region_id == db_user.region_id).first()
     return APIResponse.ok(data={"has_region": True, "region": {"region_id": region.region_id, "region_name": region.region_name}})
     
+
     
 
 
@@ -51,3 +55,41 @@ def get_nearby_volunteer_centers(
     )
 
     return APIResponse.ok(data=centers, message=f"반경 {radius_km}km 내 봉사센터 조회 성공")
+
+
+@router.get("/national-ranking")
+def get_national_ranking(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """대항전전국지도 - 시/도별 순위 (시군구 점수 합산)"""
+    competition = (
+        db.query(Competition)
+        .filter(Competition.status == CompetitionStatus.IN_PROGRESS)
+        .first()
+    )
+    if competition is None:
+        return APIResponse.fail(message="진행 중인 대항전이 없습니다")
+
+    results = (
+        db.query(
+            City.city_id,
+            City.city_name,
+            func.coalesce(func.sum(CompetitionParticipant.score), 0).label("total_score"),
+        )
+        .join(Region, Region.city_id == City.city_id)
+        .join(CompetitionParticipant, CompetitionParticipant.region_id == Region.region_id)
+        .filter(CompetitionParticipant.competition_id == competition.competition_id)
+        .group_by(City.city_id, City.city_name)
+        .order_by(func.sum(CompetitionParticipant.score).desc())
+        .all()
+    )
+
+    ranking = [
+        {"rank": idx + 1, "city_id": r.city_id, "city_name": r.city_name, "total_score": r.total_score}
+        for idx, r in enumerate(results)
+    ]
+    return APIResponse.ok(data={"competition_id": competition.competition_id, "ranking": ranking})
+
+
+
