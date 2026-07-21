@@ -110,7 +110,7 @@ class AdminUserDetailResponse(BaseModel):
     nickname: str
     birthday: date | None
     category: list | None
-    active_time: str | None
+    active_time: list | None
     profile_image_url: str | None
     trust_score: int
     point_balance: int
@@ -188,3 +188,19 @@ class AdminDashboardAlertResponse(BaseModel):
         ge=0,
         description="알림 관련 데이터 개수",
     )  
+
+
+# 관리자 대시보드 최근 7일 활동 추이의 날짜별 데이터를 반환하는 응답.
+class AdminDashboardActivityTrendResponse(BaseModel):
+    """관리자 대시보드 날짜별 접속 사용자 수 응답."""
+
+    access_date: date = Field(
+        ...,
+        description="접속 사용자 수를 집계한 날짜",
+    )
+
+    user_count: int = Field(
+        ...,
+        ge=0,
+        description="해당 날짜에 접속한 사용자 수",
+    )
