@@ -22,7 +22,11 @@ class AISettings(BaseSettings):
     DEFAULT_OPENAI_EMBEDDING_MODEL: str = os.getenv("DEFAULT_OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
     DEFAULT_GEMINI_EMBEDDING_MODEL: str = os.getenv("DEFAULT_GEMINI_EMBEDDING_MODEL", "models/text-embedding-004")
 
+    # Pydantic Settings 자동화 설정
     class Config:
         case_sensitive = True
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        extra = "ignore" 
 
 settings = AISettings()
