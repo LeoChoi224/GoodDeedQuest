@@ -22,9 +22,7 @@ class User(Base):
     # 정수 primary_key는 기본으로 auto increment
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
-    # → Region (아직 안 만든 테이블이라 FK는 주석)
-    region_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    # region_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("Region.region_id"), nullable=False)
+    region_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("region.region_id"), nullable=True)
 
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)          # 'google' / 'kakao'
@@ -74,6 +72,8 @@ class User(Base):
         UniqueConstraint("provider", "provider_user_id", name="uq_user_provider"),
     )
     user_badges = relationship("UserBadge", back_populates="user")
+    shortforms = relationship("ShortForm", back_populates="user")
+    purchases = relationship("Purchase", back_populates="user")
 
 class PointTransaction(Base):
     __tablename__ = "point_transaction"
@@ -86,12 +86,9 @@ class PointTransaction(Base):
     # [개선] NOT NULL → nullable. 적립/사용은 둘 중 하나만 채워짐
     #   EARN(적립): submission_id 만  /  SPEND(사용): purchase_id 만
 
-    # → Purchase (아직 안 만든 테이블이라 FK는 주석)
-    purchase_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    # purchase_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("Purchase.purchase_id"), nullable=True)
+    purchase_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("purchase.purchase_id"), nullable=True)
 
-    # → QuestSubmission (만든 테이블이라 FK 연결) 아직 비활성
-    # submission_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("QuestSubmission.submission_id"), nullable=True)
+    submission_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("quest_submission.submission_id"), nullable=True)
 
     amount: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
