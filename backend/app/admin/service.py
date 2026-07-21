@@ -10,15 +10,24 @@ from __future__ import annotations
 # 2. HTTPException 사용
 #    - 이번 프로젝트에서는 구현을 단순하게 유지하기 위해
 #      Service에서 FastAPI의 HTTPException을 사용합니다.
+#
+# 3. 주요 알림 응답 방식
+#    - 확인할 알림이 여러 개일 수 있으므로 알림 객체의 리스트로 반환합니다.
+#    - 각 알림에는 type, level, title, message, count 정보가 포함됩니다.
+#    - 알림을 화면에서 3초마다 순서대로 변경하는 처리는 React Native 프론트엔드에서 담당합니다.
 # =========================================================
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.admin import repository
 from backend.app.admin.enums import UserReportStatus
 from backend.app.admin.models import Report
+from backend.app.auth.models import User
+
+KST = ZoneInfo("Asia/Seoul")
 
 # 신고 목록을 조회하는 Service 함수.
 async def get_report_list(
@@ -230,3 +239,247 @@ async def approve_report_with_user_deactivation(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="신고 대상 사용자 비활성 처리 중 오류가 발생했습니다.",
         ) from exc
+    
+
+
+# 관리자 화면에서 사용자 목록을 조회하는 Service 함수.
+async def get_admin_user_list(
+    db: AsyncSession,
+    *,
+    nickname: str | None = None,
+    is_active: bool | None = None,
+    skip: int = 0,
+    limit: int = 20,
+    newest_first: bool = True,
+) -> list[User]:
+    # 닉네임과 활성 상태 조건에 따라 사용자 목록을 조회.
+    # 닉네임 검색어가 존재하면 앞뒤 공백을 제거합니다.
+    normalized_nickname = nickname.strip() if nickname is not None else None
+
+    # 닉네임 검색어가 공백뿐이라면 검색 조건을 제거.
+    if normalized_nickname == "":
+        normalized_nickname = None
+
+    # Repository를 통해 조건에 맞는 사용자 목록을 조회.
+    users = await repository.get_users(
+        db=db,
+        nickname=normalized_nickname,
+        is_active=is_active,
+        skip=skip,
+        limit=limit,
+        newest_first=newest_first,
+    )
+
+    return users
+
+
+# 관리자 화면에서 사용자 상세 정보를 조회하는 Service 함수.
+async def get_admin_user_detail(
+    db: AsyncSession,
+    *,
+    user_id: int,
+) -> User:
+    # Repository를 통해 사용자 한 명을 조회.
+    user = await repository.get_user_by_id(
+        db=db,
+        user_id=user_id,
+    )
+
+    # 사용자가 존재하지 않으면 404 오류 발생.
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="사용자 정보를 찾을 수 없습니다.",
+        )
+    return user
+
+
+# 관리자 화면에서 사용자 활성·비활성 상태를 변경하는 Service 함수.
+async def update_admin_user_active_status(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    is_active: bool,
+    current_admin_id: int,
+) -> User:
+    #사용자의 활성 상태를 변경합니다.
+    try:
+        # 상태를 변경할 사용자 정보를 조회.
+        user = await get_admin_user_detail(
+            db=db,
+            user_id=user_id,
+        )
+
+        # 관리자가 자신의 계정을 비활성화하려는 경우 처리를 막습니다.
+        if user.user_id == current_admin_id and is_active is False:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="관리자는 자신의 계정을 비활성화할 수 없습니다.",
+            )
+
+        # 기존 상태와 요청 상태가 같으면 중복 변경을 막습니다.
+        if user.is_active == is_active:
+            current_status = "활성" if is_active else "비활성"
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"이미 {current_status} 상태인 사용자입니다.",
+            )
+
+        # Repository를 통해 사용자 활성 상태를 변경.
+        updated_user = await repository.update_user_active_status(
+            db=db,
+            user=user,
+            is_active=is_active,
+        )
+
+        await db.commit()
+        await db.refresh(updated_user)
+
+        return updated_user
+
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except Exception as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="사용자 활성 상태 변경 중 오류가 발생했습니다.",
+        ) from exc
+    
+
+
+# 관리자 대시보드의 오늘의 요약 정보를 조회하는 Service 함수.
+async def get_admin_dashboard_summary(
+    db: AsyncSession,
+) -> dict[str, int]:
+    """관리자 대시보드에 표시할 오늘의 주요 수치를 조회합니다."""
+
+    # 한국 시간을 기준으로 오늘 날짜를 계산.
+    today = datetime.now(KST).date()
+
+    # 전체 사용자 수를 조회.
+    total_user_count = await repository.count_users(
+        db=db,
+    )
+
+    # 활성 상태인 사용자 수를 조회.
+    active_user_count = await repository.count_users_by_active_status(
+        db=db,
+        is_active=True,
+    )
+
+    # 비활성 상태인 사용자 수를 조회.
+    inactive_user_count = await repository.count_users_by_active_status(
+        db=db,
+        is_active=False,
+    )
+
+    # 처리 대기 상태인 신고 수를 조회.
+    pending_report_count = await repository.count_reports_by_status(
+        db=db,
+        status=UserReportStatus.PENDING,
+    )
+
+    # 오늘 날짜의 접속 사용자 수를 조회.
+    today_access_counts = await repository.get_daily_access_counts(
+        db=db,
+        start_date=today,
+        end_date=today,
+    )
+
+    # 오늘 접속 기록이 없으면 0을 사용.
+    today_access_user_count = (
+        today_access_counts[0][1]
+        if today_access_counts
+        else 0
+    )
+
+    # 대시보드 오늘의 요약 정보를 딕셔너리로 반환.
+    return {
+        "total_user_count": total_user_count,
+        "active_user_count": active_user_count,
+        "inactive_user_count": inactive_user_count,
+        "today_access_user_count": today_access_user_count,
+        "pending_report_count": pending_report_count,
+    }
+
+
+# 관리자 대시보드의 주요 알림을 조회하는 Service 함수.
+async def get_admin_dashboard_alerts(
+    db: AsyncSession,
+) -> list[dict[str, str | int]]:
+
+    # 처리 대기 상태인 신고 수를 조회.
+    pending_report_count = await repository.count_reports_by_status(
+        db=db,
+        status=UserReportStatus.PENDING,
+    )
+
+    # 자동 만료된 신고 수를 조회.
+    expired_report_count = await repository.count_reports_by_status(
+        db=db,
+        status=UserReportStatus.EXPIRED,
+    )
+
+    # 비활성 상태인 사용자 수를 조회.
+    inactive_user_count = await repository.count_users_by_active_status(
+        db=db,
+        is_active=False,
+    )
+
+    # 관리자 화면에 반환할 알림 목록을 생성.
+    alerts: list[dict[str, str | int]] = []
+
+    # 처리 대기 신고가 존재하면 확인이 필요한 알림을 추가.
+    if pending_report_count > 0:
+        alerts.append(
+            {
+                "type": "pending_report",
+                "level": "warning",
+                "title": "처리 대기 신고",
+                "message": f"처리가 필요한 신고가 {pending_report_count}건 있습니다.",
+                "count": pending_report_count,
+            }
+        )
+
+    # 자동 만료된 신고가 존재하면 확인용 알림을 추가.
+    if expired_report_count > 0:
+        alerts.append(
+            {
+                "type": "expired_report",
+                "level": "info",
+                "title": "자동 만료 신고",
+                "message": f"처리 기한이 지나 자동 만료된 신고가 {expired_report_count}건 있습니다.",
+                "count": expired_report_count,
+            }
+        )
+
+    # 비활성 사용자가 존재하면 계정 상태 확인 알림을 추가.
+    if inactive_user_count > 0:
+        alerts.append(
+            {
+                "type": "inactive_user",
+                "level": "info",
+                "title": "비활성 사용자",
+                "message": f"현재 비활성 상태인 사용자가 {inactive_user_count}명 있습니다.",
+                "count": inactive_user_count,
+            }
+        )
+
+    # 확인할 주요 항목이 없으면 정상 상태 알림을 추가.
+    if not alerts:
+        alerts.append(
+            {
+                "type": "normal",
+                "level": "success",
+                "title": "확인할 주요 알림 없음",
+                "message": "현재 확인이 필요한 주요 알림이 없습니다.",
+                "count": 0,
+            }
+        )
+
+    return alerts

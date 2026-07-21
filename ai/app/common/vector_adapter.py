@@ -223,7 +223,7 @@ def get_vector_store_adapter(provider: str = "faiss") -> VectorStoreAdapter:
 # 로컬 단독 테스트 기능
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    print("--- 6단계 Vector DB 어댑터 로컬 기능 테스트 (LangChain 버전) ---")
+    print("--- Vector DB 어댑터 로컬 기능 테스트 ---")
 
     # API Key 없이 실행해보기 위해 테스트 전용 더미 임베딩 클래스 선언
     class DummyTestEmbeddings(Embeddings):
