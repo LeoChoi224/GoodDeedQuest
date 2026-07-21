@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import create_access_token, get_password_hash, verify_password
 from backend.app.auth.shcemas import UserResponse, UserCreate, LoginResponse, LoginRequest
@@ -7,6 +7,8 @@ from backend.app.auth.models import User
 from backend.app.common.deps import get_repository
 from backend.app.common.repository import DatabaseRepository    
 from backend.app.common.auth import create_access_token, get_password_hash, verify_password, verify_token, oauth2_scheme
+from backend.app.auth.service import trigger_embedding_if_needed
+
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -14,6 +16,7 @@ UserRepository = Annotated[
     DatabaseRepository[User],
     Depends(get_repository(User))
 ]
+
 @router.post('/register', response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register(user_in: UserCreate, repository: UserRepository):
     if repository.get_by(email=user_in.email):
@@ -26,10 +29,12 @@ def register(user_in: UserCreate, repository: UserRepository):
 
     
 @router.post("/login", response_model=APIResponse[LoginResponse])
-def login(req: LoginRequest, repository: UserRepository):
+def login(req: LoginRequest, repository: UserRepository, background_tasks: BackgroundTasks):
     user = repository.get_by(email = req.email)
     if not user or not verify_password(req.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    trigger_embedding_if_needed(user, background_tasks)
     
     token = create_access_token(data={
         "sub": user.email,

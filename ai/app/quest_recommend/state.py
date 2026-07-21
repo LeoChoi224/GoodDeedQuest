@@ -17,7 +17,7 @@ class RecommendState(TypedDict):
     request_message: Optional[str]
 
     user_profile: Dict[str, Any]
-    context: Dict[str, Any]
+    situation_context: Dict[str, Any]
     request_context: Dict[str, Any]
 
     recommendation_strategy: Dict[str, Any]

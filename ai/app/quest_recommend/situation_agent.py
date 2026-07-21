@@ -15,7 +15,7 @@ def get_weather(latitude, longitude):
     if response.status_code == 200:
         return response.json()
 
-def analyze_context(state: RecommendState) -> Dict[str, Any]:
+def analyze_situation(state: RecommendState) -> Dict[str, Any]:
     """
     현재 시간, 요일, 날씨 및 위치 정보를 바탕으로
     주변 상황 컨텍스트(context)를 생성하는 LangGraph 노드 함수입니다.
@@ -55,7 +55,7 @@ def analyze_context(state: RecommendState) -> Dict[str, Any]:
     
     is_outdoor_feasible = False if today_weather in ["rainy", "snowy"] else True
 
-    return {"context": {
+    return {"situation_context": {
         "current_date": str(now.date()),
         "day_of_week_type": day_of_week_type,
         "is_weekend": is_weekend,

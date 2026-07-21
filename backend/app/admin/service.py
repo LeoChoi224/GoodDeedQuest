@@ -11,16 +11,14 @@ from __future__ import annotations
 #    - 이번 프로젝트에서는 구현을 단순하게 유지하기 위해
 #      Service에서 FastAPI의 HTTPException을 사용합니다.
 #
-# 3. 관리자 본인 계정 비활성화
-#    - 관리자가 본인 계정을 비활성화하지 못하도록 처리했습니다.
-#    - Router에서 current_admin.user_id를 Service에 전달합니다.
-#
-# 4. 다른 관리자 계정 상태 변경
-#    - 현재는 관리자 계정도 활성·비활성 상태 변경이 가능합니다.
-#    - 일반 관리자끼리 상태를 변경하지 못하게 할지 팀 정책 확인이 필요합니다.
+# 3. 주요 알림 응답 방식
+#    - 확인할 알림이 여러 개일 수 있으므로 알림 객체의 리스트로 반환합니다.
+#    - 각 알림에는 type, level, title, message, count 정보가 포함됩니다.
+#    - 알림을 화면에서 3초마다 순서대로 변경하는 처리는 React Native 프론트엔드에서 담당합니다.
 # =========================================================
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +26,8 @@ from backend.app.admin import repository
 from backend.app.admin.enums import UserReportStatus
 from backend.app.admin.models import Report
 from backend.app.auth.models import User
+
+KST = ZoneInfo("Asia/Seoul")
 
 # 신고 목록을 조회하는 Service 함수.
 async def get_report_list(
@@ -349,3 +349,137 @@ async def update_admin_user_active_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="사용자 활성 상태 변경 중 오류가 발생했습니다.",
         ) from exc
+    
+
+
+# 관리자 대시보드의 오늘의 요약 정보를 조회하는 Service 함수.
+async def get_admin_dashboard_summary(
+    db: AsyncSession,
+) -> dict[str, int]:
+    """관리자 대시보드에 표시할 오늘의 주요 수치를 조회합니다."""
+
+    # 한국 시간을 기준으로 오늘 날짜를 계산.
+    today = datetime.now(KST).date()
+
+    # 전체 사용자 수를 조회.
+    total_user_count = await repository.count_users(
+        db=db,
+    )
+
+    # 활성 상태인 사용자 수를 조회.
+    active_user_count = await repository.count_users_by_active_status(
+        db=db,
+        is_active=True,
+    )
+
+    # 비활성 상태인 사용자 수를 조회.
+    inactive_user_count = await repository.count_users_by_active_status(
+        db=db,
+        is_active=False,
+    )
+
+    # 처리 대기 상태인 신고 수를 조회.
+    pending_report_count = await repository.count_reports_by_status(
+        db=db,
+        status=UserReportStatus.PENDING,
+    )
+
+    # 오늘 날짜의 접속 사용자 수를 조회.
+    today_access_counts = await repository.get_daily_access_counts(
+        db=db,
+        start_date=today,
+        end_date=today,
+    )
+
+    # 오늘 접속 기록이 없으면 0을 사용.
+    today_access_user_count = (
+        today_access_counts[0][1]
+        if today_access_counts
+        else 0
+    )
+
+    # 대시보드 오늘의 요약 정보를 딕셔너리로 반환.
+    return {
+        "total_user_count": total_user_count,
+        "active_user_count": active_user_count,
+        "inactive_user_count": inactive_user_count,
+        "today_access_user_count": today_access_user_count,
+        "pending_report_count": pending_report_count,
+    }
+
+
+# 관리자 대시보드의 주요 알림을 조회하는 Service 함수.
+async def get_admin_dashboard_alerts(
+    db: AsyncSession,
+) -> list[dict[str, str | int]]:
+
+    # 처리 대기 상태인 신고 수를 조회.
+    pending_report_count = await repository.count_reports_by_status(
+        db=db,
+        status=UserReportStatus.PENDING,
+    )
+
+    # 자동 만료된 신고 수를 조회.
+    expired_report_count = await repository.count_reports_by_status(
+        db=db,
+        status=UserReportStatus.EXPIRED,
+    )
+
+    # 비활성 상태인 사용자 수를 조회.
+    inactive_user_count = await repository.count_users_by_active_status(
+        db=db,
+        is_active=False,
+    )
+
+    # 관리자 화면에 반환할 알림 목록을 생성.
+    alerts: list[dict[str, str | int]] = []
+
+    # 처리 대기 신고가 존재하면 확인이 필요한 알림을 추가.
+    if pending_report_count > 0:
+        alerts.append(
+            {
+                "type": "pending_report",
+                "level": "warning",
+                "title": "처리 대기 신고",
+                "message": f"처리가 필요한 신고가 {pending_report_count}건 있습니다.",
+                "count": pending_report_count,
+            }
+        )
+
+    # 자동 만료된 신고가 존재하면 확인용 알림을 추가.
+    if expired_report_count > 0:
+        alerts.append(
+            {
+                "type": "expired_report",
+                "level": "info",
+                "title": "자동 만료 신고",
+                "message": f"처리 기한이 지나 자동 만료된 신고가 {expired_report_count}건 있습니다.",
+                "count": expired_report_count,
+            }
+        )
+
+    # 비활성 사용자가 존재하면 계정 상태 확인 알림을 추가.
+    if inactive_user_count > 0:
+        alerts.append(
+            {
+                "type": "inactive_user",
+                "level": "info",
+                "title": "비활성 사용자",
+                "message": f"현재 비활성 상태인 사용자가 {inactive_user_count}명 있습니다.",
+                "count": inactive_user_count,
+            }
+        )
+
+    # 확인할 주요 항목이 없으면 정상 상태 알림을 추가.
+    if not alerts:
+        alerts.append(
+            {
+                "type": "normal",
+                "level": "success",
+                "title": "확인할 주요 알림 없음",
+                "message": "현재 확인이 필요한 주요 알림이 없습니다.",
+                "count": 0,
+            }
+        )
+
+    return alerts
