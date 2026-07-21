@@ -66,6 +66,7 @@ class Quest(Base):
     difficulty: Mapped[Difficulty] = mapped_column(
         SQLEnum(Difficulty, name="quest_difficulty_enum"), nullable=False, comment="난이도 (VERY EASY ~ VERY HARD)"
     )
+    estimated_duration: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="예상 소요 시간 (분 단위)")
     
     # 벡터 검색용 퀘스트 임베딩 정보 (임베딩 데이터는 비동기로 처리되므로 생성 직후에는 Null이 허용되어야 함)
     quest_embedding: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="벡터 검색용 퀘스트 임베딩 정보")
