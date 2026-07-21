@@ -1,5 +1,10 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+load_dotenv(ROOT_DIR / ".env")
 
 class AISettings(BaseSettings):
     PROJECT_NAME: str = "Good Deed Quest AI Service"

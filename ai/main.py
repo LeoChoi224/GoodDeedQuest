@@ -4,9 +4,10 @@ from typing import List, Optional
 from ai.app.quest_recommend.agent import run_recommendation_flow
 from ai.app.quest_verification.verifier import verify_quest_image
 from ai.app.challenge_recommend.agent import recommend_collaborative_teams
-from ai.app.shorts.generator import generate_shorts_boilerplate
+from ai.app.short_form.generator import generate_shorts_boilerplate
 from ai.app.quest_recommend.rag import query_rag_coach
 from ai.app.local_quest.agent import get_local_shortage_recommendations
+from ai.app.user.embedding import embed_user_profile
 
 app = FastAPI(
     title="Good Deed Quest AI Model Server",
@@ -75,6 +76,17 @@ def ai_local_quest_recommend(req: LocalShortageRequest):
     recommended = get_local_shortage_recommendations(req.location)
     return {"success": True, "data": recommended}
 
+class UserEmbedRequest(BaseModel):
+    category: Optional[List[str]] = None
+    active_time: Optional[List[str]] = None
+    preferred_difficulty: Optional[str] = None
+    age: Optional[int] = None
+
+@app.post("/ai/user/embed")
+def ai_user_embed(req: UserEmbedRequest):
+    vector = embed_user_profile(req.category, req.active_time, req.preferred_difficulty, req.age)
+    return { "success":True, "data": { "embedding": vector } }
+
 @app.get("/")
 def home():
     return {
@@ -82,6 +94,7 @@ def home():
         "service": "Good Deed Quest AI Backend",
         "docs": "/docs"
     }
+
 
 if __name__ == "__main__":
     import uvicorn
