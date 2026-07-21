@@ -121,3 +121,70 @@ class AdminUserDetailResponse(BaseModel):
     role: UserRole
     created_at: datetime
     updated_at: datetime
+
+
+
+# 관리자 대시보드 오늘의 요약 정보를 반환하는 응답.
+class AdminDashboardSummaryResponse(BaseModel):
+    """관리자 대시보드 오늘의 요약 응답."""
+
+    total_user_count: int = Field(
+        ...,
+        ge=0,
+        description="전체 사용자 수",
+    )
+
+    active_user_count: int = Field(
+        ...,
+        ge=0,
+        description="활성 상태인 사용자 수",
+    )
+
+    inactive_user_count: int = Field(
+        ...,
+        ge=0,
+        description="비활성 상태인 사용자 수",
+    )
+
+    today_access_user_count: int = Field(
+        ...,
+        ge=0,
+        description="오늘 접속한 사용자 수",
+    )
+
+    pending_report_count: int = Field(
+        ...,
+        ge=0,
+        description="처리 대기 상태인 신고 수",
+    )
+
+
+# 관리자 대시보드 주요 알림 한 건을 반환하는 응답.
+class AdminDashboardAlertResponse(BaseModel):
+    """관리자 대시보드 주요 알림 응답."""
+
+    type: str = Field(
+        ...,
+        description="알림 종류",
+    )
+
+    level: str = Field(
+        ...,
+        description="알림 표시 수준",
+    )
+
+    title: str = Field(
+        ...,
+        description="알림 제목",
+    )
+
+    message: str = Field(
+        ...,
+        description="관리자 화면에 표시할 알림 문구",
+    )
+
+    count: int = Field(
+        ...,
+        ge=0,
+        description="알림 관련 데이터 개수",
+    )  
