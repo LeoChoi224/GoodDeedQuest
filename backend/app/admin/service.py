@@ -17,7 +17,7 @@ from __future__ import annotations
 #    - 알림을 화면에서 3초마다 순서대로 변경하는 처리는 React Native 프론트엔드에서 담당합니다.
 # =========================================================
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -187,6 +187,13 @@ async def approve_report_with_user_deactivation(
 
         reported_user_id = post.user_id
 
+        # 게시글 작성자 정보가 이미 삭제되어 사용자 ID가 없으면 처리를 중단.
+        if reported_user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="신고 대상 사용자 정보가 존재하지 않습니다.",
+            )
+        
         # Repository를 통해 신고 대상 사용자를 조회.
         reported_user = await repository.get_user_by_id(
             db=db,
@@ -197,6 +204,15 @@ async def approve_report_with_user_deactivation(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="신고 대상 사용자를 찾을 수 없습니다.",
+            )
+
+
+        # 관리자가 자신의 게시글에 대한 신고를 승인하여
+        # 본인 계정을 비활성화하는 상황을 차단합니다.
+        if reported_user.user_id == admin_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="관리자는 자신의 계정을 비활성화할 수 없습니다.",
             )
 
         if reported_user.is_active is False:
@@ -483,3 +499,70 @@ async def get_admin_dashboard_alerts(
         )
 
     return alerts
+
+# 접수 후 30일이 지난 PENDING 신고를 자동 만료 처리하는 Service 함수.
+async def expire_pending_reports(
+    db: AsyncSession,
+) -> int:
+    """30일 이상 처리되지 않은 신고를 EXPIRED 상태로 변경합니다."""
+
+    try:
+        # UTC 현재 시간을 기준으로 30일 전 시각을 계산.
+        expiration_date = datetime.now(timezone.utc) - timedelta(days=30)
+
+        # Repository를 통해 만료 대상 신고를 일괄 변경.
+        expired_report_count = await repository.update_expired_reports(
+            db=db,
+            expiration_date=expiration_date,
+        )
+
+        await db.commit()
+
+        return expired_report_count
+
+    except Exception as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="신고 자동 만료 처리 중 오류가 발생했습니다.",
+        ) from exc
+    
+
+# 관리자 대시보드의 최근 7일 일별 접속 사용자 수를 조회하는 Service 함수.
+async def get_admin_dashboard_activity_trend(
+    db: AsyncSession,
+) -> list[dict[str, date | int]]:
+    """오늘을 포함한 최근 7일의 일별 접속 사용자 수를 조회합니다."""
+
+    today = datetime.now(KST).date()
+
+    # 오늘을 포함한 최근 7일이므로 6일 전을 시작 날짜로 계산.
+    start_date = today - timedelta(days=6)
+
+    # Repository를 통해 최근 7일의 날짜별 접속 사용자 수를 조회.
+    daily_access_counts = await repository.get_daily_access_counts(
+        db=db,
+        start_date=start_date,
+        end_date=today,
+    )
+
+    # 조회 결과를 날짜를 키로 사용하는 딕셔너리로 변환.
+    access_count_by_date = {
+        access_date: user_count
+        for access_date, user_count in daily_access_counts
+    }
+
+    # 접속 기록이 없는 날짜도 0명으로 포함하여 항상 7일을 반환.
+    activity_trend = [
+        {
+            "access_date": start_date + timedelta(days=day_offset),
+            "user_count": access_count_by_date.get(
+                start_date + timedelta(days=day_offset),
+                0,
+            ),
+        }
+        for day_offset in range(7)
+    ]
+
+    return activity_trend

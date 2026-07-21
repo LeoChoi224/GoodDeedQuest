@@ -3,17 +3,18 @@ from __future__ import annotations
 # =========================================================
 # [검토 및 확인할 내용]
 #
-# 1. DB 세션 Dependency 경로
-#    - 현재는 backend.app.common.database.get_db를 사용한다고 가정.
-#    - 실제 프로젝트의 AsyncSession Dependency 함수 이름과 경로를 확인 필요.
+# 1. DB 세션 Dependency
+#    - backend.app.common.database.get_db를 사용합니다.
+#    - AsyncSession은 각 요청이 끝나면 공통 DB Dependency에서 정리합니다.
 #
-# 2. 관리자 인증 Dependency 경로
-#    - 현재는 backend.app.auth.dependencies.get_current_admin을 사용한다고 가정.
-#    - 실제 인증 담당 팀원이 만든 관리자 인증 함수 이름과 경로를 확인 필요.
+# 2. 관리자 인증 Dependency
+#    - JWT 생성 및 검증은 common.auth를 재사용합니다.
+#    - get_current_user()에서 현재 로그인 사용자를 조회합니다.
+#    - get_current_admin()에서 관리자 권한을 확인합니다.
 #
-# 3. 관리자 ID 컬럼명
-#    - 현재 로그인 관리자 객체에서 current_admin.user_id를 사용.
-#    - 실제 User 모델의 PK 컬럼명이 user_id인지 확인 필요.
+# 3. 관리자 ID 사용
+#    - 현재 로그인 관리자 객체의 current_admin.user_id를 사용합니다.
+#    - 신고 처리 시 reviewed_by에 해당 관리자 ID를 저장합니다.
 #
 # 4. 신고 관리 API 주소
 #    - GET   /admin/reports
@@ -29,20 +30,23 @@ from __future__ import annotations
 # 6. 관리자 대시보드 API 주소
 #    - GET /admin/dashboard/summary
 #    - GET /admin/dashboard/alerts
+#    - GET /admin/dashboard/activity-trend
 #
 # 7. 대시보드 응답 Schema
 #    - 오늘의 요약은 AdminDashboardSummaryResponse를 사용합니다.
-#    - 주요 알림은 여러 알림 객체를 반환하므로 list[AdminDashboardAlertResponse] 형태를 사용합니다.
+#    - 주요 알림은 list[AdminDashboardAlertResponse] 형태를 사용합니다.
+#    - 최근 7일 활동 추이는 list[AdminDashboardActivityTrendResponse] 형태를 사용합니다.
 # =========================================================
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.auth.models import User
-from backend.app.auth.dependencies import get_current_admin
+from backend.app.admin.dependencies import get_current_admin
 from backend.app.common.database import get_db
 from backend.app.admin.enums import UserReportStatus
 from backend.app.admin.schema import (
+    AdminDashboardActivityTrendResponse,
     AdminDashboardAlertResponse,
     AdminDashboardSummaryResponse,
     AdminUserDetailResponse,
@@ -312,3 +316,23 @@ async def get_admin_dashboard_alerts(
     )
 
     return alerts
+
+# 관리자 대시보드의 최근 7일 일별 접속 사용자 수를 조회하는 API.
+@router.get(
+    "/dashboard/activity-trend",
+    response_model=list[AdminDashboardActivityTrendResponse],
+    status_code=status.HTTP_200_OK,
+    summary="관리자 대시보드 최근 7일 활동 추이 조회",
+)
+async def get_admin_dashboard_activity_trend(
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+) -> list[AdminDashboardActivityTrendResponse]:
+    """오늘을 포함한 최근 7일의 일별 접속 사용자 수를 조회합니다."""
+
+    # Service를 호출하여 최근 7일 활동 추이를 조회.
+    activity_trend = await service.get_admin_dashboard_activity_trend(
+        db=db,
+    )
+
+    return activity_trend
