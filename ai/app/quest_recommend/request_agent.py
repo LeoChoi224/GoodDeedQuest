@@ -40,7 +40,7 @@ def analyze_request(state: RecommendState) -> Dict[str, Any]:
         return {"request_context": {}}
     
     try:
-        llm = get_openai_model(model_name="gpt-4o-mini", temperature=0.0)
+        llm = get_openai_model(model_name="gpt-4o-mini", temperature=0.0)  # 일관성 있는 분석을 위해 온도=0.0
         structured_llm = llm.with_structured_output(RequestAnalysis)
 
         prompt = (
