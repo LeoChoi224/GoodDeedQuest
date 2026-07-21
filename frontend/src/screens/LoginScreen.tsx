@@ -33,6 +33,8 @@ import Skyline from '../components/Skyline';
 import SpringButton from '../components/SpringButton';
 import GdqInput from '../components/GdqInput';
 import { MailIcon, LockIcon, SwordIcon, EyeOpen, EyeOff, HamburgerIcon, KakaoIcon, GoogleIcon } from '../components/PixelIcons';
+import { useToast } from '../components/Toast';
+import { login } from '../api/auth';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
@@ -69,6 +71,28 @@ export default function LoginScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [showPw, setShowPw] = useState(false);
+
+  const toast = useToast();
+const [ email, setEmail ] = useState('');
+const [ password, setPassword ] = useState('');
+const [loading, setLoading] = useState(false);
+
+const onLogin = async () => {
+  if (!email.trim() || !password) {
+    toast.show('이메일과 비밀번호를 입력해 주세요.');
+    return;
+  }
+  setLoading(true)
+  try {
+    await login(email.trim(), password);
+    navigation.reset({ index:0, routes: [{ name: 'Main'}] });
+  } catch (err: any) {
+    const detail = err?.response?.data?.detail;
+    toast.show(detail ?? '로그인에 실패했습니다. 다시 시도해 주세요.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const HERO_H = Math.max(400, Dimensions.get('window').height * 0.5);
 
@@ -120,6 +144,8 @@ export default function LoginScreen({ navigation }: Props) {
           <Text style={styles.label}>이메일</Text>
           <GdqInput
             style={styles.inputSpacing}
+            value={email}
+            onChangeText={setEmail}
             keyboardType="email-address"
             autoCapitalize="none"
             placeholder="이메일을 입력하세요"
@@ -128,20 +154,20 @@ export default function LoginScreen({ navigation }: Props) {
 
           <Text style={styles.label}>비밀번호</Text>
           <GdqInput
+            value={password}
+            onChangeText={setPassword}
             placeholder="비밀번호를 입력하세요"
             secureTextEntry={!showPw}
+            autoCapitalize='none'
             leftIcon={<LockIcon />}
             rightAccessory={showPw ? <EyeOff /> : <EyeOpen />}
             onRightPress={() => setShowPw((s) => !s)}
           />
 
-          <SpringButton
-            style={styles.primaryBtn}
-            onPress={() => navigation.reset({ index: 0, routes: [{ name: 'Main' }] })}
-          >
-            <SwordIcon />
-            <Text style={styles.primaryBtnText}>로그인하기</Text>
-          </SpringButton>
+          <SpringButton style={styles.primaryBtn} onPress={onLogin} disabled={loading}>
+  <SwordIcon />
+  <Text style={styles.primaryBtnText}>{loading ? '로그인 중...' : '로그인하기'}</Text>
+</SpringButton>
 
           <Text style={styles.signupHint}>
             아직 영웅이 아니신가요?{'  '}
