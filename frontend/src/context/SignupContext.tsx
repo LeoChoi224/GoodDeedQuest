@@ -39,6 +39,9 @@ type SignupState = {
   times: Record<string, boolean>;
   toggleTime: (k: string) => void;
 
+  birthday: Date | null;
+  setBirthday: (v: Date) => void;
+
   reset: () => void;
 };
 
@@ -67,6 +70,7 @@ export function SignupProvider({ children }: { children: React.ReactNode }) {
   const [nickOk, setNickOk] = useState(false);
   const [cats, setCats] = useState<Record<string, boolean>>(initialCats);
   const [times, setTimes] = useState<Record<string, boolean>>(initialTimes);
+  const [birthday, setBirthday] = useState<Date | null>(null);
 
   const allAgreed = terms.t1 && terms.t2 && terms.t3;
 
@@ -134,6 +138,9 @@ export function SignupProvider({ children }: { children: React.ReactNode }) {
       times,
       toggleTime: (k) => setTimes((s) => ({ ...s, [k]: !s[k] })),
 
+      birthday,
+      setBirthday,
+
       reset: () => {
         setTerms({ t1: false, t2: false, t3: false });
         setEmail('');
@@ -146,9 +153,10 @@ export function SignupProvider({ children }: { children: React.ReactNode }) {
         setNickOk(false);
         setCats(initialCats());
         setTimes(initialTimes());
+        setBirthday(null);
       },
     }),
-    [terms, allAgreed, email, emailMsg, emailOk, password, passwordConfirm, nickname, nickMsg, nickOk, cats, times]
+    [terms, allAgreed, email, emailMsg, emailOk, password, passwordConfirm, nickname, nickMsg, nickOk, cats, times, birthday]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

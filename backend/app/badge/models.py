@@ -19,12 +19,12 @@ class Badge(Base):
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     icon_url: Mapped[str] = mapped_column(String(500), nullable=False)
     badge_category: Mapped[str] = mapped_column(String(30), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=True, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    user_badges = relationship("UserBadge", back_populates="badge")
+    user_badges: Mapped[list["UserBadge"]] = relationship("UserBadge", back_populates="badge")
 
 
 class UserBadge(Base):
@@ -40,5 +40,5 @@ class UserBadge(Base):
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    badge = relationship("Badge", back_populates="user_badges")
-    user = relationship("User", back_populates="user_badges")
+    badge: Mapped["Badge"] = relationship("Badge", back_populates="user_badges")
+    user: Mapped["User"] = relationship("User", back_populates="user_badges")

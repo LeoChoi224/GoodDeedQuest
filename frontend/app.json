@@ -13,7 +13,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#033236"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.seonhaeng.quest"
@@ -25,6 +27,10 @@
       },
       "package": "com.seonhaeng.quest"
     },
-    "plugins": ["expo-font"]
+    "plugins": [
+      "expo-font",
+      "expo-secure-store",
+      "@react-native-community/datetimepicker"
+    ]
   }
 }
