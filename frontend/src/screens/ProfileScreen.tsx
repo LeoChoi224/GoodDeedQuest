@@ -19,26 +19,68 @@ import SpringButton from '../components/SpringButton';
 import Shake from '../components/Shake';
 import { CalIcon } from '../components/PixelIcons';
 import { useSignup } from '../context/SignupContext';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { useToast } from '../components/Toast';
+import { register } from '../api/auth';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
+
+function formatDate(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 export default function ProfileScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const s = useSignup();
+  const toast = useToast();
   const [nickShake, setNickShake] = useState(0);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const onCheckNick = () => {
     const ok = s.checkNick();
     if (!ok) setNickShake((v) => v + 1);
   };
 
-  const onNext = () => {
+  const onChangeBirthday = (_event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (selectedDate) s.setBirthday(selectedDate);
+  };
+
+  const onNext = async () => {
     const ok = s.nickOk || s.checkNick();
     if (!ok) {
       setNickShake((v) => v + 1);
       return;
     }
-    navigation.navigate('Complete');
+    if (!s.birthday) {
+      toast.show('생년월일을 선택해 주세요.');
+      return;
+    }
+
+    const category = Object.keys(s.cats).filter((k) => s.cats[k]);
+    const active_time = Object.keys(s.times).filter((k) => s.times[k]);
+
+    setSubmitting(true);
+    try {
+      await register({
+        email: s.email,
+        password: s.password,
+        nickname: s.nickname,
+        birthday: formatDate(s.birthday),
+        category,
+        active_time,
+      });
+      navigation.navigate('Complete');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      toast.show(typeof detail === 'string' ? detail : '회원가입에 실패했습니다. 다시 시도해 주세요.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -70,14 +112,29 @@ export default function ProfileScreen({ navigation }: Props) {
 
           {/* birth */}
           <Text style={[styles.label, { marginTop: 14 }]}>생년월일</Text>
-          <Pressable>
+          <Pressable onPress={() => setShowDatePicker(true)}>
             <GdqInput
               editable={false}
-              placeholder="생년월일"
-              style={{ color: colors.textMuted }}
+              placeholder="생년월일을 선택하세요"
+              value={s.birthday ? formatDate(s.birthday) : ''}
+              style={{ color: s.birthday ? colors.textPrimary : colors.textMuted }}
               rightAccessory={<CalIcon />}
             />
           </Pressable>
+          {showDatePicker && (
+            <DateTimePicker
+              value={s.birthday ?? new Date(2000, 0, 1)}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              maximumDate={new Date()}
+              onChange={onChangeBirthday}
+            />
+          )}
+          {Platform.OS === 'ios' && showDatePicker && (
+            <SpringButton style={styles.dateDoneBtn} onPress={() => setShowDatePicker(false)}>
+              <Text style={styles.dateDoneText}>완료</Text>
+            </SpringButton>
+          )}
 
           {/* categories */}
           <Text style={styles.section}>선호 카테고리</Text>
@@ -123,8 +180,8 @@ export default function ProfileScreen({ navigation }: Props) {
         locations={[0, 0.3]}
         style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}
       >
-        <SpringButton onPress={onNext} style={[styles.nextBtn, shadow.button]}>
-          <Text style={styles.nextText}>다음</Text>
+        <SpringButton onPress={onNext} style={[styles.nextBtn, shadow.button]} disabled={submitting}>
+          <Text style={styles.nextText}>{submitting ? '가입 처리 중...' : '다음'}</Text>
         </SpringButton>
       </LinearGradient>
     </View>
@@ -142,6 +199,8 @@ const styles = StyleSheet.create({
   dupBtn: { width: 80, height: 50, borderRadius: radii.input, backgroundColor: colors.primaryDark, alignItems: 'center', justifyContent: 'center' },
   dupText: { color: colors.white, fontSize: 13, fontWeight: '600', fontFamily: fonts.bodyM },
   fieldMsg: { marginTop: 8, marginLeft: 2, fontSize: 12, fontWeight: '600', fontFamily: fonts.bodyM },
+  dateDoneBtn: { alignSelf: 'flex-end', marginTop: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: radii.input, backgroundColor: colors.primaryDark },
+  dateDoneText: { color: colors.white, fontSize: 13, fontWeight: '600', fontFamily: fonts.bodyM },
   section: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, marginTop: 22, marginBottom: 12, fontFamily: fonts.bodyB },
   grid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -CELL_GAP / 2 },
   gridCell: { width: '50%', paddingHorizontal: CELL_GAP / 2, marginBottom: CELL_GAP },

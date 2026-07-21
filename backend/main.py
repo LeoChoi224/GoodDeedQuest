@@ -12,9 +12,10 @@ from backend.app.short_form.router import router as shorts_router
 from backend.app.map.router import router as map_router
 from backend.app.growth.router import router as growth_router
 # from backend.app.notification.router import router as notification_router  # TODO: notification 모듈 아직 없음
-from backend.app.admin.router import router as admin_router
+# from backend.app.admin.router import router as admin_router  # TODO: auth.dependencies.get_current_admin 미구현
 from backend.app.shop.router import router as shop_router
 from backend.app.badge import models as badge_models  # noqa: F401  # badge 라우터는 아직 없지만, User.user_badges relationship("UserBadge")가 참조하려면 이 모델이 로드는 돼 있어야 함
+from backend.app.shop import models as shop_models  # noqa: F401  # shop 라우터가 아직 Purchase 모델을 안 써서, User.purchases relationship("Purchase")를 위해 직접 로드
 # TODO router.py 작업할때 short_form, badge 라우터 임포트 예정
 
 app = FastAPI(
@@ -45,7 +46,7 @@ app.include_router(shorts_router, prefix=api_prefix)
 app.include_router(map_router, prefix=api_prefix)
 app.include_router(growth_router, prefix=api_prefix)
 # app.include_router(notification_router, prefix=api_prefix)  # TODO: notification 모듈 아직 없음
-app.include_router(admin_router, prefix=api_prefix)
+# app.include_router(admin_router, prefix=api_prefix)  # TODO: auth.dependencies.get_current_admin 미구현
 app.include_router(shop_router, prefix=api_prefix)
 
 @app.get("/")
