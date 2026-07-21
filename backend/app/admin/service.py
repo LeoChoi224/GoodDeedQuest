@@ -4,8 +4,9 @@ from __future__ import annotations
 # [검토 및 확인할 내용]
 #
 # 1. 트랜잭션 처리
-#    - Repository는 flush()까지만 수행합니다.
-#    - Service에서 commit()과 rollback()을 처리합니다.
+#    - Repository는 DB 조회·변경과 flush()까지만 수행합니다.
+#    - 최종 commit()과 rollback()은 common.database.get_db에서 처리합니다.
+#    - Service에서는 비즈니스 검증과 Repository 호출을 담당합니다.
 #
 # 2. HTTPException 사용
 #    - 이번 프로젝트에서는 구현을 단순하게 유지하기 위해
@@ -20,7 +21,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from backend.app.admin import repository
 from backend.app.admin.enums import UserReportStatus
@@ -30,8 +31,8 @@ from backend.app.auth.models import User
 KST = ZoneInfo("Asia/Seoul")
 
 # 신고 목록을 조회하는 Service 함수.
-async def get_report_list(
-    db: AsyncSession,
+def get_report_list(
+    db: Session,
     *,
     report_status: UserReportStatus | None = None,
     skip: int = 0,
@@ -39,7 +40,7 @@ async def get_report_list(
     newest_first: bool = True,
 ) -> list[Report]:
     # Repository에 목록 조회 조건을 전달하여 신고 목록을 조회.
-    reports = await repository.get_reports(
+    reports = repository.get_reports(
         db=db,
         status=report_status,
         skip=skip,
@@ -49,15 +50,14 @@ async def get_report_list(
 
     return reports
 
-
 # 신고 상세 정보를 조회하는 Service 함수.
-async def get_report_detail(
-    db: AsyncSession,
+def get_report_detail(
+    db: Session,
     *,
     report_id: int,
 ) -> Report:
     # Repository를 통해 신고 ID와 일치하는 신고를 조회.
-    report = await repository.get_report_by_id(
+    report = repository.get_report_by_id(
         db=db,
         report_id=report_id,
     )
@@ -83,8 +83,8 @@ def _validate_report_is_pending(
 
 
 # 신고와 연결된 게시글을 조회하는 내부 함수.
-async def _get_reported_post(
-    db: AsyncSession,
+def _get_reported_post(
+    db: Session,
     *,
     report: Report,
 ):
@@ -96,7 +96,7 @@ async def _get_reported_post(
         )
 
     # Repository를 통해 신고 대상 게시글을 조회.
-    post = await repository.get_post_by_id(
+    post = repository.get_post_by_id(
         db=db,
         post_id=report.post_id,
     )
@@ -112,32 +112,32 @@ async def _get_reported_post(
 
 
 # 신고된 게시글을 삭제하고 신고를 승인 처리하는 Service 함수.
-async def approve_report_with_post_deletion(
-    db: AsyncSession,
+def approve_report_with_post_deletion(
+    db: Session,
     *,
     report_id: int,
     admin_id: int,
 ) -> Report:
     try:
-        report = await get_report_detail(
+        report = get_report_detail(
             db=db,
             report_id=report_id,
         )
         _validate_report_is_pending(report)
 
-        post = await _get_reported_post(
+        post = _get_reported_post(
             db=db,
             report=report,
         )
 
-        await repository.delete_community_post(
+        repository.delete_community_post(
             db=db,
             post=post,
         )
 
         reviewed_at = datetime.now(timezone.utc)
 
-        updated_report = await repository.update_report_review(
+        updated_report = repository.update_report_review(
             db=db,
             report=report,
             status=UserReportStatus.APPROVED,
@@ -145,19 +145,13 @@ async def approve_report_with_post_deletion(
             reviewed_at=reviewed_at,
         )
 
-        await db.commit()
-        await db.refresh(updated_report)
-
         return updated_report
 
     # HTTPException은 원래 상태 코드와 메시지를 유지해야 하므로 그대로 다시 발생.
     except HTTPException:
-        await db.rollback()
         raise
 
     except Exception as exc:
-        await db.rollback()
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="신고 게시글 삭제 처리 중 오류가 발생했습니다.",
@@ -165,22 +159,22 @@ async def approve_report_with_post_deletion(
 
 
 # 신고 대상 사용자를 차단(비활성화)하고 신고를 승인 처리하는 Service 함수.
-async def approve_report_with_user_deactivation(
-    db: AsyncSession,
+def approve_report_with_user_deactivation(
+    db: Session,
     *,
     report_id: int,
     admin_id: int,
 ) -> Report:
 
     try:
-        report = await get_report_detail(
+        report = get_report_detail(
             db=db,
             report_id=report_id,
         )
 
         _validate_report_is_pending(report)
 
-        post = await _get_reported_post(
+        post = _get_reported_post(
             db=db,
             report=report,
         )
@@ -195,7 +189,7 @@ async def approve_report_with_user_deactivation(
             )
         
         # Repository를 통해 신고 대상 사용자를 조회.
-        reported_user = await repository.get_user_by_id(
+        reported_user = repository.get_user_by_id(
             db=db,
             user_id=reported_user_id,
         )
@@ -222,7 +216,7 @@ async def approve_report_with_user_deactivation(
             )
 
         # Repository를 통해 신고 대상 사용자를 비활성 상태로 변경.
-        await repository.update_user_active_status(
+        repository.update_user_active_status(
             db=db,
             user=reported_user,
             is_active=False,
@@ -230,7 +224,7 @@ async def approve_report_with_user_deactivation(
 
         reviewed_at = datetime.now(timezone.utc)
 
-        updated_report = await repository.update_report_review(
+        updated_report = repository.update_report_review(
             db=db,
             report=report,
             status=UserReportStatus.APPROVED,
@@ -238,19 +232,12 @@ async def approve_report_with_user_deactivation(
             reviewed_at=reviewed_at,
         )
 
-        await db.commit()
-        await db.refresh(updated_report)
-
         return updated_report
 
     except HTTPException:
-        await db.rollback()
-
         raise
 
     except Exception as exc:
-        await db.rollback()
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="신고 대상 사용자 비활성 처리 중 오류가 발생했습니다.",
@@ -259,8 +246,8 @@ async def approve_report_with_user_deactivation(
 
 
 # 관리자 화면에서 사용자 목록을 조회하는 Service 함수.
-async def get_admin_user_list(
-    db: AsyncSession,
+def get_admin_user_list(
+    db: Session,
     *,
     nickname: str | None = None,
     is_active: bool | None = None,
@@ -277,7 +264,7 @@ async def get_admin_user_list(
         normalized_nickname = None
 
     # Repository를 통해 조건에 맞는 사용자 목록을 조회.
-    users = await repository.get_users(
+    users = repository.get_users(
         db=db,
         nickname=normalized_nickname,
         is_active=is_active,
@@ -290,13 +277,13 @@ async def get_admin_user_list(
 
 
 # 관리자 화면에서 사용자 상세 정보를 조회하는 Service 함수.
-async def get_admin_user_detail(
-    db: AsyncSession,
+def get_admin_user_detail(
+    db: Session,
     *,
     user_id: int,
 ) -> User:
     # Repository를 통해 사용자 한 명을 조회.
-    user = await repository.get_user_by_id(
+    user = repository.get_user_by_id(
         db=db,
         user_id=user_id,
     )
@@ -311,8 +298,8 @@ async def get_admin_user_detail(
 
 
 # 관리자 화면에서 사용자 활성·비활성 상태를 변경하는 Service 함수.
-async def update_admin_user_active_status(
-    db: AsyncSession,
+def update_admin_user_active_status(
+    db: Session,
     *,
     user_id: int,
     is_active: bool,
@@ -321,7 +308,7 @@ async def update_admin_user_active_status(
     #사용자의 활성 상태를 변경합니다.
     try:
         # 상태를 변경할 사용자 정보를 조회.
-        user = await get_admin_user_detail(
+        user = get_admin_user_detail(
             db=db,
             user_id=user_id,
         )
@@ -343,24 +330,17 @@ async def update_admin_user_active_status(
             )
 
         # Repository를 통해 사용자 활성 상태를 변경.
-        updated_user = await repository.update_user_active_status(
+        updated_user = repository.update_user_active_status(
             db=db,
             user=user,
             is_active=is_active,
         )
-
-        await db.commit()
-        await db.refresh(updated_user)
-
         return updated_user
 
     except HTTPException:
-        await db.rollback()
         raise
 
     except Exception as exc:
-        await db.rollback()
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="사용자 활성 상태 변경 중 오류가 발생했습니다.",
@@ -369,8 +349,8 @@ async def update_admin_user_active_status(
 
 
 # 관리자 대시보드의 오늘의 요약 정보를 조회하는 Service 함수.
-async def get_admin_dashboard_summary(
-    db: AsyncSession,
+def get_admin_dashboard_summary(
+    db: Session,
 ) -> dict[str, int]:
     """관리자 대시보드에 표시할 오늘의 주요 수치를 조회합니다."""
 
@@ -378,30 +358,30 @@ async def get_admin_dashboard_summary(
     today = datetime.now(KST).date()
 
     # 전체 사용자 수를 조회.
-    total_user_count = await repository.count_users(
+    total_user_count = repository.count_users(
         db=db,
     )
 
     # 활성 상태인 사용자 수를 조회.
-    active_user_count = await repository.count_users_by_active_status(
+    active_user_count = repository.count_users_by_active_status(
         db=db,
         is_active=True,
     )
 
     # 비활성 상태인 사용자 수를 조회.
-    inactive_user_count = await repository.count_users_by_active_status(
+    inactive_user_count = repository.count_users_by_active_status(
         db=db,
         is_active=False,
     )
 
     # 처리 대기 상태인 신고 수를 조회.
-    pending_report_count = await repository.count_reports_by_status(
+    pending_report_count = repository.count_reports_by_status(
         db=db,
         status=UserReportStatus.PENDING,
     )
 
     # 오늘 날짜의 접속 사용자 수를 조회.
-    today_access_counts = await repository.get_daily_access_counts(
+    today_access_counts = repository.get_daily_access_counts(
         db=db,
         start_date=today,
         end_date=today,
@@ -425,24 +405,24 @@ async def get_admin_dashboard_summary(
 
 
 # 관리자 대시보드의 주요 알림을 조회하는 Service 함수.
-async def get_admin_dashboard_alerts(
-    db: AsyncSession,
+def get_admin_dashboard_alerts(
+    db: Session,
 ) -> list[dict[str, str | int]]:
 
     # 처리 대기 상태인 신고 수를 조회.
-    pending_report_count = await repository.count_reports_by_status(
+    pending_report_count = repository.count_reports_by_status(
         db=db,
         status=UserReportStatus.PENDING,
     )
 
     # 자동 만료된 신고 수를 조회.
-    expired_report_count = await repository.count_reports_by_status(
+    expired_report_count = repository.count_reports_by_status(
         db=db,
         status=UserReportStatus.EXPIRED,
     )
 
     # 비활성 상태인 사용자 수를 조회.
-    inactive_user_count = await repository.count_users_by_active_status(
+    inactive_user_count = repository.count_users_by_active_status(
         db=db,
         is_active=False,
     )
@@ -501,8 +481,8 @@ async def get_admin_dashboard_alerts(
     return alerts
 
 # 접수 후 30일이 지난 PENDING 신고를 자동 만료 처리하는 Service 함수.
-async def expire_pending_reports(
-    db: AsyncSession,
+def expire_pending_reports(
+    db: Session,
 ) -> int:
     """30일 이상 처리되지 않은 신고를 EXPIRED 상태로 변경합니다."""
 
@@ -511,18 +491,13 @@ async def expire_pending_reports(
         expiration_date = datetime.now(timezone.utc) - timedelta(days=30)
 
         # Repository를 통해 만료 대상 신고를 일괄 변경.
-        expired_report_count = await repository.update_expired_reports(
+        expired_report_count = repository.update_expired_reports(
             db=db,
             expiration_date=expiration_date,
         )
-
-        await db.commit()
-
         return expired_report_count
 
     except Exception as exc:
-        await db.rollback()
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="신고 자동 만료 처리 중 오류가 발생했습니다.",
@@ -530,8 +505,8 @@ async def expire_pending_reports(
     
 
 # 관리자 대시보드의 최근 7일 일별 접속 사용자 수를 조회하는 Service 함수.
-async def get_admin_dashboard_activity_trend(
-    db: AsyncSession,
+def get_admin_dashboard_activity_trend(
+    db: Session,
 ) -> list[dict[str, date | int]]:
     """오늘을 포함한 최근 7일의 일별 접속 사용자 수를 조회합니다."""
 
@@ -541,7 +516,7 @@ async def get_admin_dashboard_activity_trend(
     start_date = today - timedelta(days=6)
 
     # Repository를 통해 최근 7일의 날짜별 접속 사용자 수를 조회.
-    daily_access_counts = await repository.get_daily_access_counts(
+    daily_access_counts = repository.get_daily_access_counts(
         db=db,
         start_date=start_date,
         end_date=today,
