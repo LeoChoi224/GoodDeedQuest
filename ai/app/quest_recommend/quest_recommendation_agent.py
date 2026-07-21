@@ -5,6 +5,8 @@ from typing import Dict, Any, Optional, List
 from ai.app.quest_recommend.state import RecommendState
 from ai.app.common.llm import get_openai_model
 
+from langchain_core.prompts import ChatPromptTemplate
+
 logger = logging.getLogger(__name__)
 
 class QuestCandidate(BaseModel):
@@ -74,39 +76,47 @@ def recommend_quests(state: RecommendState) -> Dict[str, Any]:
         structured_llm = llm.with_structured_output(QuestCandidatesOutput)
 
         """
-        당신은 전문적인 AI 퀘스트 추천 생성기입니다.\n
-        검색된 실제 봉사 활동 데이터와 AI가 창작한 일상 선행 활동을 조합하여 정확히 6~7개의 퀘스트 후보를 생성하십시오.\n\n
-        ### 입력 정보\n
-        1. 사용자 프로필 (관심사, 목표 난이도, 완료/제외 내역): {user_profile}\n
-        2. 상황 컨텍스트 (평일/주말, 날씨, 야외 가능 여부): {situation_context}\n
-        3. 사용자 커스텀 요청 컨텍스트: {request_context}\n
-        4. 추천 전략 및 제약조건: {recommendation_strategy}\n
-        5. 검색된 실제 봉사 데이터: {retrieved_volunteers}\n\n
-        ### 생성 규칙\n
-        - 추천 전략 내의 'llm_constraints' 제약 조건을 엄격히 준수하십시오. (예: 만약 'must be indoor'가 지정되어 있다면, 모든 퀘스트의 location은 None이어야 하며 실내 친화적인 활동이어야 합니다.)\n
-        - 사용자의 완료 목록(completed_history)이나 제외 목록(exclusions)에 포함된 제목과 중복되는 퀘스트는 절대 추천하지 마십시오.\n
-        - '검색된 실제 봉사 데이터'에서 실제 봉사 활동을 추출해 변환하고(quest_type='VOLUNTEER'로 설정하고 제목/내용/장소를 유지할 것), 여기에 유저 상황에 알맞은 기발한 일상 선행 활동을 창작하여 융합하십시오 (quest_type='GOOD_DEED'로 설정하고 location=None으로 지정하며, 재미있고 실행 가능하도록 설계할 것).\n
-        - 모든 퀘스트의 예상 소요 시간('estimated_duration')을 분 단위 정수형으로 지정하십시오.\n
-        - 'quests' 필드 아래에 정확히 6~7개의 후보를 출력하십시오.
+        ("system", "당신은 전문적인 AI 퀘스트 추천 생성기입니다.
+            검색된 실제 봉사 활동 데이터와 AI가 창작한 일상 선행 활동을 조합하여 정확히 6~7개의 퀘스트 후보를 생성하십시오.
+            ### 생성 규칙
+            - 추천 전략 내의 'llm_constraints' 제약 조건을 엄격히 준수하십시오. (예: 만약 'must be indoor'가 지정되어 있다면, 모든 퀘스트의 location은 None이어야 하며 실내 친화적인 활동이어야 합니다.)
+            - 사용자의 제외 목록(exclusions)에 포함된 제목과 중복되는 퀘스트는 절대 추천하지 마십시오. 완료 목록(completed_history)은 사용자의 취향과 선호를 파악하기 위한 참고 자료로만 활용하며, 완료 이력이 많은 활동은 관심사와 선호를 추론하는 근거로 사용하십시오. 동일하거나 거의 동일한 퀘스트만을 반복 추천하지 말고(최대 1개까지만 허용), 사용자가 좋아할 가능성이 높은 새로운 활동이나 기존 선호를 난이도·방식·상황 측면에서 확장한 활동, 또는 같은 가치(환경, 봉사, 건강 등)를 다른 방식으로 실천할 수 있는 창의적이고 맞춤형 퀘스트를 우선 추천하십시오.
+            - '검색된 실제 봉사 데이터'에서 실제 봉사 활동을 추출해 변환하고(quest_type='VOLUNTEER'로 설정하고 제목/내용/장소를 유지할 것), 여기에 유저 상황에 알맞은 기발한 일상 선행 활동을 창작하여 융합하십시오 (quest_type='GOOD_DEED'로 설정하고 location=None으로 지정하며, 재미있고 실행 가능하도록 설계할 것).
+            - 모든 퀘스트의 예상 소요 시간('estimated_duration')을 분 단위 정수형으로 지정하십시오.
+            - 'quests' 필드 아래에 정확히 6~7개의 후보를 출력하십시오."),
+        ("human", "### 입력 정보
+            1. 사용자 프로필 (관심사, 목표 난이도, 완료/제외 내역): {user_profile}
+            2. 상황 컨텍스트 (평일/주말, 날씨, 야외 가능 여부): {situation_context}
+            3. 사용자 커스텀 요청 컨텍스트: {request_context}
+            4. 추천 전략 및 제약조건: {recommendation_strategy}
+            5. 검색된 실제 봉사 데이터: {retrieved_volunteers}")
         """
-        prompt = (
-            f"You are a professional AI Quest Recommendation Generator.\n"
-            f"Generate exactly 6 to 7 quest candidates combining retrieved real volunteer works and AI-created daily good deeds.\n\n"
-            f"### Inputs\n"
-            f"1. User Profile (interests, target difficulty, completed/exclusion history): {user_profile}\n"
-            f"2. Situation Context (weekday/weekend, weather, is_outdoor_feasible): {situation_context}\n"
-            f"3. Custom Request Context: {request_context}\n"
-            f"4. Planning Strategy & Constraints: {recommendation_strategy}\n"
-            f"5. Retrieved Real Volunteer Tasks: {retrieved_volunteers}\n\n"
-            f"### Rules\n"
-            f"- Strictly follow the 'llm_constraints' in the Strategy (e.g. if 'must be indoor', location must be None and all tasks must be indoor friendly).\n"
-            f"- Do not recommend any quest titles that match the user's completed history or exclusions.\n"
-            f"- Mix actual volunteer tasks from 'Retrieved Real Volunteer Tasks' (set quest_type='VOLUNTEER', preserve their titles/content/location) with creative daily good deeds (set quest_type='GOOD_DEED', location=None, design them to be fun and actionable).\n"
-            f"- Set 'estimated_duration' for all quests in minutes as an integer.\n"
-            f"- Output exactly 6 to 7 candidates under 'quests'."
-        )
+        recommendation_prompt = ChatPromptTemplate.from_messages([
+           ("system", """You are a professional AI Quest Recommendation Generator.
+Combine the retrieved real volunteer work data and AI-created daily good deeds to generate exactly 6 to 7 quest candidates.
+### Rules for Generation
+- Strictly comply with the 'llm_constraints' in the recommendation strategy. (e.g., if 'must be indoor' is specified, the location must be None and all tasks must be indoor-friendly.)
+- Never recommend quests whose titles duplicate or match the user's exclusion list (exclusions). The completed history (completed_history) should only be used as a reference to understand the user's tastes and preferences; use frequently completed activities as a basis to infer interests and preferences. Do not repeatedly recommend the same or nearly identical quests (maximum 1 repetition allowed). Instead, prioritize recommending new activities the user is likely to enjoy, activities that expand their existing preferences in terms of difficulty, method, or situation, or creative and customized quests that practice the same value (environment, volunteering, health, etc.) in a different way.
+- Extract and convert actual volunteer tasks from the 'Retrieved Real Volunteer Tasks' (set quest_type='VOLUNTEER', and preserve their titles, content, and location), and blend them with creative daily good deeds tailored to the user's situation (set quest_type='GOOD_DEED', location=None, and design them to be fun and actionable).
+- Set the 'estimated_duration' for all quests in minutes as an integer.
+- Output exactly 6 to 7 candidates under the 'quests' field."""),
+            ("human", """### Inputs
+1. User Profile (interests, target difficulty, completed/exclusion history): {user_profile}
+2. Situation Context (weekday/weekend, weather, is_outdoor_feasible): {situation_context}
+3. Custom Request Context: {request_context}
+4. Planning Strategy & Constraints: {recommendation_strategy}
+5. Retrieved Real Volunteer Tasks: {retrieved_volunteers}""")
+        ])
 
-        response = structured_llm.invoke(prompt)
+        recommendation_chain = recommendation_prompt | structured_llm
+
+        response = recommendation_chain.invoke({
+            "user_profile": user_profile,
+            "situation_context": situation_context,
+            "request_context": request_context,
+            "recommendation_strategy": recommendation_strategy,
+            "retrieved_volunteers": retrieved_volunteers
+            })
         candidates_list = [q.model_dump() for q in response.quests]
 
         return {"candidate_quests": candidates_list}
