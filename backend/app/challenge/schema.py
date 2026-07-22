@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+# =========================================================
+# [반드시 확인 및 검토할 사항]
+#
+# 1. 팀 목록에 퀘스트 제목, 카테고리 아이콘, 장소, 시행 일자까지 표시하려면
+#    - Quest 모델 구조가 확정된 뒤 Repository JOIN과 응답 Schema 필드를 추가.
+#
+# 2. TeamMemberResponse는 현재 TeamMember 테이블 정보만 반환합니다.
+#    - 닉네임과 프로필 이미지가 필요하면 User 모델 JOIN이 추가로 필요.
+# =========================================================
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -144,6 +154,23 @@ class TeamResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+# 팀 목록 화면에서 팀 기본 정보와 현재 참가 인원을 반환.
+class TeamListItemResponse(TeamResponse):
+
+    current_members: int = Field(
+        ...,
+        ge=0,
+        description="현재 팀 참가 인원",
+    )
+
+# 팀 상세 화면에서 팀 기본 정보와 현재 참가 인원을 반환.
+class TeamDetailResponse(TeamResponse):
+
+    current_members: int = Field(
+        ...,
+        ge=0,
+        description="현재 팀 참가 인원",
+    )
 
 
 class TeamInviteCreate(BaseModel):

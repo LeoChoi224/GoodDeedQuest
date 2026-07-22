@@ -11,8 +11,9 @@ from __future__ import annotations
 #    - 현재 인원과 max_members를 비교하여 Service가 참가를 차단.
 #    - 마지막 팀원이 나가거나 퀘스트가 완료된 경우 Service에서 delete_team()을 호출하여 팀을 실제 삭제. (TeamInvite와 TeamMember는 FK의 CASCADE 설정으로 함께 삭제됩니다.)
 #
-# 2. 이 Repository에서는 flush()까지만 수행.
-#    - 최종 commit()과 오류 발생 시 rollback()은 Service에서 처리합니다.
+# 2. 이 Repository에서는 flush()까지만 수행합니다.
+#    - Repository는 commit()과 rollback()을 직접 호출하지 않습니다.
+#    - 최종 commit()과 오류 발생 시 rollback()은 common/database.py의 get_db()가 요청 단위로 처리합니다.
 #
 # 3. 방장이 팀을 나가는 경우
 #    - 가장 먼저 참가한 다음 멤버를 새로운 LEADER로 변경합니다.
@@ -33,7 +34,6 @@ from typing import Literal
 
 from sqlalchemy import Select, func, select, update
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from backend.app.challenge.enums import (
@@ -57,8 +57,8 @@ class TeamRepository:
     # 매개변수가 많은 함수에서 실수를 방지 및 가독성을 위해 자주 사용하는 문법이다.
     @staticmethod
     # 새로운 팀 정보를 만들어 DB에 추가하는 메서드.
-    async def create_team(
-        session: AsyncSession,
+    def create_team(
+        session: Session,
         *,
         leader_id: int,
         quest_id: int,
@@ -101,20 +101,20 @@ class TeamRepository:
 
     @staticmethod
     # 팀 ID를 이용해 팀 한 건을 조회하는 메서드.
-    async def get_team_by_id(
-        session: AsyncSession,
+    def get_team_by_id(
+        session: Session,
         team_id: int,
     ) -> Team | None:
         stmt = select(Team).where(
             Team.team_id == team_id,
         )
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
         return result.scalar_one_or_none()
 
     @staticmethod
     # 검색·필터·정렬 조건에 맞는 팀 목록과 현재 인원을 조회.
-    async def get_teams(
-        session: AsyncSession,
+    def get_teams(
+        session: Session,
         *,
         quest_id: int | None = None,
         status: TeamStatus | None = TeamStatus.RECRUITING,
@@ -224,7 +224,7 @@ class TeamRepository:
         # 페이지네이션을 위해 건너뛸 개수와 최대 조회 개수를 적용.
         stmt = stmt.offset(offset).limit(limit)
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return [
             (team, int(count))
@@ -233,8 +233,8 @@ class TeamRepository:
 
     @staticmethod
     # 특정 사용자가 참가하고 있는 팀 목록과 현재 인원을 조회.
-    async def get_user_teams(
-        session: AsyncSession,
+    def get_user_teams(
+        session: Session,
         *,
         user_id: int,
         status: TeamStatus | None = None,
@@ -286,7 +286,7 @@ class TeamRepository:
                 Team.status == status,
             )
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return [
             (team, int(count))
@@ -295,8 +295,8 @@ class TeamRepository:
 
     @staticmethod
     # 조회된 팀 객체의 진행 상태를 변경.
-    async def update_team_status(
-        session: AsyncSession,
+    def update_team_status(
+        session: Session,
         *,
         team: Team,
         status: TeamStatus,
@@ -305,15 +305,15 @@ class TeamRepository:
 
         team.status = status
 
-        await session.flush()
-        await session.refresh(team)
+        session.flush()
+        session.refresh(team)
 
         return team
 
     @staticmethod
     # Team 테이블에 저장된 팀장 ID를 변경.
-    async def update_team_leader(
-        session: AsyncSession,
+    def update_team_leader(
+        session: Session,
         *,
         team: Team,
         new_leader_id: int,
@@ -327,15 +327,15 @@ class TeamRepository:
 
         team.leader_id = new_leader_id
 
-        await session.flush()
-        await session.refresh(team)
+        session.flush()
+        session.refresh(team)
 
         return team
 
     @staticmethod
     # 팀 데이터를 실제 DB 삭제 대상으로 등록.
-    async def delete_team(
-        session: AsyncSession,
+    def delete_team(
+        session: Session,
         *,
         team: Team,
     ) -> None:
@@ -350,8 +350,8 @@ class TeamRepository:
         함께 삭제.
         """
 
-        await session.delete(team)
-        await session.flush()
+        session.delete(team)
+        session.flush()
 
 
 # 팀 초대의 생성·조회·상태 변경을 담당하는 Repository.
@@ -359,8 +359,8 @@ class TeamInviteRepository:
 
     @staticmethod
     # 새로운 팀 초대 데이터를 생성.
-    async def create_invite(
-        session: AsyncSession,
+    def create_invite(
+        session: Session,
         *,
         team_id: int,
         user_id: int,
@@ -380,29 +380,29 @@ class TeamInviteRepository:
 
         session.add(invite)
 
-        await session.flush()
-        await session.refresh(invite)
+        session.flush()
+        session.refresh(invite)
 
         return invite
 
     @staticmethod
     # 초대 ID로 초대 한 건을 조회.
-    async def get_invite_by_id(
-        session: AsyncSession,
+    def get_invite_by_id(
+        session: Session,
         invite_id: int,
     ) -> TeamInvite | None:
         stmt = select(TeamInvite).where(
             TeamInvite.invite_id == invite_id,
         )
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return result.scalar_one_or_none()
 
     @staticmethod
     # 특정 팀이 특정 사용자에게 보낸 초대가 있는지 조회.
-    async def get_invite_by_team_and_user(
-        session: AsyncSession,
+    def get_invite_by_team_and_user(
+        session: Session,
         *,
         team_id: int,
         user_id: int,
@@ -413,14 +413,14 @@ class TeamInviteRepository:
             TeamInvite.user_id == user_id,
         )
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return result.scalar_one_or_none()
 
     @staticmethod
     # 특정 사용자가 받은 대기 중 초대 목록을 조회.
-    async def get_user_pending_invites(
-        session: AsyncSession,
+    def get_user_pending_invites(
+        session: Session,
         *,
         user_id: int,
         offset: int = 0,
@@ -449,14 +449,14 @@ class TeamInviteRepository:
             .limit(limit)
         )
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return list(result.scalars().all())
 
     @staticmethod
     # 팀 초대의 상태값을 변경.
-    async def update_invite_status(
-        session: AsyncSession,
+    def update_invite_status(
+        session: Session,
         *,
         invite: TeamInvite,
         status: TeamInviteStatus,
@@ -476,14 +476,14 @@ class TeamInviteRepository:
 
         invite.status = status
 
-        await session.flush()
-        await session.refresh(invite)
+        session.flush()
+        session.refresh(invite)
 
         return invite
 
     @staticmethod
-    async def renew_invite(
-        session: AsyncSession,
+    def renew_invite(
+        session: Session,
         *,
         invite: TeamInvite,
         expires_at: datetime | None,
@@ -502,15 +502,15 @@ class TeamInviteRepository:
         # 재초대에 사용할 새로운 만료 시간을 저장.
         invite.expires_at = expires_at
 
-        await session.flush()
-        await session.refresh(invite)
+        session.flush()
+        session.refresh(invite)
 
         return invite
 
     @staticmethod
     # 만료 시간이 지난 대기 중 초대를 한 번에 만료 처리.
-    async def expire_pending_invites(
-        session: AsyncSession,
+    def expire_pending_invites(
+        session: Session,
         *,
         current_time: datetime,
     ) -> int:
@@ -527,8 +527,8 @@ class TeamInviteRepository:
             )
         )
 
-        result = await session.execute(stmt)
-        await session.flush()
+        result = session.execute(stmt)
+        session.flush()
 
         return int(result.rowcount or 0)
 
@@ -540,7 +540,7 @@ class TeamMemberRepository:
     @staticmethod
     # 사용자를 팀 멤버로 추가.
     def add_member(
-        session: AsyncSession,
+        session: Session,
         *,
         team_id: int,
         user_id: int,
@@ -570,8 +570,8 @@ class TeamMemberRepository:
 
     @staticmethod
     # 팀 멤버 ID로 멤버 한 건을 조회.
-    async def get_member_by_id(
-        session: AsyncSession,
+    def get_member_by_id(
+        session: Session,
         team_member_id: int,
     ) -> TeamMember | None:
 
@@ -579,14 +579,14 @@ class TeamMemberRepository:
             TeamMember.team_member_id == team_member_id,
         )
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return result.scalar_one_or_none()
 
     @staticmethod
     # 특정 사용자가 특정 팀에 참가 중인지 조회.
-    async def get_member_by_team_and_user(
-        session: AsyncSession,
+    def get_member_by_team_and_user(
+        session: Session,
         *,
         team_id: int,
         user_id: int,
@@ -607,14 +607,14 @@ class TeamMemberRepository:
             TeamMember.user_id == user_id,
         )
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return result.scalar_one_or_none()
 
     @staticmethod
     # 특정 팀에 참가한 전체 멤버를 정렬하여 조회.
-    async def get_team_members(
-        session: AsyncSession,
+    def get_team_members(
+        session: Session,
         *,
         team_id: int,
     ) -> list[TeamMember]:
@@ -631,14 +631,14 @@ class TeamMemberRepository:
             )
         )
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return list(result.scalars().all())
 
     @staticmethod
     # 특정 팀의 현재 참가 인원을 숫자로 조회.
-    async def count_team_members(
-        session: AsyncSession,
+    def count_team_members(
+        session: Session,
         *,
         team_id: int,
     ) -> int:
@@ -658,14 +658,14 @@ class TeamMemberRepository:
             )
         )
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return int(result.scalar_one())
 
     @staticmethod
     # 현재 팀장을 제외하고 다음 팀장 후보를 조회.
-    async def get_next_leader_candidate(
-        session: AsyncSession,
+    def get_next_leader_candidate(
+        session: Session,
         *,
         team_id: int,
         excluding_user_id: int,
@@ -688,14 +688,14 @@ class TeamMemberRepository:
             .limit(1)
         )
 
-        result = await session.execute(stmt)
+        result = session.execute(stmt)
 
         return result.scalar_one_or_none()
 
     @staticmethod
     # 팀 멤버의 역할을 변경.
-    async def update_member_role(
-        session: AsyncSession,
+    def update_member_role(
+        session: Session,
         *,
         member: TeamMember,
         role_in_team: TeamMemberRole,
@@ -709,15 +709,15 @@ class TeamMemberRepository:
 
         member.role_in_team = role_in_team
 
-        await session.flush()
-        await session.refresh(member)
+        session.flush()
+        session.refresh(member)
 
         return member
 
     @staticmethod
     # 팀 멤버 데이터를 실제 DB 삭제 대상으로 등록.
-    async def remove_member(
-        session: AsyncSession,
+    def remove_member(
+        session: Session,
         *,
         member: TeamMember,
     ) -> None:
@@ -728,5 +728,5 @@ class TeamMemberRepository:
         방장 위임이 필요한지는 Service에서 처리.
         """
 
-        await session.delete(member)
-        await session.flush()
+        session.delete(member)
+        session.flush()

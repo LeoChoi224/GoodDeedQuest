@@ -8,6 +8,13 @@ from __future__ import annotations
 #
 # 2. quest_id가 실제로 존재하는지는 DB 외래키가 최종적으로 검사합니다.
 #    - 추후 QuestRepository가 확정되면 팀 생성 전에 존재 여부와 참가 가능 상태를 Service에서 먼저 확인하는 것이 좋습니다.
+#
+# 3. Repository는 현재 Team 객체와 현재 참가 인원(int)을 함께 반환합니다.
+#    - 추후 Quest 모델이 완성되면 퀘스트 제목, 카테고리, 장소 등은 JOIN하여 함께 조회.
+#
+# 4. 현재 팀 멤버 조회는 TeamMember 정보만 반환합니다.
+#    - 사용자 닉네임, 프로필 이미지 등이 필요하면 User 테이블과 JOIN하는 Repository 메서드를 추가.
+#
 # =========================================================
 
 from datetime import datetime
@@ -15,11 +22,18 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.auth.models import User
-from backend.app.challenge.enums import TeamMemberRole
-from backend.app.challenge.models import Team
+from backend.app.challenge.enums import (
+    TeamMemberRole,
+    TeamStatus,
+)
+from backend.app.challenge.models import (
+    Team,
+    TeamMember,
+)
 from backend.app.challenge.repository import (
     TeamMemberRepository,
     TeamRepository,
+    TeamSortType,
 )
 from backend.app.challenge.schema import TeamCreate
 from backend.app.common.auth import get_password_hash
@@ -86,3 +100,106 @@ class ChallengeTeamService:
         session.refresh(team)
 
         return team
+    
+    # 검색·필터·정렬 조건에 맞는 팀 목록을 조회.
+    @staticmethod
+    def get_teams(
+        session: Session,
+        *,
+        quest_id: int | None = None,
+        team_status: TeamStatus | None = TeamStatus.RECRUITING,
+        is_public: bool | None = None,
+        region: str | None = None,
+        search: str | None = None,
+        sort_by: TeamSortType = "latest",
+        page: int = 1,
+        size: int = 20,
+    ) -> list[tuple[Team, int]]:
+        # 요청한 페이지에 해당하는 데이터를 조회하기 위해 앞에서 건너뛸 개수를 계산.
+        # page - 1 을 하는 이유는 1페아지에서는 아무것도 건너뛰면 안되기 때문.
+        offset = (page - 1) * size
+
+        # Repository에서 팀 정보와 현재 참가 인원을 함께 조회.
+        teams = TeamRepository.get_teams(
+            session,
+            quest_id=quest_id,
+            status=team_status,
+            is_public=is_public,
+            region=region,
+            search=search,
+            sort_by=sort_by,
+            offset=offset,
+            limit=size,
+        )
+
+        return teams
+
+    # 특정 팀의 상세 정보와 현재 참가 인원을 조회.
+    @staticmethod
+    def get_team_detail(
+        session: Session,
+        *,
+        team_id: int,
+    ) -> tuple[Team, int]:
+        team = TeamRepository.get_team_by_id(
+            session,
+            team_id,
+        )
+        if team is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="존재하지 않는 팀입니다.",
+            )
+        current_members = (
+            TeamMemberRepository.count_team_members(
+                session,
+                team_id=team_id,
+            )
+        )
+
+        return team, current_members
+
+    # 특정 팀에 참가 중인 전체 팀 멤버를 조회.
+    @staticmethod
+    def get_team_members(
+        session: Session,
+        *,
+        team_id: int,
+    ) -> list[TeamMember]:
+        team = TeamRepository.get_team_by_id(
+            session,
+            team_id,
+        )
+        if team is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="존재하지 않는 팀입니다.",
+            )
+        members = TeamMemberRepository.get_team_members(
+            session,
+            team_id=team_id,
+        )
+
+        return members
+
+    # 현재 로그인 사용자가 참여 중인 팀 목록을 조회.
+    @staticmethod
+    def get_my_teams(
+        session: Session,
+        *,
+        current_user: User,
+        team_status: TeamStatus | None = None,
+        page: int = 1,
+        size: int = 20,
+    ) -> list[tuple[Team, int]]:
+        offset = (page - 1) * size
+
+        teams = TeamRepository.get_user_teams(
+            session,
+            user_id=current_user.user_id,
+            status=team_status,
+            offset=offset,
+            limit=size,
+        )
+
+        return teams
