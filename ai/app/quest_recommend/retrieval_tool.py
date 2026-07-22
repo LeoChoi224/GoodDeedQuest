@@ -23,12 +23,12 @@ def retrieve_volunteers(state: RecommendState) -> Dict[str, Any]:
 
     # 콜드 스타트(Cold-Start) 방어 - 인덱싱된 데이터가 없을 경우 가상 데이터 즉시 자동 적재
     if adapter.db is None or not adapter.documents_list:
-        logger.info("Vector DB index is empty. Indexing dummy volunteer data for Cold-Start prevention...")
+        logger.info("벡터 DB 인덱스가 비어 있습니다. 콜드 스타트 방지를 위해 더미 봉사 데이터를 인덱싱합니다...")
         dummy_docs = get_dummy_volunteer_data()
         adapter.add_documents(dummy_docs)
 
     # 하이브리드 검색 (Top 5 추출)
-    logger.info(f"Performing Hybrid Search in Vector DB with query: '{search_query}'")
+    logger.info(f"검색 쿼리 '{search_query}'로 벡터 DB 하이브리드 검색을 수행합니다.")
     results = adapter.hybrid_search(query=search_query, top_k=5)
     
     return {"retrieved_volunteers": results}
