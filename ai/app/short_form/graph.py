@@ -96,7 +96,7 @@ if __name__ == "__main__":
         "shorts_id": 1,
         "user_name": "홍길동",
         "quest_title": "플로깅(조깅하며 쓰레기 줍기)",
-        "media_keys": ["media/1/photo1.jpg", "media/1/photo2.jpg"],
+        "media_keys": ["test-images/test1.png"],
         "edited_captions": None,       # None이라 LLM Story Agent가 자막을 새로 생성하게 됨
         "vision_results": [],          # 아직 Vision Agent가 안 돌았으니 빈 값으로 시작
         "bgm_match": None,             # 아직 RAG Agent가 안 돌았으니 빈 값
