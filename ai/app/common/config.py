@@ -8,7 +8,10 @@ load_dotenv(ROOT_DIR / ".env")
 
 class AISettings(BaseSettings):
     PROJECT_NAME: str = "Good Deed Quest AI Service"
-    
+
+    # Database (backend와 동일한 루트 .env를 공유하므로 별도 값 세팅 불필요)
+    DATABASE_URL: str
+
     # OpenAI & Gemini keys
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
