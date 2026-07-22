@@ -38,10 +38,8 @@ class UserCreate(BaseModel):
 # ② 소셜 로그인 (OAuth)
 # ═══════════════════════════════════════
 class SocialLoginRequest(BaseModel):
-    provider: str                    # 'google' / 'kakao'
-    provider_user_id: str
-    email: EmailStr
-    nickname: str
+    provider: str        # 'google','kakao'
+    id_token: str
 
 
 # ═══════════════════════════════════════
@@ -55,6 +53,7 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    is_new_user: bool = False
     # password_hash 등 유저 정보는 응답에 절대 포함하지 않음
 
 
@@ -161,3 +160,9 @@ class UserResponse(UserBase):
 
 class TokenData(BaseModel):
     username: str | None = None
+
+class ProfileCompleteRequest(BaseModel):
+    nickname: str
+    birthday: date
+    category: Optional[list[str]] = None
+    active_time: Optional[list[str]] = None

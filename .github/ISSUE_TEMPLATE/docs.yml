@@ -1,0 +1,47 @@
+name: 📝 Docs
+description: 프로젝트 문서 작성 및 수정을 위한 이슈입니다.
+title: "[Docs] "
+labels:
+  - docs
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 📝 Documentation Issue
+
+        설계 문서, API 문서, 마이그레이션 안내 문서 등 문서 작업을 위한 이슈입니다.
+
+  - type: textarea
+    id: overview
+    attributes:
+      label: 📌 문서 작업 범위
+      description: 작성하거나 수정할 대상을 간단히 설명해주세요.
+      placeholder: 예) 에이전트 구조 개선에 따른 API 입출력 스키마 명세를 README.md에 업데이트합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: ✍️ 주요 작성 내용
+      description: 문서에 구체적으로 어떤 내용을 채워 넣을 것인지 적어주세요.
+      placeholder: 예) Request/Response JSON 데이터 포맷 및 400 에러 처리 요건 명세
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: ✅ 작업 목록
+      description: 체크리스트를 적어주세요.
+      value: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+
+  - type: input
+    id: branch
+    attributes:
+      label: 🌿 브랜치명
+      description: 생성할 브랜치명을 작성해주세요.
+      placeholder: docs/12-update-readme

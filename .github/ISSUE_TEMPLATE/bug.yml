@@ -1,0 +1,59 @@
+name: 🐛 Bug Report
+description: 시스템 버그 및 오작동 제보를 위한 이슈입니다.
+title: "[Bug] "
+labels:
+  - bug
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🐛 Bug Report
+
+        발견된 버그나 비정상 작동을 제보하기 위한 이슈입니다.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 📌 버그 설명
+      description: 어떤 버그가 발생하는지 상세히 설명해주세요.
+      placeholder: 예) 챗봇 창에 아무 입력도 넣지 않고 추천을 누르면 500 에러가 발생합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 🎬 재현 경로
+      description: 버그를 재현하기 위한 실행 순서를 단계별로 적어주세요.
+      placeholder: |
+        1. 메인 추천 페이지에 진입한다.
+        2. 챗봇 대화창을 비워두고 '추천받기' 버튼을 누른다.
+        3. 서버 콘솔에 NoneType AttributeError 에러가 뜬다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_and_actual
+    attributes:
+      label: 📊 기대 행동 및 실제 결과
+      description: 원래 예상했던 정상 동작과 실제로 나타난 오류 결과를 대조해주세요.
+      placeholder: |
+        - 기대 행동: 빈 조건 데이터가 전달되어 기본 추천이 반환되어야 함.
+        - 실제 결과: AttributeError: 'NoneType' object has no attribute 'strip' 발생.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 📋 에러 로그 및 스크린샷
+      description: 에러 트레이스백 로그나 스크린샷 파일 링크를 첨부해주세요.
+      placeholder: 콘솔 에러 로그 복사/붙여넣기
+
+  - type: input
+    id: branch
+    attributes:
+      label: 🌿 해결할 브랜치명
+      description: 버그 수정을 진행할 브랜치명을 적어주세요.
+      placeholder: fix/55-nonetype-error

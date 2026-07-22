@@ -35,8 +35,12 @@ import GdqInput from '../components/GdqInput';
 import { MailIcon, LockIcon, SwordIcon, EyeOpen, EyeOff, HamburgerIcon, KakaoIcon, GoogleIcon } from '../components/PixelIcons';
 import { useToast } from '../components/Toast';
 import { login } from '../api/auth';
-
+import * as Google from 'expo-auth-session/providers/google'
+import * as WebBrowser from 'expo-web-browser'
+import { socialLogin } from '../api/auth';
+WebBrowser.maybeCompleteAuthSession();
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
+
 
 /** 인터랙션 갤러리 #6 Typing — 한 글자씩 타이핑 + 깜빡이는 커서 */
 function TypewriterSub({ text }: { text: string }) {
@@ -76,6 +80,14 @@ export default function LoginScreen({ navigation }: Props) {
 const [ email, setEmail ] = useState('');
 const [ password, setPassword ] = useState('');
 const [loading, setLoading] = useState(false);
+const [request, response, promptAsync] = Google.useAuthRequest({
+  androidClientId: '530602948532-vl7l2n5no2bp5mt2ufkn86ji062opcki.apps.googleusercontent.com.apps.googleusercontent.com',
+  iosClientId: '530602948532-3es8kq72k78i1nc5l5qve88q6tofg3ua.apps.googleusercontent.com.apps.googleusercontent.com',
+  webClientId: '530602948532-eoif1hq6bshlgb7tn5r1dcuruvelubsa.apps.googleusercontent.com.apps.googleusercontent.com'
+})
+useEffect(() => {
+  console.log('보내는 redirectUri:', request?.redirectUri);
+}, [request]);
 
 const onLogin = async () => {
   if (!email.trim() || !password) {
@@ -93,6 +105,30 @@ const onLogin = async () => {
     setLoading(false);
   }
 };
+
+useEffect(() => {
+  console.log('구글응답', JSON.stringify(response, null, 2));
+  if (response?.type === 'success') {
+    const idToken = response.params?.id_token;
+    console.log('idToken', idToken);
+    if (idToken) {
+      handleGoogle(idToken);
+    }
+  }
+}, [response])
+
+const handleGoogle = async (idToken: string) => {
+  try {
+    const { isNewUser } = await socialLogin(idToken);
+    if (isNewUser) {
+      navigation.navigate('Profile');
+    } else {
+      navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    }
+  } catch (err: any){
+    toast.show('구글로그인에 실패했습니다')
+  }
+}
 
   const HERO_H = Math.max(400, Dimensions.get('window').height * 0.5);
 
@@ -187,7 +223,7 @@ const onLogin = async () => {
               <KakaoIcon />
               <Text style={[styles.socialText, { color: colors.kakaoText }]}>카카오</Text>
             </SpringButton>
-            <SpringButton style={[styles.socialBtn, styles.googleBtn]}>
+            <SpringButton style={[styles.socialBtn, styles.googleBtn]} onPress={() => promptAsync()} disabled={!request}>
               <GoogleIcon />
               <Text style={[styles.socialText, { color: colors.textPrimary }]}>구글</Text>
             </SpringButton>

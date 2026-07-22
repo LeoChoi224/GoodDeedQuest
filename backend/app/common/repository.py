@@ -12,7 +12,7 @@ class DatabaseRepository(Generic[Model]):
         self.session = session
   def create(self, data: dict) -> Model:
         instance = self.model(**data)
-        self.session.add(instance)
+        self.session.add(instance)  
         self.session.commit()
         self.session.refresh(instance)
         return instance

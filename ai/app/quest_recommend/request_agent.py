@@ -5,9 +5,12 @@ from typing import Dict, Any, Optional, List
 from ai.app.quest_recommend.state import RecommendState
 from ai.app.common.llm import get_openai_model
 
+from langchain_core.prompts import ChatPromptTemplate
+
 logger = logging.getLogger(__name__)
 
 class RequestAnalysis(BaseModel):
+    """사용자 요청 메시지 분석결과(선호 시간, 소요 시간, 실내외 선호, 키워드)를 구조화하는 Pydantic 스키마"""
     time_preference: Optional[str] = Field(
         default="any",
         # "사용자 메시지에서 아침, 저녁, 퇴근길, 주말 등 시간 관련 선호도를 추출합니다. 없으면 'any'로 지정합니다."
@@ -40,15 +43,21 @@ def analyze_request(state: RecommendState) -> Dict[str, Any]:
         return {"request_context": {}}
     
     try:
-        llm = get_openai_model(model_name="gpt-4o-mini", temperature=0.0)
+        llm = get_openai_model(model_name="gpt-4o-mini", temperature=0.0)  # 일관성 있는 분석을 위해 온도=0.0
         structured_llm = llm.with_structured_output(RequestAnalysis)
 
-        prompt = (
-            f"Analyze the user's quest recommendation request and extract structured constraints: "
-            f"'{request_message}'"
-        )   # 사용자의 퀘스트 추천 요청을 분석하고 구조화된 제약 조건을 추출하십시오
+        """
+        ("system", "사용자의 퀘스트 추천 요청을 분석하고 구조화된 제약 조건을 추출하십시오."),
+        ("human", "{request_message}")
+        """
+        request_prompt = ChatPromptTemplate.from_messages([
+            ("system", "Analyze the user's quest recommendation request and extract structured constraints."),
+            ("human", "{request_message}")
+        ])
+        
+        request_chain = request_prompt | structured_llm
 
-        response = structured_llm.invoke(prompt)
+        response = request_chain.invoke({"request_message": request_message})
         analysis_dict = response.model_dump()
         
         return {"request_context": analysis_dict}

@@ -13,23 +13,21 @@ from backend.app.map.enums import CompetitionStatus
 
 router = APIRouter(prefix="/map", tags=["Map Quests"])
 
+
 @router.get("/main")
 def get_map_main(
     db: Session = Depends(get_db),
-    user: dict =  Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ):
     """지도메인 - 참여지역 설정여부 확인"""
     db_user = db.query(User).filter(User.user_id == user["id"]).first()
 
     if db_user is None or db_user.region_id is None:
         # 참여 지역 미설정 -> 팀 설정하기 버튼 활성화
-        return APIResponse.ok(data={"has_region": False, "region":None})
-    
+        return APIResponse.ok(data={"has_region": False, "region": None})
+
     region = db.query(Region).filter(Region.region_id == db_user.region_id).first()
     return APIResponse.ok(data={"has_region": True, "region": {"region_id": region.region_id, "region_name": region.region_name}})
-    
-
-    
 
 
 @router.get("/volunteer-centers", response_model=APIResponse[List[VolunteerCenterResponse]])
@@ -92,4 +90,34 @@ def get_national_ranking(
     return APIResponse.ok(data={"competition_id": competition.competition_id, "ranking": ranking})
 
 
+@router.get("/city-ranking/{city_id}")
+def get_city_ranking(
+    city_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """시군구 랭킹페이지 - 특정 시/도 하위 시군구 순위"""
+    competition = (
+        db.query(Competition)
+        .filter(Competition.status == CompetitionStatus.IN_PROGRESS)
+        .first()
+    )
+    if competition is None:
+        return APIResponse.fail(message="진행 중인 대항전이 없습니다")
 
+    results = (
+        db.query(Region.region_id, Region.region_name, CompetitionParticipant.score)
+        .join(CompetitionParticipant, CompetitionParticipant.region_id == Region.region_id)
+        .filter(
+            Region.city_id == city_id,
+            CompetitionParticipant.competition_id == competition.competition_id,
+        )
+        .order_by(CompetitionParticipant.score.desc())
+        .all()
+    )
+
+    ranking = [
+        {"rank": idx + 1, "region_id": r.region_id, "region_name": r.region_name, "score": r.score or 0}
+        for idx, r in enumerate(results)
+    ]
+    return APIResponse.ok(data={"city_id": city_id, "competition_id": competition.competition_id, "ranking": ranking})

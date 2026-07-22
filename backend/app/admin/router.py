@@ -3,17 +3,19 @@ from __future__ import annotations
 # =========================================================
 # [검토 및 확인할 내용]
 #
-# 1. DB 세션 Dependency 경로
-#    - 현재는 backend.app.common.database.get_db를 사용한다고 가정.
-#    - 실제 프로젝트의 AsyncSession Dependency 함수 이름과 경로를 확인 필요.
+# 1. DB 세션 Dependency
+#    - backend.app.common.database.get_db를 사용합니다.
+#    - 동기 Session은 각 요청이 끝나면 공통 DB Dependency에서 정리합니다.
+#    - 요청 성공 시 commit, 오류 발생 시 rollback도 공통 DB Dependency에서 처리합니다.
 #
-# 2. 관리자 인증 Dependency 경로
-#    - 현재는 backend.app.auth.dependencies.get_current_admin을 사용한다고 가정.
-#    - 실제 인증 담당 팀원이 만든 관리자 인증 함수 이름과 경로를 확인 필요.
+# 2. 관리자 인증 Dependency
+#    - JWT 생성 및 검증은 common.auth를 재사용합니다.
+#    - get_current_user()에서 현재 로그인 사용자를 조회합니다.
+#    - get_current_admin()에서 관리자 권한을 확인합니다.
 #
-# 3. 관리자 ID 컬럼명
-#    - 현재 로그인 관리자 객체에서 current_admin.user_id를 사용.
-#    - 실제 User 모델의 PK 컬럼명이 user_id인지 확인 필요.
+# 3. 관리자 ID 사용
+#    - 현재 로그인 관리자 객체의 current_admin.user_id를 사용합니다.
+#    - 신고 처리 시 reviewed_by에 해당 관리자 ID를 저장합니다.
 #
 # 4. 신고 관리 API 주소
 #    - GET   /admin/reports
@@ -29,20 +31,23 @@ from __future__ import annotations
 # 6. 관리자 대시보드 API 주소
 #    - GET /admin/dashboard/summary
 #    - GET /admin/dashboard/alerts
+#    - GET /admin/dashboard/activity-trend
 #
 # 7. 대시보드 응답 Schema
 #    - 오늘의 요약은 AdminDashboardSummaryResponse를 사용합니다.
-#    - 주요 알림은 여러 알림 객체를 반환하므로 list[AdminDashboardAlertResponse] 형태를 사용합니다.
+#    - 주요 알림은 list[AdminDashboardAlertResponse] 형태를 사용합니다.
+#    - 최근 7일 활동 추이는 list[AdminDashboardActivityTrendResponse] 형태를 사용합니다.
 # =========================================================
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from backend.app.auth.models import User
-from backend.app.auth.dependencies import get_current_admin
+from backend.app.admin.dependencies import get_current_admin
 from backend.app.common.database import get_db
 from backend.app.admin.enums import UserReportStatus
 from backend.app.admin.schema import (
+    AdminDashboardActivityTrendResponse,
     AdminDashboardAlertResponse,
     AdminDashboardSummaryResponse,
     AdminUserDetailResponse,
@@ -51,7 +56,6 @@ from backend.app.admin.schema import (
     UserActiveStatusUpdate,
 )
 from backend.app.admin import service
-
 
 # 관리자 신고 API를 하나로 묶는 Router를 생성.
 router = APIRouter(
@@ -66,7 +70,7 @@ router = APIRouter(
     status_code=status.HTTP_200_OK,
     summary="관리자 신고 목록 조회",
 )
-async def get_report_list(
+def get_report_list(
     # 신고 상태 필터를 선택적으로 전달.
     report_status: UserReportStatus | None = Query(
         default=None,
@@ -92,12 +96,12 @@ async def get_report_list(
         default=True,
         description="true이면 최신순, false이면 오래된 순",
     ),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     # 관리자 권한이 확인된 로그인 사용자 정보를 주입받습니다.
     current_admin: User = Depends(get_current_admin),
 ) -> list[ReportResponse]:
     # 관리자가 신고 목록을 상태와 정렬 조건에 따라 조회.
-    reports = await service.get_report_list(
+    reports = service.get_report_list(
         db=db,
         report_status=report_status,
         skip=skip,
@@ -114,14 +118,14 @@ async def get_report_list(
     status_code=status.HTTP_200_OK,
     summary="관리자 신고 상세 조회",
 )
-async def get_report_detail(
+def get_report_detail(
     # URL 경로를 통해 조회할 신고 ID를 전달.
     report_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ) -> ReportResponse:
     # 관리자가 특정 신고의 상세 정보를 조회.
-    report = await service.get_report_detail(
+    report = service.get_report_detail(
         db=db,
         report_id=report_id,
     )
@@ -135,13 +139,13 @@ async def get_report_detail(
     status_code=status.HTTP_200_OK,
     summary="신고 게시글 삭제 승인",
 )
-async def approve_report_post_deletion(
+def approve_report_post_deletion(
     report_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ) -> ReportResponse:
     # 신고 대상 게시글을 삭제하고 해당 신고를 승인 처리.
-    report = await service.approve_report_with_post_deletion(
+    report = service.approve_report_with_post_deletion(
         db=db,
         report_id=report_id,
         admin_id=current_admin.user_id,
@@ -157,13 +161,13 @@ async def approve_report_post_deletion(
     status_code=status.HTTP_200_OK,
     summary="신고 대상 사용자 비활성 승인",
 )
-async def approve_report_user_deactivation(
+def approve_report_user_deactivation(
     report_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ) -> ReportResponse:
     # Service를 호출하여 사용자 비활성과 신고 승인을 하나의 트랜잭션으로 처리.
-    report = await service.approve_report_with_user_deactivation(
+    report = service.approve_report_with_user_deactivation(
         db=db,
         report_id=report_id,
         admin_id=current_admin.user_id,
@@ -180,7 +184,7 @@ async def approve_report_user_deactivation(
     status_code=status.HTTP_200_OK,
     summary="관리자 사용자 목록 조회",
 )
-async def get_admin_user_list(
+def get_admin_user_list(
     # 닉네임 검색어를 선택적으로 전달.
     nickname: str | None = Query(
         default=None,
@@ -211,11 +215,11 @@ async def get_admin_user_list(
         default=True,
         description="true이면 최신 가입순, false이면 오래된 가입순",
     ),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ) -> list[AdminUserListResponse]:
     # Service를 호출하여 조건에 맞는 사용자 목록을 조회합니다.
-    users = await service.get_admin_user_list(
+    users = service.get_admin_user_list(
         db=db,
         nickname=nickname,
         is_active=is_active,
@@ -234,13 +238,13 @@ async def get_admin_user_list(
     status_code=status.HTTP_200_OK,
     summary="관리자 사용자 상세 조회",
 )
-async def get_admin_user_detail(
+def get_admin_user_detail(
     user_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ) -> AdminUserDetailResponse:
     # Service를 호출하여 사용자 상세 정보를 조회.
-    user = await service.get_admin_user_detail(
+    user = service.get_admin_user_detail(
         db=db,
         user_id=user_id,
     )
@@ -254,15 +258,15 @@ async def get_admin_user_detail(
     status_code=status.HTTP_200_OK,
     summary="관리자 사용자 활성 상태 변경",
 )
-async def update_admin_user_active_status(
+def update_admin_user_active_status(
     user_id: int,
     request: UserActiveStatusUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ) -> AdminUserDetailResponse:
 
     # Service를 호출하여 사용자 활성 상태를 변경.
-    updated_user = await service.update_admin_user_active_status(
+    updated_user = service.update_admin_user_active_status(
         db=db,
         user_id=user_id,
         is_active=request.is_active,
@@ -280,13 +284,13 @@ async def update_admin_user_active_status(
     status_code=status.HTTP_200_OK,
     summary="관리자 대시보드 오늘의 요약 조회",
 )
-async def get_admin_dashboard_summary(
-    db: AsyncSession = Depends(get_db),
+def get_admin_dashboard_summary(
+    db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ) -> AdminDashboardSummaryResponse:
 
     # Service를 호출하여 대시보드 오늘의 요약 정보를 조회.
-    summary = await service.get_admin_dashboard_summary(
+    summary = service.get_admin_dashboard_summary(
         db=db,
     )
 
@@ -300,15 +304,35 @@ async def get_admin_dashboard_summary(
     status_code=status.HTTP_200_OK,
     summary="관리자 대시보드 주요 알림 조회",
 )
-async def get_admin_dashboard_alerts(
-    db: AsyncSession = Depends(get_db),
+def get_admin_dashboard_alerts(
+    db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ) -> list[AdminDashboardAlertResponse]:
     """관리자가 확인해야 할 주요 알림 목록을 조회합니다."""
 
     # Service를 호출하여 관리자 주요 알림 목록을 조회.
-    alerts = await service.get_admin_dashboard_alerts(
+    alerts = service.get_admin_dashboard_alerts(
         db=db,
     )
 
     return alerts
+
+# 관리자 대시보드의 최근 7일 일별 접속 사용자 수를 조회하는 API.
+@router.get(
+    "/dashboard/activity-trend",
+    response_model=list[AdminDashboardActivityTrendResponse],
+    status_code=status.HTTP_200_OK,
+    summary="관리자 대시보드 최근 7일 활동 추이 조회",
+)
+def get_admin_dashboard_activity_trend(
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+) -> list[AdminDashboardActivityTrendResponse]:
+    """오늘을 포함한 최근 7일의 일별 접속 사용자 수를 조회합니다."""
+
+    # Service를 호출하여 최근 7일 활동 추이를 조회.
+    activity_trend = service.get_admin_dashboard_activity_trend(
+        db=db,
+    )
+
+    return activity_trend

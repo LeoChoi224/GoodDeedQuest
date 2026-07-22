@@ -4,12 +4,14 @@ from __future__ import annotations
 # [체크 사항]
 #
 # 1. 트랜잭션 처리 방식
-#    - 이 Repository는 flush()까지만 처리합니다.
-#    - 최종 commit()과 오류 발생 시 rollback()은 Service에서 처리합니다.
+#    - 이 Repository는 DB 조회·변경과 flush()까지만 처리합니다.
+#    - 최종 commit()과 rollback()은 common.database.get_db에서 처리합니다.
 #
-# 2. 신고 자동 만료 정책
-#    - 접수 후 일정 기간 (30일) 처리되지 않은 PENDING 신고는 EXPIRED 상태로 자동 변경. (EXPIRED는 관리자 거부가 아니라 자동 종료 상태입니다.)
-#    - 관리자 승인/거부는 update_report_review()에서 처리합니다. (추후 승인버튼, 거부버튼 팝업 신규 작업 필요 (스토리보드에 없는 신규 내용))
+# 2. 신고 자동 만료 및 승인 정책
+#    - 접수 후 30일 동안 처리되지 않은 PENDING 신고는 EXPIRED 상태로 자동 변경합니다.
+#    - EXPIRED는 관리자가 신고를 거부한 상태가 아니라 처리 기한이 지나 자동 종료된 상태입니다.
+#    - 관리자는 신고를 승인하여 게시글을 삭제하거나 신고 대상 사용자를 비활성화할 수 있습니다.
+#    - 별도의 신고 반려 기능은 이번 프로젝트에서 구현하지 않습니다.
 #
 # 3. 퀘스트 인증 악용사례 이미지
 #    - 현재 코드는 커뮤니티 게시물 신고만 직접 조회합니다.
@@ -23,7 +25,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import Select, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from backend.app.auth.models import User
 from backend.app.admin.models import Report
@@ -31,8 +33,8 @@ from backend.app.admin.enums import UserReportStatus
 from backend.app.community.models import CommunityPost, UserActivityLog
 
 
-async def get_reports(
-    db: AsyncSession,
+def get_reports(
+    db: Session,
     status: UserReportStatus | None = None,
     skip: int = 0,
     limit: int = 20,
@@ -58,12 +60,12 @@ async def get_reports(
     query = query.offset(skip).limit(limit)
 
     # 완성된 신고 목록 조회 쿼리를 실행 후 조회된 신고 객체를 리스트 형태로 반환.
-    result = await db.execute(query)
+    result = db.execute(query)
     return list(result.scalars().all())
 
 
-async def get_report_by_id(
-    db: AsyncSession,
+def get_report_by_id(
+    db: Session,
     report_id: int,
 ) -> Report | None:
     """신고 ID로 신고 상세 정보를 조회합니다."""
@@ -73,12 +75,12 @@ async def get_report_by_id(
     )
 
 
-    result = await db.execute(query)
+    result = db.execute(query)
     return result.scalar_one_or_none()      # 신고가 존재하면 Report 객체를, 없으면 None을 반환합니다.
 
 
-async def update_report_review(
-    db: AsyncSession,
+def update_report_review(
+    db: Session,
     report: Report,
     status: UserReportStatus,
     reviewed_by: int,
@@ -90,13 +92,13 @@ async def update_report_review(
     report.reviewed_by = reviewed_by
     report.reviewed_at = reviewed_at
 
-    await db.flush()
-    await db.refresh(report)
+    db.flush()
+    db.refresh(report)
     return report
 
 
-async def update_expired_reports(
-    db: AsyncSession,
+def update_expired_reports(
+    db: Session,
     expiration_date: datetime,
 ) -> int:
     """처리 기한이 지난 PENDING 신고를 EXPIRED로 변경합니다."""
@@ -123,17 +125,17 @@ async def update_expired_reports(
         )
     )
 
-    result = await db.execute(query)
+    result = db.execute(query)
 
-    await db.flush()
+    db.flush()
     return result.rowcount or 0
 
 
 
 
 
-async def get_users(
-    db: AsyncSession,
+def get_users(
+    db: Session,
     nickname: str | None = None,
     is_active: bool | None = None,
     skip: int = 0,
@@ -163,12 +165,12 @@ async def get_users(
 
     query = query.offset(skip).limit(limit)
    
-    result = await db.execute(query)
+    result = db.execute(query)
     return list(result.scalars().all())
 
 
-async def get_user_by_id(
-    db: AsyncSession,
+def get_user_by_id(
+    db: Session,
     user_id: int,
 ) -> User | None:
     """사용자 ID로 사용자 한 명을 조회합니다."""
@@ -177,12 +179,12 @@ async def get_user_by_id(
         User.user_id == user_id,
     )
 
-    result = await db.execute(query)
+    result = db.execute(query)
     return result.scalar_one_or_none()
 
 
-async def update_user_active_status(
-    db: AsyncSession,
+def update_user_active_status(
+    db: Session,
     user: User,
     is_active: bool,
 ) -> User:
@@ -190,15 +192,15 @@ async def update_user_active_status(
 
     user.is_active = is_active
 
-    await db.flush()
-    await db.refresh(user)
+    db.flush()
+    db.refresh(user)
     return user
 
 
 
 
-async def get_post_by_id(
-    db: AsyncSession,
+def get_post_by_id(
+    db: Session,
     post_id: int,
 ) -> CommunityPost | None:
     """신고 대상 커뮤니티 게시물을 조회합니다."""
@@ -207,35 +209,35 @@ async def get_post_by_id(
         CommunityPost.post_id == post_id,
     )
 
-    result = await db.execute(query)
+    result = db.execute(query)
     return result.scalar_one_or_none()
 
 
-async def delete_community_post(
-    db: AsyncSession,
+def delete_community_post(
+    db: Session,
     post: CommunityPost,
 ) -> None:
     """신고가 승인된 커뮤니티 게시물을 삭제합니다."""
 
-    await db.delete(post)
-    await db.flush()
+    db.delete(post)
+    db.flush()
 
 
 
 
-async def count_users(
-    db: AsyncSession,
+def count_users(
+    db: Session,
 ) -> int:
     """전체 사용자 수를 조회합니다."""
 
     query = select(func.count(User.user_id))
 
-    result = await db.execute(query)
+    result = db.execute(query)
     return result.scalar_one()
 
 
-async def count_users_by_active_status(
-    db: AsyncSession,
+def count_users_by_active_status(
+    db: Session,
     is_active: bool,
 ) -> int:
     """활성 또는 비활성 사용자 수를 조회합니다."""
@@ -244,12 +246,12 @@ async def count_users_by_active_status(
         User.is_active == is_active,
     )
 
-    result = await db.execute(query)
+    result = db.execute(query)
     return result.scalar_one()
 
 
-async def count_reports_by_status(
-    db: AsyncSession,
+def count_reports_by_status(
+    db: Session,
     status: UserReportStatus,
 ) -> int:
     """특정 처리 상태의 신고 수를 조회합니다."""
@@ -258,12 +260,12 @@ async def count_reports_by_status(
         Report.status == status,
     )
 
-    result = await db.execute(query)
+    result = db.execute(query)
     return result.scalar_one()
 
 
-async def get_daily_access_counts(
-    db: AsyncSession,
+def get_daily_access_counts(
+    db: Session,
     start_date: date,
     end_date: date,
 ) -> list[tuple[date, int]]:
@@ -283,7 +285,7 @@ async def get_daily_access_counts(
         .order_by(UserActivityLog.access_date.asc())
     )
 
-    result = await db.execute(query)
+    result = db.execute(query)
 
     # 날짜와 접속 사용자 수를 튜플 리스트로 반환합니다.
     return [
