@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 # =========================================================
-# [반드시 확인 및 검토할 사항]
+# [확인 및 검토할 사항]
 #
-# 1. Challenge 팀 API 주소
+# 1. Challenge 팀 API
 #    - POST   /challenges/teams
 #    - GET    /challenges/teams
 #    - GET    /challenges/my-teams
@@ -11,22 +11,30 @@ from __future__ import annotations
 #    - GET    /challenges/teams/{team_id}/members
 #    - POST   /challenges/teams/{team_id}/join
 #    - DELETE /challenges/teams/{team_id}/leave
+#    - POST   /challenges/invites
+#    - GET    /challenges/my-invites
+#    - PATCH  /challenges/invites/{invite_id}
 #
-# 2. 팀 참가 및 나가기 API는 로그인 전용입니다. (추후 확인 필요)
+# 2. 인증 정책
+#    - 팀 생성, 내 팀 조회, 팀 참가, 팀 나가기, 팀 초대, 받은 초대 조회 및 초대 응답은 로그인 전용입니다.
 #    - auth/router.py의 get_current_db_user 의존성을 재사용합니다.
-#    - Authorization 헤더에 Bearer 액세스 토큰이 필요합니다. 
+#    - Authorization 헤더에 Bearer 액세스 토큰이 필요합니다.
 #
-# 3. 팀 목록 조회 / 팀 상세 조회 / 팀 멤버 목록 조회 / 내가 참여 중인 팀 목록 조회 API 주소
-#    - GET /challenges/teams
-#    - GET /challenges/my-teams
-#    - GET /challenges/teams/{team_id}
-#    - GET /challenges/teams/{team_id}/members
+# 3. 공개 조회 API (추후 정책 확인 필요)
+#    - 팀 목록, 팀 상세, 팀 멤버 목록은 현재 로그인 없이 조회할 수 있습니다. 
 #
-# 4. 팀 목록, 팀 상세, 팀 멤버 목록은 현재 로그인 없이 조회할 수 있도록 작성했습니다.
-#    - 추후 인증 필수 정책으로 변경되면 current_user Dependency를 추가.
+# 4. 팀 멤버 응답
+#    - 현재 user_id와 팀 역할 정보만 반환합니다.
+#    - 닉네임과 프로필 이미지는 User 모델 JOIN 구현 후 추가할 수 있습니다.
 #
-# 5. 팀 멤버 목록은 현재 user_id와 역할 정보만 반환합니다.
-#    - 닉네임과 프로필 이미지는 User 모델 JOIN 구현 후 추가.
+# 5. 받은 초대 목록
+#    - 현재 로그인 사용자가 받은 PENDING 초대만 반환합니다.
+#    - 조회 전에 만료 시간이 지난 초대는 EXPIRED 상태로 반영합니다.
+#    - 팀 이름이나 팀장 닉네임이 필요하면 JOIN 조회와 별도의 초대 응답 Schema가 필요합니다.
+#
+# 6. 초대 자동 만료
+#    - 초대 목록 조회 및 초대 응답 시 즉시 만료 상태를 반영합니다.
+#    - Celery Beat가 매시간 만료 처리 Task를 자동 실행합니다.
 # =========================================================
 
 from fastapi import APIRouter, Depends, Query, status
@@ -38,6 +46,9 @@ from backend.app.auth.models import User
 from backend.app.challenge.schema import (
     TeamCreate,
     TeamDetailResponse,
+    TeamInviteCreate,
+    TeamInviteResponse,
+    TeamInviteStatusUpdate,
     TeamListItemResponse,
     TeamMemberResponse,
     TeamPasswordVerify,
@@ -46,7 +57,10 @@ from backend.app.challenge.schema import (
 from backend.app.challenge.service import ChallengeTeamService
 from backend.app.common.database import get_db
 from backend.app.common.response import APIResponse
-from backend.app.challenge.enums import TeamStatus
+from backend.app.challenge.enums import (
+    TeamInviteStatus,
+    TeamStatus,
+)
 
 
 # Challenge 기능의 공통 URL과 Swagger 태그를 설정.
@@ -379,4 +393,134 @@ def get_team_detail(
     return APIResponse.ok(
         data=response_data,
         message="팀 상세 정보를 성공적으로 조회했습니다.",
+    )
+
+
+# 현재 로그인 사용자가 팀장인 팀에 특정 사용자를 초대하는 API.
+@router.post(
+    "/invites",
+    response_model=APIResponse[TeamInviteResponse],
+    status_code=status.HTTP_201_CREATED,
+    summary="Challenge 팀 사용자 직접 초대",
+)
+def create_team_invite(
+    # 초대할 팀 ID, 사용자 ID와 선택적인 만료 시각을 요청 Body로 전달.
+    invite_data: TeamInviteCreate,
+
+    session: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_db_user
+    ),
+) -> APIResponse[TeamInviteResponse]:
+    """팀장이 특정 사용자를 자신의 Challenge 팀에 초대합니다."""
+
+    # Service에서 팀장 권한, 팀 상태, 정원과 중복 초대를 검사.
+    invite = ChallengeTeamService.create_team_invite(
+        session,
+        invite_data=invite_data,
+        current_user=current_user,
+    )
+
+    # 생성되거나 갱신된 TeamInvite 객체를 응답 Schema로 변환.
+    response_data = TeamInviteResponse.model_validate(
+        invite
+    )
+
+    return APIResponse.ok(
+        data=response_data,
+        message="사용자를 팀에 성공적으로 초대했습니다.",
+    )
+
+# 현재 로그인 사용자가 받은 처리 대기 중 초대 목록을 조회하는 API.
+@router.get(
+    "/my-invites",
+    response_model=APIResponse[
+        list[TeamInviteResponse]
+    ],
+    status_code=status.HTTP_200_OK,
+    summary="내가 받은 Challenge 팀 초대 목록 조회",
+)
+def get_my_invites(
+    page: int = Query(
+        default=1,
+        ge=1,
+        description="조회할 페이지 번호",
+    ),
+
+    size: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="한 페이지에서 조회할 초대 개수",
+    ),
+
+    session: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_db_user
+    ),
+) -> APIResponse[list[TeamInviteResponse]]:
+    
+    # Service에서 만료된 초대를 정리한 후 현재 사용자의 초대를 조회.
+    invites = ChallengeTeamService.get_received_invites(
+        session,
+        current_user=current_user,
+        page=page,
+        size=size,
+    )
+
+    # TeamInvite ORM 객체 목록을 응답 Schema 목록으로 변환.
+    response_data = [
+        TeamInviteResponse.model_validate(
+            invite
+        )
+        for invite in invites
+    ]
+
+    return APIResponse.ok(
+        data=response_data,
+        message="받은 팀 초대 목록을 성공적으로 조회했습니다.",
+    )
+
+# 현재 로그인 사용자가 받은 초대를 수락하거나 거절하는 API.
+@router.patch(
+    "/invites/{invite_id}",
+    response_model=APIResponse[TeamInviteResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Challenge 팀 초대 수락 또는 거절",
+)
+def respond_team_invite(
+    # 처리할 팀 초대 ID를 URL 경로로 전달.
+    invite_id: int,
+
+    # ACCEPTED 또는 REJECTED 상태를 요청 Body로 전달.
+    update_data: TeamInviteStatusUpdate,
+
+    session: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_db_user
+    ),
+) -> APIResponse[TeamInviteResponse]:
+    """현재 로그인 사용자가 받은 초대를 수락하거나 거절합니다."""
+
+    # Service에서 초대 소유권과 팀 참가 가능 여부를 검사하고 상태를 변경.
+    invite = ChallengeTeamService.respond_team_invite(
+        session,
+        invite_id=invite_id,
+        update_data=update_data,
+        current_user=current_user,
+    )
+
+    # 처리된 TeamInvite 객체를 응답 Schema로 변환.
+    response_data = TeamInviteResponse.model_validate(
+        invite
+    )
+
+    if update_data.status == TeamInviteStatus.ACCEPTED:
+        message = "팀 초대를 성공적으로 수락했습니다."
+    else:
+        message = "팀 초대를 성공적으로 거절했습니다."
+
+    return APIResponse.ok(
+        data=response_data,
+        message=message,
     )

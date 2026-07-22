@@ -9,7 +9,9 @@ from __future__ import annotations
 #    - Service에서 정원 및 중복 참가 여부를 확인한 뒤 바로 멤버를 추가.
 #    - 비밀번호 해시 검증 또는 유효한 초대 여부를 Service에서 확인한 뒤 TeamMember를 추가.
 #    - 현재 인원과 max_members를 비교하여 Service가 참가를 차단.
-#    - 마지막 팀원이 나가거나 퀘스트가 완료된 경우 Service에서 delete_team()을 호출하여 팀을 실제 삭제. (TeamInvite와 TeamMember는 FK의 CASCADE 설정으로 함께 삭제됩니다.)
+#    - 마지막 팀원이 나가면 Service에서 delete_team()을 호출하여 팀을 실제 삭제합니다.
+#    - TeamInvite와 TeamMember는 FK의 CASCADE 설정으로 함께 삭제됩니다.
+#    - 퀘스트 완료 시 팀 삭제 기능은 Quest 완료 기능과 연동할 때 추가해야 합니다.
 #
 # 2. 이 Repository에서는 flush()까지만 수행합니다.
 #    - Repository는 commit()과 rollback()을 직접 호출하지 않습니다.
@@ -517,13 +519,15 @@ class TeamInviteRepository:
         stmt = (
             update(TeamInvite)
             .where(
-                TeamInvite.status
-                == TeamInviteStatus.PENDING,
+                TeamInvite.status == TeamInviteStatus.PENDING,
                 TeamInvite.expires_at.is_not(None),
                 TeamInvite.expires_at <= current_time,
             )
             .values(
                 status=TeamInviteStatus.EXPIRED,
+            )
+            .execution_options(
+                synchronize_session=False,
             )
         )
 
