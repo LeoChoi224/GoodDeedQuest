@@ -4,8 +4,8 @@ from ai.app.quest_recommend.state import RecommendState
 
 def analyze_user_profile(state: RecommendState) -> Dict[str, Any]:
     """
-    사용자의 기본 입력값과 이력을 LLM으로 분석하여 
-    가공된 프로필 정보(user_profile)를 생성하는 LangGraph 노드 함수입니다.
+    사용자의 기본 입력값과 활동 이력을 읽어와 
+    규격화된 프로필 정보(user_profile)로 정제하여 반환하는 프로그래밍 기반의 LangGraph 노드 함수입니다.
     """
     # State로부터 필요한 정보들을 안전하게 꺼내옵니다.
     interests = state.get("interests", [])

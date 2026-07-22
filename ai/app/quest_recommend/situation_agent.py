@@ -51,7 +51,7 @@ def analyze_situation(state: RecommendState) -> Dict[str, Any]:
             case _:
                 today_weather = "cloudy"    # 흐림
     except Exception as e:
-        logger.warning(f"Failed to fetch real-time weather: {e}. Fallback to '맑음'.")
+        logger.warning(f"실시간 날씨 정보 조회 실패: {e}. 'sunny'(맑음)로 폴백합니다.")
     
     is_outdoor_feasible = False if today_weather in ["rainy", "snowy"] else True
 
