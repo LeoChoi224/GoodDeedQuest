@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     CORS_ORIGINS: list[str] = ["http://localhost:8081"]
     
+    GOOGLE_CLIENT_ID: str = "" 
 
 @lru_cache # 같은요청 캐시해놔서 속도 빠름 Depend 안에 넣을 수 있고 import 시 자동실행 막음 기존에는 그냥 자동시행 시도임
 def get_setting() -> Settings:

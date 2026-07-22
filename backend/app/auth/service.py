@@ -1,5 +1,9 @@
 from datetime import date, datetime
 import httpx
+import secrets
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
+from backend.app.common.auth import get_password_hash
 from fastapi import BackgroundTasks
 from backend.app.auth.models import User
 from backend.app.common.config import get_setting
@@ -13,6 +17,33 @@ def calculate_age(birthday: date) -> int:
         age -= 1
     return age
 
+def verify_google_id_token(token: str) -> dict:
+  return google_id_token.verify_oauth2_token(
+    token, google_requests.Request(), get_setting().GOOGLE_CLIENT_ID
+  )
+
+def find_or_create_social_user(repository: DatabaseRepository[User], provider: str, provider_user_id: str, email: str, nickname: str) -> tuple[User, bool]:
+  user = repository.get_by(provider=provider, provider_user_id=provider_user_id)
+  if user:
+    return user, False
+  
+  user = repository.get_by(email=email)
+  if user:
+    user.provider = provider
+    user.provider_user_id = provider_user_id
+    repository.session.commit()
+    return user, False
+  
+  random_password = secrets.token_urlsafe(32)
+  data = {
+    "email": email,
+    "nickname": nickname,
+    "provider": provider,
+    "provider_user_id": provider_user_id,
+    "password_hash": get_password_hash(random_password)
+  }
+  user = repository.create(data)
+  return user, True
 
 async def embed_user_profile_task(user_id: int):
     with SessionLocal() as session:

@@ -14,8 +14,7 @@ from backend.app.growth.router import router as growth_router
 # from backend.app.notification.router import router as notification_router  # TODO: notification 모듈 아직 없음
 # from backend.app.admin.router import router as admin_router  # TODO: auth.dependencies.get_current_admin 미구현
 from backend.app.shop.router import router as shop_router
-from backend.app.badge import models as badge_models  # noqa: F401  # badge 라우터는 아직 없지만, User.user_badges relationship("UserBadge")가 참조하려면 이 모델이 로드는 돼 있어야 함
-from backend.app.shop import models as shop_models  # noqa: F401  # shop 라우터가 아직 Purchase 모델을 안 써서, User.purchases relationship("Purchase")를 위해 직접 로드
+import backend.app.models_registry  # noqa: F401  # 모든 도메인 모델을 한 번에 등록 (relationship/ForeignKey 문자열 참조 해석용)
 # TODO router.py 작업할때 short_form, badge 라우터 임포트 예정
 
 app = FastAPI(
