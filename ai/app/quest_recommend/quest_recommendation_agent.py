@@ -15,42 +15,42 @@ class QuestCandidate(BaseModel):
         ...,
         # "유저의 관심사와 매치되는 퀘스트 카테고리 이름 (예: '환경', '동물', '지역사회', '기타')."
         description="Category name matching user interests (e.g., '환경', '동물', '지역사회')."
-        )
+    )
     quest_title: str = Field(
         ...,
         # "퀘스트의 제목 (예: '한강 쓰레기 줍기 플로깅', '텀블러 사용하기')."
         description="The title of the quest."
-        )
+    )
     quest_description: str = Field(
         ...,
         # "퀘스트에 대한 상세한 설명 및 실천 가이드."
         description="Detailed description and execution guide of the quest."
-        )
+    )
     quest_target: str = Field(
         ...,
         # "대상 참여 방식 모드: 'SOLO'(개인) 또는 'TEAM'(협동)."
         description="Target participation mode: 'SOLO' or 'TEAM'."
-        )
+    )
     quest_type: str = Field(
         ...,
         # "퀘스트 종류: 실제 봉사활동의 경우 'VOLUNTEER', AI가 창작한 일상 선행의 경우 'GOOD_DEED'."
         description="Type of the quest: 'VOLUNTEER' for real volunteer works, 'GOOD_DEED' for AI-created daily good deeds."
-        )
+    )
     location: Optional[str] = Field(
         None,
         # "실제 봉사(VOLUNTEER) 퀘스트의 구체적인 활동 장소 주소. 일상 선행(GOOD_DEED) 퀘스트의 경우 반드시 null/None이어야 함."
         description="Specific location address for VOLUNTEER quests. Must be null/None for GOOD_DEED."
-        )
+    )
     difficulty: str = Field(
         ...,
         # "퀘스트 난이도: 'VERY_EASY'(매우 쉬움), 'EASY'(쉬움), 'NORMAL'(보통), 'HARD'(어려움), 'VERY_HARD'(매우 어려움) 중 하나."
         description="Quest difficulty: 'VERY_EASY', 'EASY', 'NORMAL', 'HARD', 'VERY_HARD'."
-        )
+    )
     estimated_duration: Optional[int] = Field(
         None,
         # "분 단위로 환산한 예상 소요 시간 (예: 10, 30, 240)."
         description="Estimated duration in minutes (e.g., 10, 30, 180)."
-        )
+    )
 
 class QuestCandidatesOutput(BaseModel):
     """LLM이 최종 반환할 구조화된 후보군 목록 스키마"""
@@ -58,7 +58,7 @@ class QuestCandidatesOutput(BaseModel):
         default_factory=list,
         # "실제 봉사활동과 AI가 생성한 일상 선행이 혼합되어 생성된 정확히 6~7개의 퀘스트 후보 리스트."
         description="A list of 6 to 7 generated quest candidates."
-        )
+    )
     
 def recommend_quests(state: RecommendState) -> Dict[str, Any]:
     """
@@ -116,13 +116,13 @@ Combine the retrieved real volunteer work data and AI-created daily good deeds t
             "request_context": request_context,
             "recommendation_strategy": recommendation_strategy,
             "retrieved_volunteers": retrieved_volunteers
-            })
+        })
         candidates_list = [q.model_dump() for q in response.quests]
 
         return {"candidate_quests": candidates_list}
 
     except Exception as e:
-        logger.warning(f"Failed to generate quest candidates using OpenAI: {e}. Fallback to basic good deeds.")
+        logger.warning(f"OpenAI를 통한 퀘스트 후보 생성 실패: {e}. 기본 일상 선행으로 폴백합니다.")
 
         # API 오류 발생 시 시스템 중단을 방지하기 위해 2개의 기본 일상 선행을 Fallback 결과로 구성
         interests = user_profile.get("interests", []) if user_profile else []
