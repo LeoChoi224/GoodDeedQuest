@@ -147,4 +147,31 @@ Strict Inspection Guidelines:
         logger.warning(f"비평가 LLM 호출 실패: {e}. 1차 필터링 목록으로 임시 대체합니다.")
         return {"candidate_quests": pre_filtered_quests}
 
+def route_validation(state: RecommendState) -> str:
+    """
+    검증 결과(candidate_quests)와 재시도 횟수(retry_count)를 분석하여
+    다음으로 이동할 랭그래프 노드(response / planner / retrieval)를 결정하는 라우터 함수입니다.
+    """
+    candidate_quests = state.get("candidate_quests", [])
+    retrieved_volunteers = state.get("retrieved_volunteers", [])
+    retry_count = state.get("retry_count", 0)
 
+    candidate_count = len(candidate_quests)
+    # 1. 합격 통과 (Pass) - 최종 추천 후보 5개 이상 확보 완료
+    if candidate_count >= 5:
+        logger.info(f"검증 통과: 최종 추천 후보 {candidate_count}개 확보 완료. 응답 생성 노드로 이동합니다.")
+        return "response"
+
+    # 2. 재시도 횟수 초과 (Max Retries Reached) - 무한 루프 방지를 위한 강제 폴백 종료
+    if retry_count >= 3:
+        logger.warning(f"재시도 횟수 초과 (현재 {retry_count}회): 후보 {candidate_count}개로 최종 응답을 구성합니다.")
+        return "response"
+
+    # 3. 검색 결과 부족 - 검색된 원본 봉사 데이터가 아예 없어 재생성이 필요한 경우
+    if not retrieved_volunteers:
+        logger.info("검색된 봉사활동 데이터 부족: 추가 수집을 위해 검색 툴로 회귀합니다.")
+        return "retrieval"
+
+    # 4. 추천 품질 낮음 - 검색 데이터는 존재하나 비평가(Critic) 심사에서 반려되어 후보가 부족해진 경우
+    logger.warning(f"비평가 검수 탈락으로 인한 후보 부족 (현재 {candidate_count}개): 추천 전략 재수립을 위해 플래너로 회귀합니다.")
+    return "planner"
