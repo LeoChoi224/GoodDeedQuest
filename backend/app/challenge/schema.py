@@ -195,17 +195,16 @@ class TeamInviteCreate(BaseModel):
 
 
 class TeamInviteStatusUpdate(BaseModel):
-    """사용자의 팀 초대 수락 또는 거절 요청."""
-    
+    """사용자가 팀 초대를 수락하거나 거절할 때 사용하는 요청 Schema.
+
+    PENDING은 초대 생성 시 서버가 설정하고,
+    EXPIRED는 만료 처리 로직과 Celery Task가 관리하므로
+    클라이언트 요청값으로 허용하지 않습니다.
     """
-    PENDING	초대를 생성할 때 서버가 자동 설정
-    ACCEPTED	초대받은 사용자가 수락
-    REJECTED	초대받은 사용자가 거절
-    EXPIRED	만료 시간이 지나면 서버가 처리
-    """ 
+
     status: Literal[
-        TeamInviteStatus.ACCEPTED,                                  # 사용자는 수락 또는 거절만 할수 있어야한다.
-        TeamInviteStatus.REJECTED,                                  # 추후에 service.py 에서 이 사용자가 실제로 이 초대를 처리할 권한과 조건이 되는지 검사
+        TeamInviteStatus.ACCEPTED,
+        TeamInviteStatus.REJECTED,
     ] = Field(
         ...,
         description="초대 처리 상태: ACCEPTED 또는 REJECTED만 가능",
