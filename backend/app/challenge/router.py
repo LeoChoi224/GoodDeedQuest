@@ -16,6 +16,12 @@ from __future__ import annotations
 #    - auth/router.py의 get_current_db_user 의존성을 재사용합니다.
 #    - Authorization 헤더에 Bearer 액세스 토큰이 필요합니다. 
 #
+# 3. 팀 목록 조회 / 팀 상세 조회 / 팀 멤버 목록 조회 / 내가 참여 중인 팀 목록 조회 API 주소
+#    - GET /challenges/teams
+#    - GET /challenges/my-teams
+#    - GET /challenges/teams/{team_id}
+#    - GET /challenges/teams/{team_id}/members
+#
 # 4. 팀 목록, 팀 상세, 팀 멤버 목록은 현재 로그인 없이 조회할 수 있도록 작성했습니다.
 #    - 추후 인증 필수 정책으로 변경되면 current_user Dependency를 추가.
 #

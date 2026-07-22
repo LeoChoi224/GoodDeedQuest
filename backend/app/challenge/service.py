@@ -397,3 +397,4 @@ class ChallengeTeamService:
             session,
             member=current_member,
         )
+        return teams
