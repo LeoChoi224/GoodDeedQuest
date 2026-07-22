@@ -1,6 +1,6 @@
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
-from ai.app.common.config import settings
+from .config import settings
 
 def get_openai_model(model_name: str = None, temperature: float = 0.7) -> ChatOpenAI:
     """LangChain의 ChatOpenAI 객체를 반환합니다."""
