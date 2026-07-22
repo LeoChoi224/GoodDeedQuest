@@ -7,8 +7,8 @@ from ai.app.quest_recommend.state import RecommendState
 
 logger = logging.getLogger(__name__)
 
-# Open-Meteo API 호출(위도, 경도로 실시간 날씨 정보를 가져옴)
 def get_weather(latitude, longitude):
+    """Open-Meteo API 호출(위도, 경도로 실시간 날씨 정보를 가져옴)"""
     url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current_weather=true"
     response = httpx.get(url, timeout=3.0)
     

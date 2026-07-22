@@ -34,6 +34,7 @@ from typing import Literal
 from sqlalchemy import Select, func, select, update
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from backend.app.challenge.enums import (
     TeamInviteStatus,
@@ -72,9 +73,10 @@ class TeamRepository:
         """
         새로운 팀을 생성합니다.
 
-        주의:
-        이 메서드는 Team 레코드만 생성.
-        팀장을 TeamMember에 추가하는 작업은 Service에서 별도로 수행 (권한관련.).
+        Team 레코드만 생성하며,
+        생성자를 LEADER 멤버로 추가하는 작업은 Service에서 처리합니다.
+
+        commit()은 common/database.py의 get_db()가 처리합니다.
         """
 
         # 전달받은 값으로 새로운 Team 모델 객체를 생성합니다.
@@ -92,8 +94,8 @@ class TeamRepository:
 
         session.add(team)
 
-        await session.flush()
-        await session.refresh(team)
+        session.flush()
+        session.refresh(team)
 
         return team
 
@@ -537,7 +539,7 @@ class TeamMemberRepository:
 
     @staticmethod
     # 사용자를 팀 멤버로 추가.
-    async def add_member(
+    def add_member(
         session: AsyncSession,
         *,
         team_id: int,
@@ -548,7 +550,9 @@ class TeamMemberRepository:
         사용자를 팀 멤버로 추가합니다.
 
         일반 참가자는 MEMBER,
-        팀 생성자는 LEADER 역할로 추가.
+        팀 생성자는 LEADER 역할로 추가합니다.
+
+        commit()은 common/database.py의 get_db()가 처리합니다.
         """
 
         member = TeamMember(
@@ -559,8 +563,8 @@ class TeamMemberRepository:
 
         session.add(member)
 
-        await session.flush()
-        await session.refresh(member)
+        session.flush()
+        session.refresh(member)
 
         return member
 

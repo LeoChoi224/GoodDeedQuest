@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from backend.app.auth.models import User
 from backend.app.auth.enums import UserRole
@@ -46,9 +46,9 @@ def _credentials_exception() -> HTTPException:
 
 
 # 현재 로그인한 사용자를 조회.
-async def get_current_user(
+def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> User:
     """
     Access Token을 검증하고
@@ -66,7 +66,7 @@ async def get_current_user(
         raise _credentials_exception()
 
     # 이메일로 현재 로그인한 사용자를 조회.
-    result = await db.execute(
+    result = db.execute(
         select(User).where(
             User.email == email,
         )
@@ -82,7 +82,7 @@ async def get_current_user(
 
 
 # 현재 로그인한 사용자가 관리자 권한인지 확인.
-async def get_current_admin(
+def get_current_admin(
     current_user: User = Depends(get_current_user),
 ) -> User:
 

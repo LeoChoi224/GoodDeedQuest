@@ -25,3 +25,26 @@ export async function register(payload: RegisterPayload) {
   const response = await api.post('/auth/register', payload);
   return response.data;
 }
+
+export async function socialLogin(idToken: string): Promise<{ token: string; isNewUser: boolean }> {
+  const response = await api.post('/auth/social-login', {
+    provider: 'google',
+    id_token: idToken
+  });
+  const token: string = response.data.data.access_toekn;
+  const isNewUser: boolean = response.data.data.is_new_user
+  await SecureStore.setItemAsync(TOKEN_KEY, token);
+  return { token, isNewUser }
+}
+
+export type ProfileCompletePayload = {
+  nickname: string;
+  birthday: string;
+  active_time?: string[];
+  category?: string[];
+}
+
+export async function completeProfile(payload: ProfileCompletePayload) {
+  const response = await api.patch('/auth/me', payload);
+  return response.data;
+}
