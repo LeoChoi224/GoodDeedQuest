@@ -112,7 +112,6 @@ def recommend_quests(state: RecommendState) -> Dict[str, Any]:
             4. 추천 전략 및 제약조건: {recommendation_strategy}
             5. 검색된 실제 봉사 데이터: {retrieved_volunteers}")
         """
-                # 변경된 카테고리를 엄격히 반영한 영문 프롬프트 빌더
         recommendation_prompt = ChatPromptTemplate.from_messages([
            ("system", """You are a professional AI Quest Recommendation Generator.
 Combine the retrieved real volunteer work data and AI-created daily good deeds to generate exactly 6 to 7 quest candidates.
