@@ -1,32 +1,58 @@
-# 챌린지 API
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
-from typing import List
+from __future__ import annotations
+
+# =========================================================
+# [반드시 확인 및 검토할 사항]
+#
+# 1. 팀 생성 API 주소는 다음과 같습니다.
+#    - POST /challenges/teams
+#
+# 2. 로그인 사용자 확인은 auth/router.py의 get_current_db_user 의존성을 재사용합니다.
+#    - Authorization 헤더에 Bearer 액세스 토큰이 필요합니다. (추후 확인 필요)
+# =========================================================
+
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
+
+from backend.app.auth.router import get_current_db_user
+from backend.app.auth.models import User
+from backend.app.challenge.schema import (
+    TeamCreate,
+    TeamResponse,
+)
+from backend.app.challenge.service import ChallengeTeamService
+from backend.app.common.database import get_db
 from backend.app.common.response import APIResponse
-from backend.app.common.auth import get_current_user
 
-router = APIRouter(prefix="/challenges", tags=["Collaborative Challenges"])
 
-class ChallengeSchema(BaseModel):
-    id: int
-    title: str
-    description: str
-    target_xp: int
-    current_xp: int
-    participants_count: int
-    days_left: int
+# Challenge 기능의 공통 URL과 Swagger 태그를 설정.
+router = APIRouter(
+    prefix="/challenges",
+    tags=["Challenge"],
+)
 
-MOCK_CHALLENGES = [
-    {"id": 1, "title": "마포구 제로웨이스트 정복기", "description": "팀원들과 함께 환경 정화 퀘스트를 수행하여 목표 경험치를 달성하세요.", "target_xp": 1000, "current_xp": 450, "participants_count": 4, "days_left": 5},
-    {"id": 2, "title": "따뜻한 연탄 나눔 챌린지", "description": "연탄 봉사 퀘스트를 성공하여 소외된 이웃에게 기부할 연탄을 모으세요.", "target_xp": 3000, "current_xp": 1200, "participants_count": 8, "days_left": 12}
-]
+@router.post(
+    "/teams",
+    response_model=APIResponse[TeamResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_team(
+    team_data: TeamCreate,
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> APIResponse[TeamResponse]:
 
-@router.get("", response_model=APIResponse[List[ChallengeSchema]])
-def get_challenges(user: dict = Depends(get_current_user)):
-    """현재 활성화된 협동 챌린지 목록을 가져옵니다."""
-    return APIResponse.ok(data=MOCK_CHALLENGES)
+    # Service에 팀 생성 요청과 로그인 사용자 정보를 전달.
+    team = ChallengeTeamService.create_team(
+        session,
+        team_data=team_data,
+        current_user=current_user,
+    )
 
-@router.post("/join/{challenge_id}")
-def join_challenge(challenge_id: int, user: dict = Depends(get_current_user)):
-    """협동 챌린지에 참여 신청을 합니다."""
-    return APIResponse.ok(message=f"성공적으로 챌린지 {challenge_id}에 참여했습니다.")
+    # ORM Team 객체를 응답용 Pydantic Schema로 변환.
+    response_data = TeamResponse.model_validate(team)
+
+    # 공통 APIResponse 형식으로 생성 결과를 반환.
+    return APIResponse.ok(
+        data=response_data,
+        message="팀이 성공적으로 생성되었습니다.",
+    )
