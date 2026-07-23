@@ -27,9 +27,18 @@ from __future__ import annotations
 #    - 초대 목록 조회 및 초대 응답 시 만료 상태를 즉시 반영합니다.
 #    - Celery Beat가 매시간 expire_pending_invites() Task를 실행하여
 #      서버 요청이 없는 경우에도 만료된 초대를 정기적으로 처리합니다.
+#
+# 6. AI 추천 후보 사용자 조회 Service
+#    - 추천을 요청할 수 있는 팀장인지 확인합니다.
+#    - 팀 상태, 만료 여부, 정원 여부를 확인합니다.
+#    - Repository에서 후보 사용자와 최근 30일 활동 기록을 조회합니다.
+#    - 최근 활동을 카테고리·난이도·활동 시간대별 횟수로 정리합니다.
+#    - 추천 점수, Embedding 유사도, Top-K, 추천 이유는 AI Server에서 처리합니다.
 # =========================================================
 
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -45,6 +54,7 @@ from backend.app.challenge.models import (
     TeamMember,
 )
 from backend.app.challenge.repository import (
+    ChallengeRecommendationRepository,
     TeamInviteRepository,
     TeamMemberRepository,
     TeamRepository,
@@ -62,6 +72,12 @@ from backend.app.common.auth import (
 
 # 초대 만료 시간이 별도로 전달되지 않았을 때 사용할 기본 유효기간입니다.
 DEFAULT_INVITE_EXPIRATION_DAYS = 30
+
+# AI 추천에서 최근 활동으로 인정할 기간입니다.
+RECOMMENDATION_ACTIVITY_DAYS = 30
+
+# 팀 초대를 최근 거절한 사용자를 추천에서 제외할 기간입니다.
+RECOMMENDATION_REJECTION_COOLDOWN_DAYS = 7
 
 class ChallengeTeamService:
     """Challenge 팀 관련 비즈니스 로직을 처리하는 Service."""
@@ -796,3 +812,379 @@ class ChallengeTeamService:
 
         # 상태가 변경된 초대 개수를 반환.
         return expired_count
+
+
+
+class ChallengeRecommendationService:
+    """AI 팀원 추천 후보 조회와 데이터 정리를 담당하는 Service."""
+
+    @staticmethod
+    def _normalize_enum_value(value: Any) -> str | None:
+        """Enum 또는 문자열 값을 AI 전달용 문자열로 변환."""
+
+        if value is None:
+            return None
+
+        enum_value = getattr(value, "value", None)
+
+        if enum_value is not None:
+            return str(enum_value)
+
+        return str(value)
+
+
+    @staticmethod
+    def _normalize_active_time_values(
+        value: Any,
+    ) -> list[Any]:
+        """팀·Quest 활동 시간 값을 AI 요청용 목록으로 변환합니다."""
+
+        # 활동 시간 값이 없으면 빈 목록을 반환합니다.
+        if value is None:
+            return []
+
+        # 이미 목록이라면 그대로 반환합니다.
+        if isinstance(value, list):
+            return value
+
+        # tuple 또는 set이면 목록으로 변환합니다.
+        if isinstance(value, (tuple, set)):
+            return list(value)
+
+        # 단일 값이면 요소 하나를 가진 목록으로 변환합니다.
+        return [value]
+
+    @staticmethod
+    def _get_active_time_bucket(submitted_at: datetime) -> int:
+        """Quest 제출 시각을 0·6·12·18시 기준 활동 시간대로 변환.
+
+        예시:
+        - 00:00~05:59 → 0
+        - 06:00~11:59 → 6
+        - 12:00~17:59 → 12
+        - 18:00~23:59 → 18
+        """
+
+        hour = submitted_at.hour
+
+        if hour < 6:
+            return 0
+
+        if hour < 12:
+            return 6
+
+        if hour < 18:
+            return 12
+
+        return 18
+
+    @staticmethod
+    def _build_recent_activity_map(
+        activity_rows: list[tuple[Any, Any, Any]],
+    ) -> dict[int, dict[str, Any]]:
+        """최근 Quest 수행 기록을 사용자별 통계로 정리.
+
+        Repository에서 가져온 수행 기록을 이용해 사용자별로 다음 정보를 만든다.
+
+        - 최근 완료한 전체 Quest 수
+        - 카테고리별 완료 횟수
+        - 난이도별 완료 횟수
+        - 활동 시간대별 완료 횟수
+        """
+
+        # 후보별 최근 활동 통계를 저장.
+        activity_map: dict[int, dict[str, Any]] = {}
+
+        for submission, quest, category in activity_rows:
+            user_id = submission.user_id
+
+            # 해당 사용자의 통계가 아직 없으면 기본 구조를 만든다.
+            if user_id not in activity_map:
+                activity_map[user_id] = {
+                    "completed_count": 0,
+                    "category_counts": defaultdict(int),
+                    "difficulty_counts": defaultdict(int),
+                    "active_time_counts": defaultdict(int),
+                }
+
+            user_activity = activity_map[user_id]
+
+            # 전체 완료 횟수를 1 증가.
+            user_activity["completed_count"] += 1
+
+            # 수행한 Quest의 카테고리 횟수를 증가.
+            category_key = str(category.name)
+            user_activity["category_counts"][category_key] += 1
+
+            # 수행한 Quest의 난이도 횟수를 증가.
+            difficulty_key = (
+                ChallengeRecommendationService
+                ._normalize_enum_value(
+                    quest.difficulty,
+                )
+            )
+
+            if difficulty_key is not None:
+                user_activity["difficulty_counts"][difficulty_key] += 1
+
+            # Quest 제출 시각을 활동 시간대로 변환하여 횟수를 증가.
+            active_time_bucket = (
+                ChallengeRecommendationService
+                ._get_active_time_bucket(
+                    submission.submitted_at,
+                )
+            )
+
+            user_activity["active_time_counts"][
+                str(active_time_bucket)
+            ] += 1
+
+        # defaultdict를 일반 dict로 변경하여 JSON 변환이 가능하게 만든다.
+        for user_activity in activity_map.values():
+            user_activity["category_counts"] = dict(
+                user_activity["category_counts"]
+            )
+            user_activity["difficulty_counts"] = dict(
+                user_activity["difficulty_counts"]
+            )
+            user_activity["active_time_counts"] = dict(
+                user_activity["active_time_counts"]
+            )
+
+        return activity_map
+
+    @staticmethod
+    def get_recommendation_candidates(
+        session: Session,
+        *,
+        team_id: int,
+        current_user: User,
+    ) -> dict[str, Any]:
+        """AI 팀원 추천에 사용할 후보 사용자 데이터를 조회.
+
+        처리 순서:
+
+        1. 현재 사용자의 이용 가능 여부 확인
+        2. 추천 대상 팀·Quest·Category 조회
+        3. 현재 사용자가 팀장인지 확인
+        4. 팀 상태·만료·정원 확인
+        5. 추천 가능한 후보 사용자 조회
+        6. 후보 사용자의 최근 30일 승인 활동 조회
+        7. 최근 활동을 사용자별 통계로 정리
+
+        추천 점수 계산과 Top-K 선정은 AI Server에서 처리합니다.
+        """
+
+        if not current_user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="비활성화된 사용자는 팀원 추천을 요청할 수 없습니다.",
+            )
+
+        # 추천 대상 팀과 연결된 Quest·Category·현재 인원을 조회.
+        context = (
+            ChallengeRecommendationRepository
+            .get_team_recommendation_context(
+                session,
+                team_id=team_id,
+            )
+        )
+
+        if context is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="존재하지 않는 팀입니다.",
+            )
+
+        team, quest, category, current_members = context
+
+        if team.leader_id != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="팀장만 팀원 추천을 요청할 수 있습니다.",
+            )
+
+        if team.status != TeamStatus.RECRUITING:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="현재 팀원을 모집 중인 팀이 아닙니다.",
+            )
+
+        # 팀 만료 여부와 최근 활동 기간 계산에 사용할 현재 UTC 시각.
+        current_time = datetime.now(timezone.utc)
+
+        if (
+            team.expires_at is not None
+            and team.expires_at <= current_time
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="이미 만료된 팀입니다.",
+            )
+
+        if current_members >= team.max_members:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="팀 정원이 모두 찼습니다.",
+            )
+
+        # 최근 초대 거절자를 제외하기 위한 기준 시각.
+        rejected_since = current_time - timedelta(
+            days=RECOMMENDATION_REJECTION_COOLDOWN_DAYS,
+        )
+
+        # 확정된 제외 조건을 적용해 추천 가능한 후보를 조회.
+        candidates = (
+            ChallengeRecommendationRepository
+            .list_recommendation_candidates(
+                session,
+                requester_id=current_user.user_id,
+                team_id=team.team_id,
+                quest_id=team.quest_id,
+                rejected_since=rejected_since,
+            )
+        )
+
+        # 후보가 없으면 AI Server를 호출하지 않도록 빈 후보 목록을 반환.
+        if not candidates:
+            return {
+                "requester_id": current_user.user_id,
+                "team": {
+                    "team_id": team.team_id,
+                    "quest_id": team.quest_id,
+                    "region": team.region,
+                    "current_members": current_members,
+                    "max_members": team.max_members,
+                },
+                "quest": {
+                    "quest_id": quest.quest_id,
+                    "category_id": category.category_id,
+                    "category_name": category.name,
+                    "title": quest.quest_title,
+                    "description": quest.quest_description,
+                    "difficulty": (
+                        ChallengeRecommendationService
+                        ._normalize_enum_value(
+                            quest.difficulty,
+                        )
+                    ),
+                    "active_time": (
+                        ChallengeRecommendationService
+                        ._normalize_active_time_values(
+                            getattr(quest, "active_time", None),
+                        )
+                    ),
+                    "location": quest.location,
+                    "embedding": quest.quest_embedding,
+                },
+                "candidates": [],
+            }
+
+        # 최근 활동으로 인정할 시작 시각을 계산.
+        activity_since = current_time - timedelta(
+            days=RECOMMENDATION_ACTIVITY_DAYS,
+        )
+
+        # 후보 사용자 ID만 별도로 모읍니다.
+        candidate_user_ids = [
+            candidate.user_id
+            for candidate, _ in candidates
+        ]
+
+        # 후보들의 최근 30일 승인 활동을 한 번에 조회.
+        activity_rows = (
+            ChallengeRecommendationRepository
+            .list_recent_candidate_activities(
+                session,
+                candidate_user_ids=candidate_user_ids,
+                since=activity_since,
+            )
+        )
+
+        # 조회한 수행 기록을 사용자별 활동 통계로 정리.
+        activity_map = (
+            ChallengeRecommendationService
+            ._build_recent_activity_map(
+                activity_rows,
+            )
+        )
+
+        # 후보별로 AI Server에 전달할 데이터를 구성.
+        candidate_data: list[dict[str, Any]] = []
+
+        for candidate, region_name in candidates:
+            recent_activity = activity_map.get(
+                candidate.user_id,
+                {
+                    "completed_count": 0,
+                    "category_counts": {},
+                    "difficulty_counts": {},
+                    "active_time_counts": {},
+                },
+            )
+
+            candidate_data.append(
+                {
+                    "user_id": candidate.user_id,
+                    "nickname": candidate.nickname,
+                    "profile_image_url": candidate.profile_image_url,
+                    "region_id": candidate.region_id,
+                    "region": region_name,
+                    "preferred_categories": candidate.category or [],
+                    "preferred_difficulty": (
+                        ChallengeRecommendationService
+                        ._normalize_enum_value(
+                            candidate.preferred_difficulty,
+                        )
+                    ),
+                    "active_time": candidate.active_time or [],
+                    "current_level": candidate.current_level,
+                    "daily_streak": candidate.daily_streak,
+                    "latitude": (
+                        float(candidate.current_latitude)
+                        if candidate.current_latitude is not None
+                        else None
+                    ),
+                    "longitude": (
+                        float(candidate.current_longitude)
+                        if candidate.current_longitude is not None
+                        else None
+                    ),
+                    "profile_embedding": candidate.profile_embedding,
+                    "recent_activity": recent_activity,
+                }
+            )
+
+        # 다음 AI Server 단계에서 바로 사용할 수 있는 형태로 반환.
+        return {
+            "requester_id": current_user.user_id,
+            "team": {
+                "team_id": team.team_id,
+                "quest_id": team.quest_id,
+                "region": team.region,
+                "current_members": current_members,
+                "max_members": team.max_members,
+            },
+            "quest": {
+                "quest_id": quest.quest_id,
+                "category_id": category.category_id,
+                "category_name": category.name,
+                "title": quest.quest_title,
+                "description": quest.quest_description,
+                "difficulty": (
+                    ChallengeRecommendationService
+                    ._normalize_enum_value(
+                        quest.difficulty,
+                    )
+                ),
+                "active_time": (
+                    ChallengeRecommendationService
+                    ._normalize_active_time_values(
+                        getattr(quest, "active_time", None),
+                    )
+                ),
+                "location": quest.location,
+                "embedding": quest.quest_embedding,
+            },
+            "candidates": candidate_data,
+        }

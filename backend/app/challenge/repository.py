@@ -29,12 +29,19 @@ from __future__ import annotations
 #     - 현재 Repository는 Team 정보와 현재 인원 수를 반환.
 #     - 퀘스트 상세 정보는 QuestRepository 또는 Service에서 결합.
 #
+# 6. AI 팀원 추천 Repository
+#    - 추천 가능한 사용자 후보 조회와 최근 30일 승인 활동 조회만 담당합니다.
+#    - 후보 사용자의 지역 이름도 함께 조회하여 AI 지역 점수 계산에 사용합니다.
+#    - 추천 점수, Top-K, Embedding 비교, 추천 이유 생성은 처리하지 않습니다.
+#    - 최근 기간과 최근 거절 기간의 기준 시각은 Service에서 계산하여 전달합니다.
+#    - 현재 Team에는 활동 장소 좌표가 없으므로 정확한 거리 계산은 이후 좌표 연동이 필요합니다.
+#
 # =========================================================
 
 from datetime import datetime
 from typing import Literal
 
-from sqlalchemy import Select, func, select, update
+from sqlalchemy import Select, exists, func, or_, select, update
 
 from sqlalchemy.orm import Session
 
@@ -48,6 +55,13 @@ from backend.app.challenge.models import (
     TeamInvite,
     TeamMember,
 )
+
+from backend.app.auth.enums import UserRole
+from backend.app.auth.models import User
+from backend.app.quest.models import Category, Quest
+from backend.app.quest_verification.enums import SubmissionStatus
+from backend.app.quest_verification.models import QuestSubmission
+from backend.app.map.models import Region
 
 # 팀 정렬 옵션을 최신순, 오래된순, 이름순 세 값으로 제한. Literal["최신순", "오래된 순", "이름순"]
 TeamSortType = Literal["latest", "oldest", "name"]
@@ -734,3 +748,231 @@ class TeamMemberRepository:
 
         session.delete(member)
         session.flush()
+
+
+
+class ChallengeRecommendationRepository:
+    """AI 팀원 추천에 필요한 DB 조회를 담당하는 Repository.
+
+    이 Repository는 다음 데이터만 조회.
+
+    - 추천 대상 팀과 연결된 Quest·Category 정보
+    - 추천 가능한 사용자 후보
+    - 후보 사용자의 최근 승인된 Quest 수행 기록
+
+    - 추천 점수 계산, Top-K 선정, Embedding 비교 및 추천 이유 생성은
+    - AI Server에서 처리합니다.
+    
+    - Repository는 추천에 필요한 데이터만 조회하여
+    - Service에 전달하는 역할만 담당합니다.
+    """
+
+    @staticmethod
+    def get_team_recommendation_context(
+        session: Session,
+        *,
+        team_id: int,
+    ) -> tuple[Team, Quest, Category, int] | None:
+        """
+        추천 대상 팀과 Quest·Category·현재 인원을 조회합니다.
+        팀이 존재하지 않으면 None을 반환합니다.
+        """
+
+        member_count = func.count(
+            TeamMember.team_member_id
+        ).label("member_count")
+
+        # 팀과 연결된 Quest·Category 및 현재 인원을 한 번에 조회.
+        stmt = (
+            select(
+                Team,
+                Quest,
+                Category,
+                member_count,
+            )
+            .join(
+                Quest,
+                Quest.quest_id == Team.quest_id,
+            )
+            .join(
+                Category,
+                Category.category_id == Quest.category_id,
+            )
+            .outerjoin(
+                TeamMember,
+                TeamMember.team_id == Team.team_id,
+            )
+            .where(
+                Team.team_id == team_id,
+            )
+            .group_by(
+                Team,
+                Quest,
+                Category,
+            )
+        )
+
+        result = session.execute(stmt)
+        row = result.one_or_none()
+
+        if row is None:
+            return None
+
+        team, quest, category, current_members = row
+
+        return (
+            team,
+            quest,
+            category,
+            int(current_members),
+        )
+
+    @staticmethod
+    def list_recommendation_candidates(
+        session: Session,
+        *,
+        requester_id: int,
+        team_id: int,
+        quest_id: int,
+        rejected_since: datetime,
+    ) -> list[tuple[User, str | None]]:
+        """AI 팀원 추천 대상이 될 수 있는 사용자를 조회.
+
+        Repository 단계에서 제외하는 사용자:
+
+        - 추천을 요청한 사용자 본인
+        - 비활성 사용자
+        - 관리자
+        - 현재 팀 또는 같은 Quest의 다른 팀 참가자
+        - 현재 팀의 PENDING 초대 대상
+        - 현재 팀의 ACCEPTED 초대 대상
+        - 현재 팀 초대를 최근 일정 기간 내 거절한 사용자
+
+        관심 카테고리, 난이도, 활동 시간, 위치 등이 일치하지 않는 사용자는
+        후보에서 제외하지 않고 이후 규칙 기반 점수에 반영.
+        """
+
+        # 같은 Quest의 어떤 팀에라도 참가한 사용자인지 확인.
+        same_quest_member_exists = exists(
+            select(1)
+            .select_from(TeamMember)
+            .join(
+                Team,
+                Team.team_id == TeamMember.team_id,
+            )
+            .where(
+                TeamMember.user_id == User.user_id,
+                Team.quest_id == quest_id,
+            )
+        )
+
+        # 현재 팀에서 추천 후보 제외 대상인 초대가 있는지 확인.
+        unavailable_invite_exists = exists(
+            select(1)
+            .select_from(TeamInvite)
+            .where(
+                TeamInvite.team_id == team_id,
+                TeamInvite.user_id == User.user_id,
+                or_(
+                    TeamInvite.status.in_(
+                        [
+                            TeamInviteStatus.PENDING,
+                            TeamInviteStatus.ACCEPTED,
+                        ]
+                    ),
+                    (
+                        (TeamInvite.status == TeamInviteStatus.REJECTED)
+                        & (TeamInvite.updated_at >= rejected_since)
+                    ),
+                ),
+            )
+        )
+
+        # 추천 후보 사용자와 지역 이름을 함께 조회.
+        stmt = (
+            select(
+                User,
+                Region.region_name.label("region_name"),
+                )
+            # 후보 사용자의 지역 이름을 함께 조회하기 위해 Region을 JOIN.
+            .outerjoin(
+                Region,
+                Region.region_id == User.region_id,
+            )
+            .where(
+                User.user_id != requester_id,
+                User.is_active.is_(True),
+                User.role == UserRole.USER,
+                ~same_quest_member_exists,
+                ~unavailable_invite_exists,
+            )
+            .order_by(
+                User.user_id.asc(),
+            )
+        )
+
+        result = session.execute(stmt)
+
+        # (User, region_name) 형태로 반환합니다.
+        return list(result.all())
+
+    @staticmethod
+    def list_recent_candidate_activities(
+        session: Session,
+        *,
+        candidate_user_ids: list[int],
+        since: datetime,
+    ) -> list[tuple[QuestSubmission, Quest, Category]]:
+        """후보 사용자들의 최근 승인된 Quest 수행 기록을 조회합니다.
+
+        조회 조건
+
+        - 추천 후보 사용자
+        - 최근 30일 이내 제출한 기록
+        - 최종 인증이 승인(ACCEPTED)된 기록
+
+        Repository에서는 최근 수행 기록만 조회해서 반환합니다.
+
+        이후 Service에서는 이 조회 결과를 이용해
+
+        - 어떤 카테고리를 많이 수행했는지
+        - 어떤 난이도를 많이 수행했는지
+        - 언제 주로 활동했는지
+
+        를 계산하여 AI Server에 전달합니다.
+        """
+
+        # 후보가 없으면 불필요한 DB 조회 없이 빈 목록을 반환.
+        if not candidate_user_ids:
+            return []
+
+        # 최근 승인된 수행 기록과 연결된 Quest·Category를 조회.
+        stmt = (
+            select(
+                QuestSubmission,
+                Quest,
+                Category,
+            )
+            .join(
+                Quest,
+                Quest.quest_id == QuestSubmission.quest_id,
+            )
+            .join(
+                Category,
+                Category.category_id == Quest.category_id,
+            )
+            .where(
+                QuestSubmission.user_id.in_(candidate_user_ids),
+                QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
+                QuestSubmission.submitted_at >= since,
+            )
+            .order_by(
+                QuestSubmission.user_id.asc(),
+                QuestSubmission.submitted_at.desc(),
+                QuestSubmission.submission_id.desc(),
+            )
+        )
+
+        result = session.execute(stmt)
+
+        return list(result.all())
