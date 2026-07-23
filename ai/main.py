@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Optional
 from ai.app.quest_recommend.agent import run_recommendation_flow
-from ai.app.challenge_recommend.agent import recommend_collaborative_teams
+from ai.app.challenge_recommend.router import router as challenge_recommend_router
 from ai.app.short_form.generator import generate_shorts_boilerplate
 from ai.app.quest_recommend.rag import query_rag_coach
 from ai.app.local_quest.agent import get_local_shortage_recommendations
@@ -16,7 +16,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 1. 퀘스트 추천 API (LangGraph 연동)
+# AI 팀 챌린지 사용자 추천 API를 메인 앱에 등록합니다.
+app.include_router(challenge_recommend_router)
+
+# 퀘스트 추천 API (LangGraph 연동)
 class RecommendRequest(BaseModel):
     user_id: int
     interests: List[str]
@@ -27,17 +30,7 @@ async def ai_recommend(req: RecommendRequest):
     recommended = await run_recommendation_flow(req.user_id, req.interests, req.location)
     return {"success": True, "data": recommended}
 
-# 3. 협동 챌린지팀 추천 API (LangGraph/Embedding 연동)
-class ChallengeRecommendRequest(BaseModel):
-    interests: List[str]
-    location: str
-
-@app.post("/ai/challenge/recommend")
-def ai_challenge_recommend(req: ChallengeRecommendRequest):
-    teams = recommend_collaborative_teams(req.interests, req.location)
-    return {"success": True, "data": teams}
-
-# 4. 숏폼 생성 트리거 API
+# 숏폼 생성 트리거 API
 class ShortsRequest(BaseModel):
     quest_id: int
     user_name: str
@@ -48,7 +41,7 @@ def ai_shorts_generate(req: ShortsRequest):
     shorts_result = generate_shorts_boilerplate(req.quest_id, req.user_name)
     return {"success": True, "data": shorts_result}
 
-# 5. AI 선행 코치 RAG API (추천 폴더 내 통합)
+# AI 선행 코치 RAG API (추천 폴더 내 통합)
 class CoachQueryRequest(BaseModel):
     question: str
     user_id: int
@@ -58,7 +51,7 @@ def ai_coach_query(req: CoachQueryRequest):
     coach_reply = query_rag_coach(req.question)
     return {"success": True, "data": coach_reply}
 
-# 6. 지역별 부족 봉사 추천 API
+# 지역별 부족 봉사 추천 API
 class LocalShortageRequest(BaseModel):
     location: str
 
