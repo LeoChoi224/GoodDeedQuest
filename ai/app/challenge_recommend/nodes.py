@@ -26,9 +26,11 @@ from __future__ import annotations
 #      Backend에 반환할 최종 TeamRecommendationResponse를 만듭니다.
 #
 # 3. Prompt와 LLM 연동
-#    - prompts.py와 실제 LLM 호출 코드는 다음 단계에서 작성합니다.
-#    - 이 파일은 RecommendationReasonGenerator Protocol을 제공하므로,
-#      이후 LLM 구현체가 generate() 메서드만 맞추면 Node 수정 없이 연결할 수 있습니다.
+#    - prompts.py가 추천 이유 생성 Prompt를 구성합니다.
+#    - llm_reason_generator.py가 OpenAI Chat Model을 호출하고
+#      응답 JSON을 검증해 표준 추천 이유 결과로 반환합니다.
+#    - RecommendationReasonGenerator Protocol을 통해
+#      실제 생성기와 테스트 Fake를 동일한 방식으로 주입합니다.
 #
 # 4. Fallback 정책
 #    - 규칙 기반 점수 계산 실패는 추천 자체를 만들 수 없으므로 치명적 오류입니다.
@@ -398,13 +400,9 @@ def create_recommendation_reason_node(
 ):
     """추천 이유 생성기를 주입받아 LangGraph Node 함수를 생성합니다.
 
-    다음 단계에서 prompts.py와 LLM 구현체를 작성하면 아래처럼 연결할 수 있습니다.
-
-    reason_node = create_recommendation_reason_node(
-        reason_generator=llm_reason_generator,
-    )
-
-    생성기를 전달하지 않으면 모든 후보에게 규칙 기반 추천 이유를 사용합니다.
+    생성기가 전달되면 LLM 추천 이유를 생성하고,
+    생성기가 없거나 실행 중 오류가 발생하면
+    모든 후보에게 규칙 기반 추천 이유를 사용합니다.
     """
 
     def generate_recommendation_reasons_node(
@@ -490,15 +488,15 @@ def create_recommendation_reason_node(
                 "metadata": metadata,
             }
 
-        except Exception as exc:
+        except Exception:
+            # LLM 호출 또는 응답 파싱이 실패해도
+            # 점수와 순위는 유지하고 규칙 기반 추천 이유로 대체합니다.
             fallback_reasons = build_rule_based_reasons(candidates)
 
             warnings = _append_unique_messages(
                 state["warnings"],
                 [
                     LLM_FALLBACK_WARNING,
-                    "추천 이유 생성 오류: "
-                    f"{type(exc).__name__}: {exc}",
                 ],
             )
 

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 # =========================================================
-# [확인 및 검토할 사항]
+# [Challenge Router 구현 기준]
 #
-# 1. Challenge 팀 API
+# 1. 주요 API
 #    - POST   /challenges/teams
 #    - GET    /challenges/teams
 #    - GET    /challenges/my-teams
 #    - GET    /challenges/teams/{team_id}
 #    - GET    /challenges/teams/{team_id}/members
+#    - GET    /challenges/teams/{team_id}/recommendations
 #    - POST   /challenges/teams/{team_id}/join
 #    - DELETE /challenges/teams/{team_id}/leave
 #    - POST   /challenges/invites
@@ -16,25 +17,20 @@ from __future__ import annotations
 #    - PATCH  /challenges/invites/{invite_id}
 #
 # 2. 인증 정책
-#    - 팀 생성, 내 팀 조회, 팀 참가, 팀 나가기, 팀 초대, 받은 초대 조회 및 초대 응답은 로그인 전용입니다.
-#    - auth/router.py의 get_current_db_user 의존성을 재사용합니다.
-#    - Authorization 헤더에 Bearer 액세스 토큰이 필요합니다.
+#    - 팀 목록·상세·멤버 목록은 로그인 없이 조회할 수 있습니다.
+#    - 팀 생성, 내 팀 조회, 참가, 나가기, 초대 및 초대 응답은
+#      로그인 사용자만 사용할 수 있습니다.
+#    - AI 팀원 추천은 로그인한 팀장만 요청할 수 있으며,
+#      세부 권한과 팀 상태는 ChallengeRecommendationService가 검증합니다.
 #
-# 3. 공개 조회 API (추후 정책 확인 필요)
-#    - 팀 목록, 팀 상세, 팀 멤버 목록은 현재 로그인 없이 조회할 수 있습니다. 
+# 3. AI 추천 API
+#    - top_k는 1명 이상 20명 이하로 제한합니다.
+#    - AI 추천 결과는 TeamRecommendationResponse로 검증해 반환합니다.
+#    - 추천 결과의 user_id는 기존 POST /challenges/invites 요청에 사용합니다.
 #
-# 4. 팀 멤버 응답
-#    - 현재 user_id와 팀 역할 정보만 반환합니다.
-#    - 닉네임과 프로필 이미지는 User 모델 JOIN 구현 후 추가할 수 있습니다.
-#
-# 5. 받은 초대 목록
-#    - 현재 로그인 사용자가 받은 PENDING 초대만 반환합니다.
-#    - 조회 전에 만료 시간이 지난 초대는 EXPIRED 상태로 반영합니다.
-#    - 팀 이름이나 팀장 닉네임이 필요하면 JOIN 조회와 별도의 초대 응답 Schema가 필요합니다.
-#
-# 6. 초대 자동 만료
-#    - 초대 목록 조회 및 초대 응답 시 즉시 만료 상태를 반영합니다.
-#    - Celery Beat가 매시간 만료 처리 Task를 자동 실행합니다.
+# 4. 초대 자동 만료
+#    - 초대 목록 조회와 초대 응답 시 만료 상태를 즉시 반영합니다.
+#    - Celery Beat가 만료된 PENDING 초대를 정기적으로 처리합니다.
 # =========================================================
 
 from fastapi import APIRouter, Depends, Query, status
@@ -53,8 +49,12 @@ from backend.app.challenge.schema import (
     TeamMemberResponse,
     TeamPasswordVerify,
     TeamResponse,
+    TeamRecommendationResponse,
 )
-from backend.app.challenge.service import ChallengeTeamService
+from backend.app.challenge.service import (
+    ChallengeRecommendationService,
+    ChallengeTeamService,
+)
 from backend.app.common.database import get_db
 from backend.app.common.response import APIResponse
 from backend.app.challenge.enums import (
@@ -360,6 +360,51 @@ def get_team_members(
         message="팀 멤버 목록을 성공적으로 조회했습니다.",
     )
 
+
+# 현재 로그인 사용자가 팀장인 팀의 AI 추천 사용자 목록을 조회하는 API.
+@router.get(
+    "/teams/{team_id}/recommendations",
+    response_model=APIResponse[TeamRecommendationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Challenge 팀 AI 추천 사용자 목록 조회",
+)
+def get_team_member_recommendations(
+    # 추천 대상 Challenge 팀 ID를 URL 경로로 전달.
+    team_id: int,
+
+    # AI 서버에서 반환할 최대 추천 사용자 수를 지정.
+    top_k: int = Query(
+        default=5,
+        ge=1,
+        le=20,
+        description="반환할 최대 추천 사용자 수",
+    ),
+
+    session: Session = Depends(get_db),
+
+    # 인증 Dependency에서 현재 로그인 사용자 정보를 주입.
+    current_user: User = Depends(
+        get_current_db_user
+    ),
+) -> APIResponse[TeamRecommendationResponse]:
+    """팀장이 현재 팀에 적합한 사용자 추천 목록을 조회합니다."""
+
+    # 후보 조회부터 AI 서버 호출까지의 추천 흐름을 Service에 요청.
+    recommendations = (
+        ChallengeRecommendationService
+        .get_team_member_recommendations(
+            session,
+            team_id=team_id,
+            current_user=current_user,
+            top_k=top_k,
+        )
+    )
+
+    # AI 추천 결과를 프로젝트의 공통 응답 형식으로 반환.
+    return APIResponse.ok(
+        data=recommendations,
+        message="팀원 추천 목록을 성공적으로 조회했습니다.",
+    )
 
 # 특정 팀의 상세 정보와 현재 참가 인원을 조회하는 API.
 @router.get(

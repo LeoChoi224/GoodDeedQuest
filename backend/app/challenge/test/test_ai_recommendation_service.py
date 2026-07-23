@@ -50,6 +50,7 @@ def make_context(
         team_id=10,
         leader_id=leader_id,
         quest_id=100,
+        name="환경 정화 팀",
         region="서울",
         status=team_status,
         expires_at=None,

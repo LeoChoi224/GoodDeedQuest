@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # =========================================================
-# [확인 및 검토할 사항]
+# [AI 팀원 추천 Router 구현 기준]
 #
 # 1. API 경로
 #    - POST /ai/challenge/recommend
@@ -11,10 +11,11 @@ from __future__ import annotations
 #    - LangGraph 비동기 실행
 #    - 최종 추천 응답 반환
 #
-# 4. 오류 처리
+# 3. 오류 처리
 #    - 요청 형식 오류는 FastAPI가 422로 처리합니다.
 #    - Graph 내부 치명적 오류는 503으로 변환합니다.
-#    - LLM 오류는 Graph 내부 Fallback 대상이므로 정상 응답 200이 가능합니다.
+#    - LLM 오류는 규칙 기반 추천 이유로 대체하므로
+#      점수와 순위를 포함한 정상 응답을 반환할 수 있습니다.
 # =========================================================
 
 from fastapi import APIRouter, HTTPException, status

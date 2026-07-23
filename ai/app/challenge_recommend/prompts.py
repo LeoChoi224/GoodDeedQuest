@@ -6,7 +6,7 @@ from __future__ import annotations
 # 1. 이 파일의 역할
 #    - 팀원 추천 순위가 확정된 뒤 LLM이 추천 이유만 생성하도록 Prompt를 구성합니다.
 #    - 추천 점수 계산과 순위 변경은 이 파일에서 수행하지 않습니다.
-#    - 실제 LLM API 호출은 이후 LLM 추천 이유 생성기에서 담당합니다.
+#    - 실제 LLM API 호출은 llm_reason_generator.py가 담당합니다.
 #
 # 2. LLM의 책임 범위
 #    - LLM은 이미 계산된 점수와 후보 정보를 자연어 추천 이유로 설명합니다.
