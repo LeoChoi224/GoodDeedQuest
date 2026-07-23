@@ -25,4 +25,5 @@ class RecommendState(TypedDict):
     candidate_quests: List[Dict[str, Any]]
 
     retry_count: int
+    accumulated_candidates: List[Dict[str, Any]]
     recommended_quests: List[Dict[str, Any]]

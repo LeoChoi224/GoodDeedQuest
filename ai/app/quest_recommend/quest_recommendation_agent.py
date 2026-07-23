@@ -81,6 +81,11 @@ def recommend_quests(state: RecommendState) -> Dict[str, Any]:
     recommendation_strategy = state.get("recommendation_strategy", {})
     retrieved_volunteers = state.get("retrieved_volunteers", [])
 
+    # 봉사 데이터가 아직 없다면 불필요한 LLM 통신을 즉시 스킵하고 대기
+    if not retrieved_volunteers:
+        logger.info("검색된 봉사 데이터가 없습니다. Retrieval Tool 우선 실행을 위해 스킵합니다.")
+        return {}
+
     try:
         llm = get_openai_model(model_name="gpt-4o-mini", temperature=0.7)  # 다양하고 참신한 선행 창작을 위해 온도=0.7
         structured_llm = llm.with_structured_output(QuestCandidatesOutput)
@@ -89,7 +94,7 @@ def recommend_quests(state: RecommendState) -> Dict[str, Any]:
         ("system", "당신은 전문적인 AI 퀘스트 추천 생성기입니다.
             검색된 실제 봉사 활동 데이터와 AI가 창작한 일상 선행 활동을 조합하여 정확히 6~7개의 퀘스트 후보를 생성하십시오.
             ### 생성 규칙
-            - 추천 전략 내의 'llm_constraints' 제약 조건을 엄격히 준수하십시오. (예: 만약 '실내 활동 필수'가 지정되어 있다면, 모든 퀘스트는 실내 친화적인 활동이어야 합니다. 일상 선행(GOOD_DEED)은 location이 None이 되며, 실제 봉사(VOLUNTEER)는 주소지는 존재하되 실내 시설 내부에서 진행되는 활동이어야 합니다.)
+            - 추천 전략 내의 'llm_constraints' 제약 조건을 엄격히 준수하십시오. (예: 만약 '실내 활동 필수'이거나 비가 오는 상황인 경우, 검색된 실제 봉사 데이터가 야외 활동(플로깅, 유기견 청소 등)이라면 이를 퀘스트로 포함하지 말고 제외하십시오. 실제 봉사 내용이나 장소를 가짜로 각색하는 것은 절대 금지됩니다. 대신, 실내에서 안전하게 수행 가능한 일상 선행(GOOD_DEED)을 우선적으로 창작하여 6~7개 후보를 채우십시오.)
             - 사용자의 제외 목록(exclusions)에 포함된 제목의 퀘스트는 절대 추천하지 마십시오.
             - 동일한 추천 세트(6~7개 후보군) 내부에서 제목이 서로 중복되는 퀘스트를 생성하지 마십시오 (각 후보의 제목은 고유해야 합니다).
             - 완료 목록(completed_history)은 사용자의 취향과 선호를 나타내므로, 완료 이력이 있는 활동이나 유사한 활동은 적극적으로 재추천하십시오. 단, 다양성을 위해 한 번의 추천 세트 내에서 동일한 완료 퀘스트가 중복 등장하는 것은 최대 1개까지만 허용하십시오.
@@ -116,7 +121,7 @@ def recommend_quests(state: RecommendState) -> Dict[str, Any]:
            ("system", """You are a professional AI Quest Recommendation Generator.
 Combine the retrieved real volunteer work data and AI-created daily good deeds to generate exactly 6 to 7 quest candidates.
 ### Rules for Generation
-- Strictly comply with the 'llm_constraints' in the recommendation strategy. (e.g., if 'must be indoor' is specified, all recommended quests must be indoor-friendly activities. Note that GOOD_DEED tasks will have location as None, but VOLUNTEER tasks will have their valid locations but must take place indoors.)
+- Strictly comply with the 'llm_constraints' in the recommendation strategy. (e.g., if 'must be indoor' is specified or if it is rainy, and the retrieved real volunteer work contains outdoor activities such as plogging or animal shelter cleaning, DO NOT include them in the candidates; exclude them. Modifying or faking the title, content, or location of real volunteer tasks is strictly prohibited. Instead, prioritize creating indoor-friendly daily good deeds (GOOD_DEED) to fill the 6 to 7 candidates.)
 - Never recommend quests whose titles match the user's exclusion list (exclusions).
 - Do not recommend duplicate quest titles within the same generated set of 6 to 7 quest candidates (each candidate must have a unique title).
 - The completed history (completed_history) represents the user's preferred activities. You should actively recommend similar or identical quests from their history to reinforce their habits. However, to maintain variety, allow at most 1 exact repetition from the completed history within the same candidate set.
@@ -188,3 +193,23 @@ Combine the retrieved real volunteer work data and AI-created daily good deeds t
         ]
         
         return {"candidate_quests": fallback_quests}
+
+def route_recommendation_need(state: RecommendState) -> str:
+    """
+    Quest Recommendation Agent 단계에서 봉사 데이터 검색 필요 여부 및 
+    후보 생성 완료 여부를 판단하여 다음 노드를 결정하는 라우터 함수입니다.
+    """
+    candidate_quests = state.get("candidate_quests", [])
+    retrieved_volunteers = state.get("retrieved_volunteers", [])
+
+    # 1. 퀘스트 후보군 조립이 완료된 경우 -> 비평가 검수 노드로 이동
+    if candidate_quests:
+        return "validation"
+
+    # 2. 봉사 데이터가 아직 검색되지 않은 경우 -> Volunteer Retrieval Tool 호출
+    if not retrieved_volunteers:
+        logger.info("봉사 데이터 부족 감지: Volunteer Retrieval Tool을 호출합니다.")
+        return "retrieval"
+
+    # 3. 봉사 데이터가 준비된 상태라면 -> 생성 수행 후 validation으로 이동
+    return "validation"
