@@ -35,6 +35,7 @@ def analyze_strategy(state: RecommendState) -> Dict[str, Any]:
     user_profile = state.get("user_profile", {})
     situation_context = state.get("situation_context", {})
     request_context = state.get("request_context", {})
+    retry_count = state.get("retry_count", 0)
         
     try:
         llm = get_openai_model(model_name="gpt-4o-mini", temperature=0.2)  # 전략적 추론을 위해 온도=0.2
@@ -72,7 +73,13 @@ Based on the inputs, construct a detailed PlannerOutput specifying:
         })
         strategy_dict = response.model_dump()
 
-        return {"recommendation_strategy": strategy_dict}
+        # 기존 기획이 수립된 후 회귀로 인해 재수립할 때만 retry_count 1 증가
+        new_retry = retry_count + 1 if state.get("recommendation_strategy") else retry_count
+
+        return {
+            "recommendation_strategy": strategy_dict,
+            "retry_count": new_retry
+        }
     
     except Exception as e:
         logger.warning(f"OpenAI를 통한 추천 전략 수립 실패: {e}. 기본 전략으로 폴백합니다.")

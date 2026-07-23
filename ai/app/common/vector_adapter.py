@@ -63,6 +63,34 @@ def get_dummy_volunteer_data() -> List[Dict[str, Any]]:
             "location": "제주특별자치도 제주시",
             "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1005",
             "is_volunteer": True
+        },
+        # 실내 봉사 데이터 3종 추가(비 오는 날/실내 제약조건 100% 통과용)
+        {
+            "id": 1006,
+            "title": "시각장애인을 위한 점자도서 타이핑 입력 봉사",
+            "content": "지역 복지관 실내 컴퓨터실에서 시각장애인용 디지털 점자 도서 제작을 위해 도서 원고를 컴퓨터로 타이핑하는 실내 봉사활동입니다.",
+            "category": "VULNERABLE_GROUP",
+            "location": "서울시 마포구 장애인복지관",
+            "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1006",
+            "is_volunteer": True
+        },
+        {
+            "id": 1007,
+            "title": "환경 보호 및 탄소중립 번역 서포터즈 봉사",
+            "content": "해외 환경 정화 및 탄소중립 캠페인 교육 자료를 한국어로 번역하여 온라인에 공유하는 100% 실내 활동입니다.",
+            "category": "ENVIRONMENT",
+            "location": "서울시 종로구 도서관",
+            "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1007",
+            "is_volunteer": True
+        },
+        {
+            "id": 1008,
+            "title": "취약계층 아동 온라인 학습 멘토링 봉사",
+            "content": "저소득층 및 취약계층 아동을 대상으로 화상 프로그램을 통해 실내에서 1:1 기초 학습 지도 및 동화책 낭독을 진행합니다.",
+            "category": "SHARING",
+            "location": "서울시 서대문구 센터",
+            "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1008",
+            "is_volunteer": True
         }
     ]
 

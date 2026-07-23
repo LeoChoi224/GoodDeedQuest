@@ -45,10 +45,18 @@ def validate_candidates(state: RecommendState) -> Dict[str, Any]:
     user_profile = state.get("user_profile", {})
     situation_context = state.get("situation_context", {})
     request_context = state.get("request_context", {})
+    retry_count = state.get("retry_count", 0)
+    accumulated = list(state.get("accumulated_candidates", []))
 
+    # 이전 회차(전체 루프) 누적 상자의 퀘스트 제목들을 미리 정규화하여 중복 목록에 등록
+    seen_titles = {
+        q["quest_title"].strip().lower().replace(" ", "") 
+        for q in accumulated 
+        if q.get("quest_title")
+    }
+    
     """1단계: 1차 기계적 필터링 (중복 제목 및 필수 필드 누락 제거)"""
     pre_filtered_quests= []
-    seen_titles = set()
 
     for quest in candidate_quests:
         # 필수 필드 체크
@@ -64,10 +72,10 @@ def validate_candidates(state: RecommendState) -> Dict[str, Any]:
             logger.warning(f"1차 검수 탈락: 필수 필드 누락. 데이터: {quest}")
             continue
 
-        # 제목 중복 검사 (공백/소문자 통일)
+        # 이전 루프 포함 전체 중복 검사 (공백/소문자 통일)
         normalized_title = quest["quest_title"].strip().lower().replace(" ", "")
         if normalized_title in seen_titles:
-            logger.warning(f"1차 검수 탈락: 중복 제목 감지 ('{quest['quest_title']}').")
+            logger.warning(f"1차 검수 탈락: 전 루프 포함 중복 제목 감지 ('{quest['quest_title']}').")
             continue
 
         seen_titles.add(normalized_title)
@@ -133,15 +141,18 @@ Strict Inspection Guidelines:
 
             if not (eval_report and eval_report.is_valid):
                 reason = eval_report.reason if eval_report else "No evaluation report received from Critic."
-                logger.warning(
-                    f"2차 검수 탈락: 퀘스트 '{q['quest_title']}' 반려 사유: {reason}"
-                )
+                logger.warning(f"2차 검수 탈락: 퀘스트 '{q['quest_title']}' 반려 사유: {reason}")
                 continue
 
             final_quests.append(q)
+            accumulated.append(q)
 
         logger.info(f"품질 검수 완료. 최종 합격: {len(final_quests)}개 / 원본 후보: {len(candidate_quests)}개")
-        return {"candidate_quests": final_quests}
+
+        return {
+            "candidate_quests": final_quests,
+            "accumulated_candidates": accumulated
+        }
 
     except Exception as e:
         logger.warning(f"비평가 LLM 호출 실패: {e}. 1차 필터링 목록으로 임시 대체합니다.")
