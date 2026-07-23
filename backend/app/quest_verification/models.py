@@ -33,6 +33,7 @@ class QuestSubmission(Base):
 
     # 인증 파일은 S3에 저장하고, DB엔 그 "주소"만 저장 (서버가 채움)
     media_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    extra_media_urls: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
 
     # [enum] 사진/영상 (서버가 파일 보고 판별 권장)
     media_type: Mapped[Optional[MediaType]] = mapped_column(SqlEnum(MediaType, validate_strings=True), nullable=True)

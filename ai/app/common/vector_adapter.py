@@ -23,7 +23,7 @@ def get_dummy_volunteer_data() -> List[Dict[str, Any]]:
             "id": 1001,
             "title": "한강 공원 쓰레기 줍기 플로깅 봉사",
             "content": "한강 시민공원 망원지구 일대를 산책하며 방치된 쓰레기를 수거하고 환경 정화 활동을 펼칩니다.",
-            "category": "환경",
+            "category": "ENVIRONMENT",
             "location": "서울시 마포구",
             "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1001",
             "is_volunteer": True
@@ -32,7 +32,7 @@ def get_dummy_volunteer_data() -> List[Dict[str, Any]]:
             "id": 1002,
             "title": "유기견 보호소 사료 배급 및 청소 봉사",
             "content": "강남 동물 보호소에서 보호 중인 유기견들의 사료 배식과 견사 물청소 및 사회화 훈련을 돕습니다.",
-            "category": "동물",
+            "category": "ANIMAL",
             "location": "서울시 강남구",
             "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1002",
             "is_volunteer": True
@@ -41,7 +41,7 @@ def get_dummy_volunteer_data() -> List[Dict[str, Any]]:
             "id": 1003,
             "title": "독거 어르신 사랑의 반찬 배달 봉사",
             "content": "지역 복지관에서 손수 만든 따뜻한 밑반찬을 인근 취약계층 독거 어르신 댁에 직접 배달하고 안부를 묻습니다.",
-            "category": "지역사회",
+            "category": "COMMUNITY",
             "location": "서울시 서대문구",
             "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1003",
             "is_volunteer": True
@@ -49,7 +49,7 @@ def get_dummy_volunteer_data() -> List[Dict[str, Any]]:
         {
             "id": 1004,
             "title": "정운이 구호 외치기",
-            "content": "(정운)나는 봉사, (희준)나는 환경, (태현)나는 나눔, (민재)나는 동물, (홍묵)나는 지역사회, 우리는 선행 퀘스트!!",
+            "content": "(정운)나는 환경, (희준)나는 나눔, (태현)나는 동물, (민재)나는 지역사회, (홍묵)나는 취약계층, 우리는 선행 퀘스트!!",
             "category": "기타",
             "location": "서울시 강남구",
             "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1004",
@@ -58,8 +58,8 @@ def get_dummy_volunteer_data() -> List[Dict[str, Any]]:
         {
             "id": 1005,
             "title": "엄마한테 사과하기",
-            "content": "??이가 엄마한테 사과하기.",
-            "category": "기타",
+            "content": "정운이가 엄마한테 사과하기.",
+            "category": "OTHER",
             "location": "제주특별자치도 제주시",
             "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1005",
             "is_volunteer": True

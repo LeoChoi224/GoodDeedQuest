@@ -1,4 +1,5 @@
 import boto3
+from botocore.config import Config
 from backend.app.common.config import get_setting  # AWS_REGION, S3_BUCKET_NAME 등 환경설정
 
 # ---------------------------------------------------------------------------
@@ -13,6 +14,9 @@ from backend.app.common.config import get_setting  # AWS_REGION, S3_BUCKET_NAME 
 _s3_client = boto3.client(
     "s3",
     region_name=get_setting().AWS_REGION,
+    aws_access_key_id=get_setting().AWS_ACCESS_KEY_ID.get_secret_value(),
+    aws_secret_access_key=get_setting().AWS_SECRET_ACCESS_KEY.get_secret_value(),
+    config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"})
 )
 
 PRESIGNED_UPLOAD_EXPIRE_SECONDS = 300      # 5분 - 업로드용은 짧게 (클라이언트가 바로 씀)

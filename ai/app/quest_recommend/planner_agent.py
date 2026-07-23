@@ -75,7 +75,7 @@ Based on the inputs, construct a detailed PlannerOutput specifying:
         return {"recommendation_strategy": strategy_dict}
     
     except Exception as e:
-        logger.warning(f"Failed to plan recommendation strategy using OpenAI: {e}. Fallback to default strategy.")
+        logger.warning(f"OpenAI를 통한 추천 전략 수립 실패: {e}. 기본 전략으로 폴백합니다.")
         
         # API 호출 및 외부 장애 발생 시 안정적인 흐름 진행을 위한 Fallback 딕셔너리 생성
         interests = user_profile.get("interests", [])
