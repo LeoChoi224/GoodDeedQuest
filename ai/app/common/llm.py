@@ -14,13 +14,15 @@ def get_openai_model(model_name: str = None, temperature: float = 0.7) -> ChatOp
         temperature=temperature
     )
 
-def get_gemini_model(model_name: str = "gemini-1.5-flash", temperature: float = 0.7) -> ChatGoogleGenerativeAI:
+def get_gemini_model(model_name: str = None, temperature: float = 0.7) -> ChatGoogleGenerativeAI:
     """LangChain의 ChatGoogleGenerativeAI 객체를 반환합니다."""
     if not settings.GEMINI_API_KEY:
         raise ValueError("Gemini API key is not configured.")
+    
+    target_model = model_name or settings.DEFAULT_VISION_MODEL
         
     return ChatGoogleGenerativeAI(
         google_api_key=settings.GEMINI_API_KEY,
-        model=model_name,
+        model=target_model,
         temperature=temperature
     )

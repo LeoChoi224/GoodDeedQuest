@@ -4,13 +4,15 @@
  * 인증은 항상 성공 → replace('QuestComplete').
  */
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, Image, StyleSheet, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { SlideInDown } from 'react-native-reanimated';
+import * as ImagePicker from 'expo-image-picker';
 import { colors, fonts, radii } from '../../theme';
 import SpringButton from '../../components/SpringButton';
+import { useToast } from '../../components/Toast';
+import { getPresignedUrl, uploadToS3, submitVerification } from '../../api/questVerification';
 import { AiIcon, CameraIcon, SpinnerRing } from './_parts';
 
 type Stage = 'form' | 'loading';
@@ -20,24 +22,55 @@ export default function QuestVerifyScreen({ navigation, route }: any) {
   const title = route?.params?.title ?? '공원 플로깅';
   const exp = route?.params?.exp ?? 100;
   const point = route?.params?.point ?? 250;
-
-  const [photo, setPhoto] = useState(false);
+  const toast = useToast();
+  const questId = route?.params?.questId ?? 1;
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [desc, setDesc] = useState('');
   const [stage, setStage] = useState<Stage>('form');
 
   const over = desc.length > 200;
-  const disabled = !photo || stage === 'loading';
+  const disabled = !photoUri || stage === 'loading';
 
-  const onSubmit = () => {
-    if (disabled) return;
+const pickPhoto = async () => {
+  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permission.granted) {
+    toast.show('사진 접근 권한을 허용해 주세요.');
+    return;
+  }
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    quality: 0.7,
+  });
+  if (!result.canceled) {
+    setPhotoUri(result.assets[0].uri);
+  }
+};
+
+  const onSubmit = async () => {
+    if (disabled || !photoUri) return;
     setStage('loading');
-    // AI 검토는 항상 승인 → 인증 완료로 이동.
-    setTimeout(() => {
-      navigation.replace('QuestComplete', { exp, point, title });
-    }, 1400);
+    try {
+      const presign = await getPresignedUrl(questId, 'image/jpeg');
+      await uploadToS3(presign.upload_url, photoUri, 'image/jpeg');
+      const result = await submitVerification(questId, presign.s3_key);
+
+      if (result.verified) {
+        navigation.replace('QuestComplete', {
+          exp: result.xp_gained,
+          point: result.points_gained,
+          title,
+        });
+      } else {
+        setStage('form');
+        toast.show(`인증 거절: ${result.reason}`, 4000);
+      }
+    } catch (err: any) {
+      setStage('form');
+      toast.show('인증 처리 중 오류가 발생했습니다. 다시 시도해 주세요.');
+    }
   };
 
-  const submitLabel = photo ? '제출하기' : '사진을 추가해주세요';
+  const submitLabel = photoUri ? '제출하기' : '사진을 추가해주세요';
 
   return (
     <View style={styles.root}>
@@ -50,14 +83,11 @@ export default function QuestVerifyScreen({ navigation, route }: any) {
           <Text style={styles.title}>{title} 인증</Text>
 
           {/* upload area */}
-          <Pressable onPress={() => setPhoto((v) => !v)} style={styles.uploadWrap}>
-            {photo ? (
-              <LinearGradient colors={['#5B8C6E', '#3E6B52']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.photoFill}>
-                <Text style={styles.photoText}>활동 사진 미리보기</Text>
-                <View style={styles.photoClear}>
-                  <Text style={styles.photoClearX}>✕</Text>
-                </View>
-              </LinearGradient>
+          <Pressable onPress={pickPhoto} style={styles.uploadWrap}>
+            {photoUri ? (
+              <View style={styles.photoFill}>
+                <Image source={{ uri: photoUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              </View>
             ) : (
               <View style={styles.photoEmpty}>
                 <CameraIcon size={40} color="#8AA598" />
@@ -89,7 +119,7 @@ export default function QuestVerifyScreen({ navigation, route }: any) {
           <SpringButton
             onPress={onSubmit}
             disabled={disabled}
-            style={[styles.submit, { backgroundColor: photo ? colors.primaryDark : colors.disabled }]}
+            style={[styles.submit, { backgroundColor: photoUri ? colors.primaryDark : colors.disabled }]}
           >
             {stage === 'loading' ? (
               <View style={styles.loadingRow}>

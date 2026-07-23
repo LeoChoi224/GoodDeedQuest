@@ -1,7 +1,9 @@
 import axios from "axios";
 import * as SecureStore from 'expo-secure-store'
+import  Constants  from "expo-constants";
 
-const BASE_URL = 'http://192.168.0.224:8000/api/v1';
+const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0] ?? 'localhost';
+const BASE_URL = `http://${debuggerHost}:8000/api/v1`;
 
 export const TOKEN_KEY = 'access_token';
 

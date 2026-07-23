@@ -1,63 +1,115 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from typing import Annotated
 import httpx
+import uuid
+import hashlib
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import get_current_user
 from backend.app.common.config import get_setting
+from backend.app.common.deps import get_repository
+from backend.app.common.repository import DatabaseRepository
+from backend.app.quest.models import Quest
+from backend.app.quest.enums import QuestType
+from backend.app.quest_verification.schemas import PresignRequest, PresignResponse, SubmitRequest, SubmitResponse
+from backend.app.quest_verification.models import QuestSubmission
+from backend.app.quest_verification.enums import MediaType, SubmissionStatus
+from backend.app.common.s3_client import generate_upload_presigned_url, generate_download_presigned_url
+from backend.app.auth.router import get_current_db_user
+from backend.app.auth.models import User
+
+QuestRepository = Annotated[
+    DatabaseRepository[Quest],
+    Depends(get_repository(Quest))
+]
+
+SubmissionRepository = Annotated[
+    DatabaseRepository[QuestSubmission],
+    Depends(get_repository(QuestSubmission))
+]
+
 
 router = APIRouter(prefix="/quest-verification", tags=["Quest AI Verification"])
 
-@router.post("/verify")
-async def verify_quest(
-    quest_id: int = Form(...),
-    image: UploadFile = File(...),
-    user: dict = Depends(get_current_user)
-):
-    """Vision AI를 통해 사용자가 제출한 퀘스트 인증 사진을 검증합니다."""
-    # AI 서버의 Vision 인증 API 호출 시뮬레이션
-    try:
-        # 파일을 multipart/form-data로 AI 서버에 중계
-        file_content = await image.read()
-        files = {"image": (image.filename, file_content, image.content_type)}
-        data = {"quest_id": str(quest_id)}
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{get_setting().AI_SERVICE_URL}/ai/verify",
-                data=data,
-                files=files,
-                timeout=15.0
-            )
-            if response.status_code == 200:
-                ai_result = response.json()
-                verified = ai_result.get("data", {}).get("verified", False)
-                reason = ai_result.get("data", {}).get("reason", "검증 실패")
-                
-                if verified:
-                    # 여기에 사용자 레벨업, 경험치 지급, 포인트 적립 로직 구현
-                    reward_info = {
-                        "xp_gained": 100,
-                        "points_gained": 20,
-                        "current_xp": user["xp"] + 100
-                    }
-                    return APIResponse.ok(
-                        data={"verified": True, "reason": reason, "rewards": reward_info},
-                        message="인증이 승인되었습니다!"
-                    )
-                else:
-                    return APIResponse.fail(
-                        data={"verified": False, "reason": reason},
-                        message="인증이 반려되었습니다. 사진을 다시 확인해주세요."
-                    )
-    except Exception as e:
-        # AI 서버 구동 실패 시 폴백(임시 승인처리 또는 안내)
-        pass
 
-    # 임시 개발용 모의 로직 (항상 승인)
-    return APIResponse.ok(
-        data={
-            "verified": True,
-            "reason": "[Mock] AI 서버가 비활성화되어 임시 승인 처리 되었습니다.",
-            "rewards": {"xp_gained": 50, "points_gained": 10, "current_xp": user["xp"] + 50}
-        },
-        message="임시 인증 완료"
+
+@router.post("/presign", response_model=PresignResponse)
+def get_upload_url(req: PresignRequest, current_user: User = Depends(get_current_db_user)):
+    ext = "mp4" if req.content_type.startswith("video/") else "jpg"
+    s3_key = f"submission/{current_user.user_id}/{req.quest_id}/{uuid.uuid4()}.{ext}"
+    upload_url =  generate_upload_presigned_url(s3_key, req.content_type)
+    return PresignResponse(upload_url=upload_url, s3_key=s3_key)
+
+@router.post('/submit', response_model=SubmitResponse)
+def submit_verification(
+    req: SubmitRequest,
+    quest_repository: QuestRepository,
+    submission_respository: SubmissionRepository,
+    current_user: User = Depends(get_current_db_user)
+):
+    quest = quest_repository.get(req.quest_id)
+    if quest is None:
+        raise HTTPException(status_code=404, detail="Quest not found")
+    
+    media_url = generate_download_presigned_url(req.s3_key)
+    
+    image_bytes = httpx.get(media_url, timeout=30.0).content
+    media_hash = hashlib.sha256(image_bytes).hexdigest()
+    
+    duplicate = submission_respository.get_by(media_hash = media_hash)
+    if duplicate is not None:
+        submission_respository.create({
+            "user_id": current_user.user_id,
+            "quest_id": quest.quest_id,
+            "media_url": req.s3_key,
+            "media_hash": media_hash,
+            "final_status": SubmissionStatus.REJECTED,
+            "ai_verdict": {"verified": False, "reason": "duplicate"},
+        })
+        return SubmitResponse(
+            verified=False,
+            reason="이미 제출된 적이 있는 사진입니다. 새로 촬영한 사진을 올려 주세요.",
+        )
+    try: 
+        response = httpx.post(
+            f"{get_setting().AI_SERVICE_URL}/ai/verify-quest",
+            json={
+                "quest_id": quest.quest_id,
+                "quest_title": quest.quest_title,
+                "quest_description": quest.quest_description,
+                "media_url": media_url
+                },
+            timeout=60.0
+        )
+        response.raise_for_status()
+        result = response.json()['data']
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="AI 검증 서버 호출에 실패했습니다.")
+    
+    media_type = MediaType.PHOTO if quest.quest_type == QuestType.VOLUNTEER else MediaType.VIDEO
+    
+    submission_respository.create({
+        "user_id": current_user.user_id,
+        "quest_id": quest.quest_id,
+        "media_url": req.s3_key,
+        "extra_media_urls": req.extra_media_keys,
+        "media_type": media_type,
+        "media_hash": media_hash,
+        "ai_verdict": result,
+        "final_status": SubmissionStatus.ACCEPTED if result["verified"] else SubmissionStatus.REJECTED,
+        })
+        
+    xp_gained = 0
+    points_gained = 0
+    if result['verified']:
+        xp_gained = quest.reward_exp or 0
+        points_gained = quest.reward_point or 0
+        current_user.current_xp += xp_gained
+        current_user.point_balance += points_gained
+        submission_respository.session.commit()
+    
+    return SubmitResponse(
+        verified=result["verified"],
+        reason=result["reason"],
+        xp_gained=xp_gained,
+        points_gained=points_gained,
     )

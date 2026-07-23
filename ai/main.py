@@ -2,12 +2,13 @@ from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Optional
 from ai.app.quest_recommend.agent import run_recommendation_flow
-from ai.app.quest_verification.verifier import verify_quest_image
 from ai.app.challenge_recommend.agent import recommend_collaborative_teams
 from ai.app.short_form.generator import generate_shorts_boilerplate
 from ai.app.quest_recommend.rag import query_rag_coach
 from ai.app.local_quest.agent import get_local_shortage_recommendations
 from ai.app.user.embedding import embed_user_profile
+from ai.app.quest_verification.graph import run_verification_flow
+from ai.app.quest_verification.schemas import VerifyQuestRequest
 
 app = FastAPI(
     title="Good Deed Quest AI Model Server",
@@ -25,16 +26,6 @@ class RecommendRequest(BaseModel):
 async def ai_recommend(req: RecommendRequest):
     recommended = await run_recommendation_flow(req.user_id, req.interests, req.location)
     return {"success": True, "data": recommended}
-
-# 2. Vision 퀘스트 인증 API (Gemini Vision 연동)
-@app.post("/ai/verify")
-async def ai_verify(
-    quest_id: int = Form(...),
-    image: UploadFile = File(...)
-):
-    image_bytes = await image.read()
-    verification_result = verify_quest_image(quest_id, image_bytes)
-    return {"success": True, "data": verification_result}
 
 # 3. 협동 챌린지팀 추천 API (LangGraph/Embedding 연동)
 class ChallengeRecommendRequest(BaseModel):
@@ -95,6 +86,15 @@ def home():
         "docs": "/docs"
     }
 
+@app.post("/ai/verify-quest")
+def ai_verify_quest(req: VerifyQuestRequest):
+    result = run_verification_flow(
+        quest_id=req.quest_id,
+        quest_title=req.quest_title,
+        quest_description=req.quest_description,
+        media_url=req.media_url,
+    )
+    return{"success": True, "data": result}
 
 if __name__ == "__main__":
     import uvicorn
