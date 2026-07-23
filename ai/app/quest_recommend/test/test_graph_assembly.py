@@ -1,6 +1,6 @@
 import unittest
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.quest_recommend_graph import run_recommendation_flow
+from ai.app.quest_recommend.graph import run_recommendation_flow
 
 class TestGraphAssembly(unittest.TestCase):
     def test_full_recommendation_flow_e2e(self):
