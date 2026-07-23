@@ -13,7 +13,7 @@ class TestRetrievalTool(unittest.TestCase):
         """인덱스가 비어 있을 때 콜드 스타트 방어 로직이 더미 데이터를 자동 적재하고 하이브리드 검색을 수행하는지 검증"""
         mock_state: RecommendState = {
             "user_id": 1,
-            "interests": ["환경"],
+            "interests": ["ENVIRONMENT"],
             "region_id": 1,
             "latitude": 37.566,
             "longitude": 126.978,
@@ -47,13 +47,13 @@ class TestRetrievalTool(unittest.TestCase):
         # 1순위 결과에 플로깅/환경 관련 글이 잘 수집되었는지 확인 (더미 중 1001번 한강 쓰레기 줍기 매칭)
         top_result = retrieved[0]
         self.assertEqual(top_result["id"], 1001)
-        self.assertEqual(top_result["category"], "환경")
+        self.assertEqual(top_result["category"], "ENVIRONMENT")
 
     def test_retrieve_volunteers_fallback_query(self):
         """플래너의 쿼리가 누락되었을 때 기본 검색어로 폴백하여 검색을 정상 수행하는지 검증"""
         mock_state: RecommendState = {
             "user_id": 2,
-            "interests": ["동물"],
+            "interests": ["ANIMAL"],
             "region_id": 1,
             "latitude": 37.566,
             "longitude": 126.978,

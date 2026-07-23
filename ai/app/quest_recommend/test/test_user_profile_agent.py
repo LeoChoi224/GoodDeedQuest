@@ -8,7 +8,7 @@ class TestUserProfileAgent(unittest.TestCase):
         """선호 난이도가 지정되어 있을 때의 분석 테스트"""
         mock_state: RecommendState = {
             "user_id": 42,
-            "interests": ["환경", "나눔"],
+            "interests": ["ENVIRONMENT", "SHARING"],
             "region_id": 1,
             "latitude": 37.566,
             "longitude": 126.978,
@@ -33,7 +33,7 @@ class TestUserProfileAgent(unittest.TestCase):
         # 결과 검증
         user_profile = result.get("user_profile")
         self.assertIsNotNone(user_profile)
-        self.assertEqual(user_profile["interests"], ["환경", "나눔"])
+        self.assertEqual(user_profile["interests"], ["ENVIRONMENT", "SHARING"])
         self.assertEqual(user_profile["region_id"], 1)
         self.assertEqual(user_profile["latitude"], 37.566)
         self.assertEqual(user_profile["longitude"], 126.978)
@@ -45,7 +45,7 @@ class TestUserProfileAgent(unittest.TestCase):
         """선호 난이도가 없을 때(None) 제한 없음(ANY)으로의 Fallback 테스트"""
         mock_state: RecommendState = {
             "user_id": 100,
-            "interests": ["동물"],
+            "interests": ["ANIMAL"],
             "region_id": None,
             "latitude": None,
             "longitude": None,
