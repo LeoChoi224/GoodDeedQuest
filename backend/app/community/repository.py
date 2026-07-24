@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 # =========================================================
-# [확인 및 검토 사항]
+# [구현 기준]
 #
-# 1. QuestSubmission
-#    - 실제 import 경로와 컬럼명(user_id, final_status 등) 확인
+# 1. 퀘스트 인증 연결
+#    - QuestSubmission은 quest_verification 도메인의 모델을 사용.
+#    - 현재 사용자의 SubmissionStatus.ACCEPTED 인증만 게시글에 연결.
 #
 # 2. 피드 응답
-#    - list_feed_posts() 반환값은 Service에서 화면용 Schema로 변환
+#    - list_feed_posts()는 게시글·작성자·집계값을 반환.
+#    - 최종 화면 응답 변환과 댓글 미리보기 연결은 Service에서 처리.
 #
 # 3. 신고 기능
-#    - 신고 생성은 Community Repository
-#    - 신고 검토 및 게시글 삭제는 Admin Repository
+#    - 신고 생성은 Community Repository에서 처리.
+#    - 신고 검토와 게시글 비활성화는 Admin 기능에서 처리.
 #
-# 4. 트랜잭션 처리
-#    - Repository는 flush()까지만 수행
-#    - commit()과 rollback()은 공통 get_db()에서 처리합니다.
+# 4. 관심 없음 정책
+#    - 현재는 FeedHiddenPreference 기록만 생성.
+#    - 기본 피드에서 즉시 제외하지 않고 추후 추천 알고리즘에서 활용.
+#
+# 5. 트랜잭션 처리
+#    - Repository는 flush()까지만 수행.
+#    - commit()과 rollback()은 공통 get_db()에서 처리.
 # =========================================================
 
 from datetime import datetime, timedelta
@@ -37,13 +43,11 @@ from backend.app.quest_verification.enums import SubmissionStatus
 from backend.app.quest_verification.models import QuestSubmission
 
 
-# 커뮤니티 DB 조회와 생성 작업을 모아 관리하는 Repository 클래스.
 class CommunityRepository:
     """커뮤니티 게시글, 좋아요, 댓글, 관심 없음 기록을 관리."""
 
-
     @staticmethod
-    # 현재 사용자의 승인된 퀘스트 인증 내역을 ID로 조회합니다.
+    # 현재 사용자의 승인된 퀘스트 인증 내역을 ID로 조회.
     def get_accepted_submission_by_id(
         db: Session,
         *,
@@ -52,7 +56,6 @@ class CommunityRepository:
     ) -> QuestSubmission | None:
         """현재 사용자의 승인된 퀘스트 인증 내역을 조회합니다."""
 
-        # 인증 ID, 작성자 ID, 승인 상태가 모두 일치하는 내역을 조회합니다.
         query: Select[tuple[QuestSubmission]] = select(
             QuestSubmission
         ).where(
@@ -61,10 +64,8 @@ class CommunityRepository:
             QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
         )
 
-        # 완성된 인증 내역 조회 쿼리를 실행합니다.
         result = db.execute(query)
 
-        # 조건에 맞는 인증 내역이 없으면 None을 반환합니다.
         return result.scalar_one_or_none()
 
     @staticmethod
@@ -77,7 +78,6 @@ class CommunityRepository:
         media_url: str,
         caption: str | None,
     ) -> CommunityPost:
-        # 전달받은 값으로 새 게시글 모델 객체를 만듭니다.
         post = CommunityPost(
             user_id=user_id,
             submission_id=submission_id,
@@ -152,9 +152,7 @@ class CommunityRepository:
         query = (
             # 게시글, 작성자, 좋아요 수, 댓글 수, 좋아요 여부를 함께 조회.
             select(
-                # 게시글 모델 전체를 조회.
                 CommunityPost,
-                # 게시글 작성자 모델 전체를 조회.
                 User,
                 like_count_query.label("like_count"),
                 comment_count_query.label("comment_count"),
@@ -175,20 +173,16 @@ class CommunityRepository:
             .limit(limit)
         )
 
-        # 완성된 피드 조회 쿼리를 실행.
         result = db.execute(query)
 
         # SQLAlchemy Row 목록을 일반 튜플 목록으로 변환.
         return [
-            # 각 행의 값을 명확한 Python 타입으로 묶습니다.
             (
                 # 첫 번째 값인 게시글 객체를 넣습니다.
                 row[0],
-                # 두 번째 값인 작성자 객체를 넣습니다.
                 row[1],
                 # 세 번째 값인 좋아요 수를 int로 변환합니다.
                 int(row[2]),
-                # 네 번째 값인 댓글 수를 int로 변환합니다.
                 int(row[3]),
                 # 다섯 번째 값인 좋아요 여부를 bool로 변환합니다.
                 bool(row[4]),
@@ -205,7 +199,6 @@ class CommunityRepository:
         post_id: int,
         user_id: int,
     ) -> PostLike | None:
-        """현재 사용자의 게시글 좋아요 기록을 조회합니다."""
 
         # 게시글 ID와 사용자 ID가 모두 같은 좋아요를 조회.
         query: Select[tuple[PostLike]] = select(PostLike).where(
@@ -218,6 +211,23 @@ class CommunityRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
+    # 특정 게시글의 전체 좋아요 수를 조회.
+    def count_post_likes(
+        db: Session,
+        *,
+        post_id: int,
+    ) -> int:
+        query = select(
+            func.count(PostLike.user_id)
+        ).where(
+            PostLike.post_id == post_id,
+        )
+
+        result = db.execute(query)
+
+        return int(result.scalar_one())
+
+    @staticmethod
     # 새로운 게시글 좋아요 기록을 생성.
     def create_post_like(
         db: Session,
@@ -225,7 +235,6 @@ class CommunityRepository:
         post_id: int,
         user_id: int,
     ) -> PostLike:
-        """게시글 좋아요를 생성합니다."""
 
         post_like = PostLike(
             post_id=post_id,
@@ -245,7 +254,6 @@ class CommunityRepository:
         db: Session,
         *,
         post_like: PostLike,
-    # 삭제 후 별도 객체를 반환하지 않습니다.
     ) -> None:
         db.delete(post_like)
         db.flush()
@@ -290,7 +298,6 @@ class CommunityRepository:
         user_id: int,
         content: str,
     ) -> Comment:
-        """게시글에 새 댓글을 생성합니다."""
 
         comment = Comment(
             post_id=post_id,
@@ -382,7 +389,6 @@ class CommunityRepository:
         user_id: int,
         post_id: int,
     ) -> FeedHiddenPreference | None:
-        """사용자의 기존 관심 없음 기록을 조회합니다."""
 
         query: Select[tuple[FeedHiddenPreference]] = (
             select(FeedHiddenPreference)
@@ -441,10 +447,6 @@ class CommunityRepository:
 
         return report
 
-    """
-    퀘스트 인증 내역 (추후 검토 예정)
-    """
-
     @staticmethod
     def list_recent_quest_submissions(
         db: Session,
@@ -456,7 +458,6 @@ class CommunityRepository:
     ) -> list[QuestSubmission]:
         """최근 30일 내 승인된 퀘스트 인증 내역을 조회."""
 
-        # 현재 시각에서 days일 전 시각을 계산.
         submitted_after = datetime.now().astimezone() - timedelta(days=days)
 
         # 사용자의 최근 승인된 퀘스트 인증 내역 조회 쿼리.
