@@ -59,5 +59,5 @@ def home():
 
 if __name__ == "__main__":
     import uvicorn
-    # uvicorn 실행 (개발 시 python backend/main.py 로 기동)
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    # uvicorn 실행 (개발 시 python -m backend.main 로 기동)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
