@@ -6,7 +6,7 @@ class BackendQuestRecommendRequest(BaseModel):
     interests: Optional[List[str]] = Field(
         None,
         # "관심 분야 목록"
-        description="List of user interest categories (e.g. VULNERABLE_GROUP, ENVIRONMENT)"
+        description="List of user interest categories (e.g. VOLUNTEER, ENVIRONMENT)"
     )
     latitude: Optional[float] = Field(
         None,

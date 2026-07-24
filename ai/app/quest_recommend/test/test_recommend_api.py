@@ -8,10 +8,10 @@ class TestQuestRecommendAPI(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_recommend_quests_api_success(self):
-        """/ai/recommend 엔드포인트 정상 작동 테스트 (VULNERABLE_GROUP 영문 규격 검증)"""
+        """/ai/recommend 엔드포인트 정상 작동 테스트 (VOLUNTEER 영문 규격 검증)"""
         payload = {
             "user_id": 1,
-            "interests": ["VULNERABLE_GROUP", "ENVIRONMENT"],
+            "interests": ["VOLUNTEER", "ENVIRONMENT"],
             "region_id": 1,
             "latitude": 37.5665,
             "longitude": 126.9780,
@@ -37,7 +37,7 @@ class TestQuestRecommendAPI(unittest.TestCase):
 
     def test_recommend_quests_validation_error(self):
         """user_id 누락 시 422 validation error 검증"""
-        invalid_payload = {"interests": ["VULNERABLE_GROUP"]}
+        invalid_payload = {"interests": ["VOLUNTEER"]}
         response = self.client.post("/ai/recommend", json=invalid_payload)
         self.assertEqual(response.status_code, 422)
 

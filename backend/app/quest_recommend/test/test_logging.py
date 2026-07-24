@@ -26,7 +26,7 @@ class TestAiRecommendationLogging(unittest.TestCase):
     def test_save_recommendation_log_direct_service(self):
         """service.py의 save_recommendation_log 함수에 DB 세션 주입하여 적재 테스트"""
         req_context = {
-            "interests": ["VULNERABLE_GROUP", "ENVIRONMENT"],
+            "interests": ["VOLUNTEER", "ENVIRONMENT"],
             "latitude": 37.5665,
             "longitude": 126.9780,
             "level": 3,
@@ -41,7 +41,7 @@ class TestAiRecommendationLogging(unittest.TestCase):
                     "quest_description": "도시락을 전달합니다.",
                     "quest_type": "VOLUNTEER",
                     "reason": "취약계층 관심사 매칭",
-                    "category_name": "VULNERABLE_GROUP"
+                    "category_name": "VOLUNTEER"
                 }
             ]
         }
@@ -60,7 +60,7 @@ class TestAiRecommendationLogging(unittest.TestCase):
             saved_log = session.query(AiRecommendationLog).filter_by(ai_log_id=ai_log_id).first()
             self.assertIsNotNone(saved_log)
             self.assertEqual(saved_log.user_id, self.test_user_id)
-            self.assertEqual(saved_log.request_context["interests"], ["VULNERABLE_GROUP", "ENVIRONMENT"])
+            self.assertEqual(saved_log.request_context["interests"], ["VOLUNTEER", "ENVIRONMENT"])
             
             session.delete(saved_log)
             session.commit()
