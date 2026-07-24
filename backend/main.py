@@ -8,6 +8,7 @@ from backend.app.quest.router import router as quest_router
 from backend.app.quest_recommend.router import router as recommend_router
 from backend.app.quest_verification.router import router as verification_router
 from backend.app.challenge.router import router as challenge_router
+from backend.app.community.router import router as community_router
 from backend.app.short_form.router import router as shorts_router
 from backend.app.map.router import router as map_router
 from backend.app.growth.router import router as growth_router
@@ -41,6 +42,7 @@ app.include_router(quest_router, prefix=api_prefix)
 app.include_router(recommend_router, prefix=api_prefix)
 app.include_router(verification_router, prefix=api_prefix)
 app.include_router(challenge_router, prefix=api_prefix)
+app.include_router(community_router, prefix=api_prefix)
 app.include_router(shorts_router, prefix=api_prefix)
 app.include_router(map_router, prefix=api_prefix)
 app.include_router(growth_router, prefix=api_prefix)
