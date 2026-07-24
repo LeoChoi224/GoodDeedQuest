@@ -12,9 +12,9 @@ from __future__ import annotations
 #    - 기준 활동 시간이 없으면 해당 점수는 0점으로 처리.
 #
 # 3. 지역 점수
-#    - Repository에서 후보 사용자의 지역 이름을 함께 조회합니다.
-#    - Service는 candidate["region"]으로 AI에 전달합니다.
-#    - 팀 지역과 후보 지역 문자열이 일치하면 지역 점수를 계산합니다.
+#    - Backend가 전달한 팀 활동 지역과 후보 사용자 지역을 비교합니다.
+#    - 지역 문자열이 일치하면 15점, 다르면 0점으로 계산합니다.
+#    - 현재 팀 좌표가 없으므로 실제 거리 계산은 수행하지 않습니다.
 #
 # 4. Embedding 점수
 #    - Quest와 사용자 Embedding이 모두 있을 때 코사인 유사도를 계산.
@@ -38,7 +38,7 @@ from typing import Any, Mapping, Sequence
 CATEGORY_MAX_SCORE = 30.0       # 관심 카테고리
 DIFFICULTY_MAX_SCORE = 15.0     # 선호 난이도
 ACTIVE_TIME_MAX_SCORE = 15.0    # 활동 시간
-REGION_MAX_SCORE = 15.0         # 지역,거리
+REGION_MAX_SCORE = 15.0         # 팀 활동 지역 일치
 EMBEDDING_MAX_SCORE = 15.0      # 프로필 임배딩
 DAILY_STREAK_MAX_SCORE = 5.0    # 활동 지속성
 USER_LEVEL_MAX_SCORE = 5.0      # 사용자 레벨

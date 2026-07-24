@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # =========================================================
-# [확인 및 검토할 사항]
+# [Challenge Service 구현 기준]
 #
 # 1. 트랜잭션 처리
 #    - Repository와 Service는 commit()과 rollback()을 직접 호출하지 않습니다.
@@ -9,33 +9,38 @@ from __future__ import annotations
 #      요청 성공 시 commit(), 오류 발생 시 rollback()을 처리합니다.
 #    - Celery 작업에서는 tasks.py가 commit(), rollback(), close()를 처리합니다.
 #
-# 2. 퀘스트 존재 여부
-#    - 현재는 quest_id 외래키를 통해 DB가 최종적으로 검증합니다.
-#    - Quest 기능과 통합할 때 팀 생성 전에 퀘스트 존재 여부와
-#      참가 가능한 퀘스트 상태인지 사전 검증할 수 있습니다.
+# 2. 팀 기능
+#    - 팀 생성, 목록·상세 조회, 참가, 나가기, 팀장 위임,
+#      사용자 초대와 초대 수락·거절 로직을 처리합니다.
+#    - 권한, 팀 상태, 정원, 비밀번호와 중복 참가 여부를 검증합니다.
 #
-# 3. 팀 목록 및 상세 응답
-#    - 현재 Repository는 Team 객체와 현재 참가 인원을 반환합니다.
-#    - 퀘스트 제목, 카테고리 아이콘, 장소, 시행 일자가 필요하면
-#      Quest 모델과 JOIN하는 조회 기능을 추가해야 합니다.
+# 3. 초대 자동 만료
+#    - 초대 목록 조회와 초대 응답 시 만료 상태를 즉시 반영합니다.
+#    - Celery Beat가 만료된 PENDING 초대를 정기적으로 처리합니다.
 #
-# 4. 팀 멤버 응답
-#    - 현재는 TeamMember 테이블 정보만 반환합니다.
-#    - 닉네임과 프로필 이미지가 필요하면 User 모델 JOIN이 필요합니다.
+# 4. AI 팀원 추천 후보 조회
+#    - 추천 요청자가 활성 사용자이며 해당 팀의 팀장인지 확인합니다.
+#    - 팀 모집 상태, 만료 여부와 정원을 검증합니다.
+#    - 확정된 제외 조건을 적용해 추천 후보를 조회합니다.
+#    - 후보 사용자의 최근 30일 승인 활동을
+#      카테고리·난이도·활동 시간대별 통계로 변환합니다.
 #
-# 5. 초대 자동 만료
-#    - 초대 목록 조회 및 초대 응답 시 만료 상태를 즉시 반영합니다.
-#    - Celery Beat가 매시간 expire_pending_invites() Task를 실행하여
-#      서버 요청이 없는 경우에도 만료된 초대를 정기적으로 처리합니다.
+# 5. AI 서버 연동과 응답 검증
+#    - 후보가 없으면 AI 서버를 호출하지 않고 빈 추천 응답을 반환합니다.
+#    - 후보가 있으면 동기 HTTP Client를 통해 AI 서버를 호출합니다.
+#    - Timeout, 연결 실패, 처리 불가와 계약 오류를
+#      적절한 HTTP 상태 코드로 변환합니다.
+#    - AI 응답의 점수, 순위, 추천 수와 전체 구조를 Pydantic으로 검증합니다.
+#    - 요청한 팀·Quest·top_k와 응답값이 일치하는지 확인합니다.
+#    - Backend가 전달하지 않은 후보가 추천 결과에 포함되는 것을 차단합니다.
 #
-# 6. AI 추천 후보 사용자 조회 Service
-#    - 추천을 요청할 수 있는 팀장인지 확인합니다.
-#    - 팀 상태, 만료 여부, 정원 여부를 확인합니다.
-#    - Repository에서 후보 사용자와 최근 30일 활동 기록을 조회합니다.
-#    - 최근 활동을 카테고리·난이도·활동 시간대별 횟수로 정리합니다.
-#    - 추천 점수, Embedding 유사도, Top-K, 추천 이유는 AI Server에서 처리합니다.
+# 6. 추천 결과의 초대 연결
+#    - 추천 결과의 user_id는 기존 TeamInviteCreate 요청에 사용합니다.
+#    - 실제 초대 시 ChallengeTeamService.create_team_invite()가
+#      권한, 정원, 팀원 여부와 기존 초대 상태를 다시 검증합니다.
 # =========================================================
 
+from pydantic import ValidationError
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -43,6 +48,14 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.auth.models import User
+from backend.app.challenge.ai_client import (
+    ChallengeRecommendationAIClient,
+    ChallengeRecommendationConnectionError,
+    ChallengeRecommendationRequestError,
+    ChallengeRecommendationResponseError,
+    ChallengeRecommendationTimeoutError,
+    ChallengeRecommendationUnavailableError,
+)
 from backend.app.challenge.enums import (
     TeamInviteStatus,
     TeamMemberRole,
@@ -64,6 +77,7 @@ from backend.app.challenge.schema import (
     TeamCreate,
     TeamInviteCreate,
     TeamInviteStatusUpdate,
+    TeamRecommendationResponse,
 )
 from backend.app.common.auth import (
     get_password_hash,
@@ -1052,6 +1066,7 @@ class ChallengeRecommendationService:
                 "team": {
                     "team_id": team.team_id,
                     "quest_id": team.quest_id,
+                    "name": team.name,
                     "region": team.region,
                     "current_members": current_members,
                     "max_members": team.max_members,
@@ -1161,6 +1176,7 @@ class ChallengeRecommendationService:
             "team": {
                 "team_id": team.team_id,
                 "quest_id": team.quest_id,
+                "name": team.name,
                 "region": team.region,
                 "current_members": current_members,
                 "max_members": team.max_members,
@@ -1188,3 +1204,149 @@ class ChallengeRecommendationService:
             },
             "candidates": candidate_data,
         }
+
+
+    @staticmethod
+    def get_team_member_recommendations(
+        session: Session,
+        *,
+        team_id: int,
+        current_user: User,
+        top_k: int = 5,
+        ai_client: ChallengeRecommendationAIClient | None = None,
+    ) -> TeamRecommendationResponse:
+        """후보 데이터를 준비하고 AI 서버의 최종 추천 결과를 검증."""
+
+        # Router 외부에서 호출해도 추천 수 범위를 보장.
+        if not 1 <= top_k <= 20:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="추천 인원은 1명 이상 20명 이하여야 합니다.",
+            )
+
+        # 기존 후보 조회 로직을 재사용해 권한·팀 상태·제외 조건을 검증.
+        payload = (
+            ChallengeRecommendationService
+            .get_recommendation_candidates(
+                session,
+                team_id=team_id,
+                current_user=current_user,
+            )
+        )
+
+        # AI 서버가 최종 추천 결과 수를 결정할 수 있도록 요청값을 추가.
+        payload["top_k"] = top_k
+
+        # AI 응답에 포함할 수 있는 정상 후보 사용자 ID를 저장.
+        candidate_user_ids = {
+            candidate["user_id"]
+            for candidate in payload["candidates"]
+        }
+
+        # 후보가 없으면 AI 서버를 호출하지 않고 검증된 빈 응답을 반환.
+        if not payload["candidates"]:
+            return TeamRecommendationResponse(
+                team_id=payload["team"]["team_id"],
+                quest_id=payload["quest"]["quest_id"],
+                recommendations=[],
+                requested_top_k=top_k,
+                recommendation_count=0,
+                warnings=[],
+            )
+
+        # 테스트에서는 가짜 Client를 주입하고 실제 실행에서는 기본 Client 생성.
+        recommendation_client = (
+            ai_client
+            if ai_client is not None
+            else ChallengeRecommendationAIClient()
+        )
+
+        try:
+            # 후보 데이터를 AI 서버에 전달하고 원시 JSON 응답을 조회.
+            raw_response = (
+                recommendation_client
+                .request_recommendations(
+                    payload=payload,
+                )
+            )
+
+        except ChallengeRecommendationTimeoutError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="AI 추천 서버의 응답 시간이 초과되었습니다.",
+            ) from exc
+
+        except ChallengeRecommendationConnectionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI 추천 서버에 연결할 수 없습니다.",
+            ) from exc
+
+        except ChallengeRecommendationUnavailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI 팀원 추천 처리에 실패했습니다.",
+            ) from exc
+
+        except ChallengeRecommendationRequestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="AI 추천 요청 데이터 형식이 올바르지 않습니다.",
+            ) from exc
+
+        except ChallengeRecommendationResponseError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="AI 추천 서버의 응답 형식이 올바르지 않습니다.",
+            ) from exc
+
+        try:
+            # 200 응답이라도 필드·점수·순위·개수 구조를 Pydantic으로 검증.
+            response_data = (
+                TeamRecommendationResponse
+                .model_validate(
+                    raw_response,
+                )
+            )
+
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="AI 추천 서버의 응답 형식이 올바르지 않습니다.",
+            ) from exc
+
+        # AI 서버가 다른 팀의 결과를 반환하는 계약 오류를 차단.
+        if response_data.team_id != payload["team"]["team_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="AI 추천 서버가 잘못된 팀 정보를 반환했습니다.",
+            )
+
+        # AI 서버가 다른 Quest 결과를 반환하는 계약 오류를 차단.
+        if response_data.quest_id != payload["quest"]["quest_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="AI 추천 서버가 잘못된 Quest 정보를 반환했습니다.",
+            )
+
+        # 요청값과 AI 응답의 추천 수 기준이 달라지는 문제를 차단.
+        if response_data.requested_top_k != top_k:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="AI 추천 서버가 잘못된 추천 수 정보를 반환했습니다.",
+            )
+
+        # Backend가 전달하지 않은 사용자가 추천 결과에 포함되는 것을 차단.
+        invalid_recommended_user_ids = {
+            recommendation.user_id
+            for recommendation in response_data.recommendations
+            if recommendation.user_id not in candidate_user_ids
+        }
+
+        if invalid_recommended_user_ids:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="AI 추천 서버가 후보가 아닌 사용자를 반환했습니다.",
+            )
+
+        return response_data
