@@ -10,8 +10,8 @@ class QuestRecommendRequest(BaseModel):
     )
     interests: List[str] = Field(
         default_factory=list,
-        # "사용자 관심사 카테고리 목록 (예: VULNERABLE_GROUP, ENVIRONMENT 등)"
-        description="List of user interest categories (e.g. VULNERABLE_GROUP, ENVIRONMENT)"
+        # "사용자 관심사 카테고리 목록 (예: VOLUNTEER, ENVIRONMENT 등)"
+        description="List of user interest categories (e.g. VOLUNTEER, ENVIRONMENT)"
     )
     region_id: Optional[int] = Field(
         default=None,
@@ -83,8 +83,8 @@ class QuestItemSchema(BaseModel):
     )
     category_name: Optional[str] = Field(
         default=None,
-        # "카테고리명 (VULNERABLE_GROUP, ENVIRONMENT 등)"
-        description="Category name (e.g., VULNERABLE_GROUP, ENVIRONMENT, SHARING)"
+        # "카테고리명 (VOLUNTEER, ENVIRONMENT 등)"
+        description="Category name (e.g., VOLUNTEER, ENVIRONMENT, SHARING)"
     )
 
 class QuestRecommendResponse(BaseModel):

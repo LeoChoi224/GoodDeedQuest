@@ -49,7 +49,7 @@ def get_dummy_volunteer_data() -> List[Dict[str, Any]]:
         {
             "id": 1004,
             "title": "정운이 구호 외치기",
-            "content": "(정운)나는 환경, (희준)나는 나눔, (태현)나는 동물, (민재)나는 지역사회, (홍묵)나는 취약계층, 우리는 선행 퀘스트!!",
+            "content": "(정운)나는 봉사, (희준)나는 환경, (태현)나는 나눔, (민재)나는 지역사회동물, (홍묵)나는 지역사회, 우리는 선행 퀘스트!!",
             "category": "기타",
             "location": "서울시 강남구",
             "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1004",
@@ -69,7 +69,7 @@ def get_dummy_volunteer_data() -> List[Dict[str, Any]]:
             "id": 1006,
             "title": "시각장애인을 위한 점자도서 타이핑 입력 봉사",
             "content": "지역 복지관 실내 컴퓨터실에서 시각장애인용 디지털 점자 도서 제작을 위해 도서 원고를 컴퓨터로 타이핑하는 실내 봉사활동입니다.",
-            "category": "VULNERABLE_GROUP",
+            "category": "VOLUNTEER",
             "location": "서울시 마포구 장애인복지관",
             "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1006",
             "is_volunteer": True
