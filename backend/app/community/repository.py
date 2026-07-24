@@ -15,14 +15,13 @@ from __future__ import annotations
 #
 # 4. 트랜잭션 처리
 #    - Repository는 flush()까지만 수행
-#    - commit()/rollback()은 Service에서 처리
+#    - commit()과 rollback()은 공통 get_db()에서 처리합니다.
 # =========================================================
 
 from datetime import datetime, timedelta
 
 from sqlalchemy import Select, exists, func, select
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from backend.app.auth.models import User
 from backend.app.admin.models import Report
@@ -34,18 +33,44 @@ from backend.app.community.models import (
     PostLike,
 )
 
-# TODO: 퀘스트 인증 담당 팀원의 실제 모델 경로 검토 필요.
-from backend.app.quest.models import QuestSubmission
+from backend.app.quest_verification.enums import SubmissionStatus
+from backend.app.quest_verification.models import QuestSubmission
 
 
 # 커뮤니티 DB 조회와 생성 작업을 모아 관리하는 Repository 클래스.
 class CommunityRepository:
     """커뮤니티 게시글, 좋아요, 댓글, 관심 없음 기록을 관리."""
 
+
+    @staticmethod
+    # 현재 사용자의 승인된 퀘스트 인증 내역을 ID로 조회합니다.
+    def get_accepted_submission_by_id(
+        db: Session,
+        *,
+        submission_id: int,
+        user_id: int,
+    ) -> QuestSubmission | None:
+        """현재 사용자의 승인된 퀘스트 인증 내역을 조회합니다."""
+
+        # 인증 ID, 작성자 ID, 승인 상태가 모두 일치하는 내역을 조회합니다.
+        query: Select[tuple[QuestSubmission]] = select(
+            QuestSubmission
+        ).where(
+            QuestSubmission.submission_id == submission_id,
+            QuestSubmission.user_id == user_id,
+            QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
+        )
+
+        # 완성된 인증 내역 조회 쿼리를 실행합니다.
+        result = db.execute(query)
+
+        # 조건에 맞는 인증 내역이 없으면 None을 반환합니다.
+        return result.scalar_one_or_none()
+
     @staticmethod
     # 사용자가 작성한 새 커뮤니티 게시글을 DB에 생성.
-    async def create_post(
-        db: AsyncSession,
+    def create_post(
+        db: Session,
         *,
         user_id: int,
         submission_id: int | None,
@@ -62,15 +87,15 @@ class CommunityRepository:
 
         db.add(post)
 
-        await db.flush()
-        await db.refresh(post)
+        db.flush()
+        db.refresh(post)
 
         return post
 
     @staticmethod
     # 게시글 ID로 커뮤니티 게시글 한 건을 조회.
-    async def get_post_by_id(
-        db: AsyncSession,
+    def get_post_by_id(
+        db: Session,
         *,
         post_id: int,
     ) -> CommunityPost | None:
@@ -80,14 +105,14 @@ class CommunityRepository:
             CommunityPost.post_id == post_id,
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
 
         return result.scalar_one_or_none()
 
     @staticmethod
     # 메인 화면에 표시할 커뮤니티 피드 목록을 조회.
-    async def list_feed_posts(
-        db: AsyncSession,
+    def list_feed_posts(
+        db: Session,
         *,
         user_id: int,
         skip: int = 0,
@@ -123,15 +148,6 @@ class CommunityRepository:
             )
         )
 
-        # 현재 사용자가 해당 게시글을 관심 없음 처리했는지 확인하는 조건.
-        current_user_hidden_query = exists(
-            # 존재 여부 확인을 위해 값 1을 조회하는 서브쿼리.
-            select(1).where(
-                FeedHiddenPreference.post_id == CommunityPost.post_id,
-                FeedHiddenPreference.user_id == user_id,
-            )
-        )
-
         # 피드 화면에 필요한 정보를 한 번에 가져오는 쿼리.
         query = (
             # 게시글, 작성자, 좋아요 수, 댓글 수, 좋아요 여부를 함께 조회.
@@ -148,9 +164,8 @@ class CommunityRepository:
                 User,
                 User.user_id == CommunityPost.user_id,
             )
-            # 현재 사용자가 관심 없음으로 처리하지 않은 게시글만 조회합니다.
             .where(
-                ~current_user_hidden_query,
+                CommunityPost.is_active.is_(True),
             )
             .order_by(
                 CommunityPost.created_at.desc(),
@@ -161,7 +176,7 @@ class CommunityRepository:
         )
 
         # 완성된 피드 조회 쿼리를 실행.
-        result = await db.execute(query)
+        result = db.execute(query)
 
         # SQLAlchemy Row 목록을 일반 튜플 목록으로 변환.
         return [
@@ -184,8 +199,8 @@ class CommunityRepository:
 
     @staticmethod
     # 현재 사용자의 특정 게시글 좋아요 기록을 조회.
-    async def get_post_like(
-        db: AsyncSession,
+    def get_post_like(
+        db: Session,
         *,
         post_id: int,
         user_id: int,
@@ -198,14 +213,14 @@ class CommunityRepository:
             PostLike.user_id == user_id,
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
 
         return result.scalar_one_or_none()
 
     @staticmethod
     # 새로운 게시글 좋아요 기록을 생성.
-    async def create_post_like(
-        db: AsyncSession,
+    def create_post_like(
+        db: Session,
         *,
         post_id: int,
         user_id: int,
@@ -219,26 +234,26 @@ class CommunityRepository:
 
         db.add(post_like)
 
-        await db.flush()
-        await db.refresh(post_like)
+        db.flush()
+        db.refresh(post_like)
 
         return post_like
 
     @staticmethod
     # 기존 게시글 좋아요 기록을 삭제.
-    async def delete_post_like(
-        db: AsyncSession,
+    def delete_post_like(
+        db: Session,
         *,
         post_like: PostLike,
     # 삭제 후 별도 객체를 반환하지 않습니다.
     ) -> None:
-        await db.delete(post_like)
-        await db.flush()
+        db.delete(post_like)
+        db.flush()
 
     @staticmethod
     # 특정 게시글을 좋아요 한 사용자 목록을 조회.
-    async def list_post_like_users(
-        db: AsyncSession,
+    def list_post_like_users(
+        db: Session,
         *,
         post_id: int,
         skip: int = 0,
@@ -261,15 +276,15 @@ class CommunityRepository:
             .limit(limit)
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
 
         return list(result.scalars().all())
 
 
     @staticmethod
     # 특정 게시글에 새 댓글을 생성.
-    async def create_comment(
-        db: AsyncSession,
+    def create_comment(
+        db: Session,
         *,
         post_id: int,
         user_id: int,
@@ -285,15 +300,15 @@ class CommunityRepository:
 
         db.add(comment)
 
-        await db.flush()
-        await db.refresh(comment)
+        db.flush()
+        db.refresh(comment)
 
         return comment
 
     @staticmethod
     # 피드 카드에 미리 보여줄 최근 댓글 두 개를 조회.
-    async def list_comment_previews(
-        db: AsyncSession,
+    def list_comment_previews(
+        db: Session,
         *,
         post_id: int,
         limit: int = 2,
@@ -316,7 +331,7 @@ class CommunityRepository:
             .limit(limit)
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
 
         # 조회된 Row를 Comment와 User 튜플 목록으로 변환.
         return [
@@ -326,8 +341,8 @@ class CommunityRepository:
 
     @staticmethod
     # 댓글 바텀 시트에 표시할 전체 댓글 목록을 조회.
-    async def list_post_comments(
-        db: AsyncSession,
+    def list_post_comments(
+        db: Session,
         *,
         post_id: int,
         skip: int = 0,
@@ -352,7 +367,7 @@ class CommunityRepository:
             .limit(limit)
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
 
         return [
             (row[0], row[1])
@@ -360,9 +375,31 @@ class CommunityRepository:
         ]
 
     @staticmethod
+    # 사용자가 특정 게시글을 이미 관심 없음으로 처리했는지 조회.
+    def get_hidden_preference(
+        db: Session,
+        *,
+        user_id: int,
+        post_id: int,
+    ) -> FeedHiddenPreference | None:
+        """사용자의 기존 관심 없음 기록을 조회합니다."""
+
+        query: Select[tuple[FeedHiddenPreference]] = (
+            select(FeedHiddenPreference)
+            .where(
+                FeedHiddenPreference.user_id == user_id,
+                FeedHiddenPreference.post_id == post_id,
+            )
+        )
+
+        result = db.execute(query)
+
+        return result.scalar_one_or_none()
+
+    @staticmethod
     # 사용자가 특정 게시글을 관심 없음으로 처리한 기록을 생성.
-    async def create_hidden_preference(
-        db: AsyncSession,
+    def create_hidden_preference(
+        db: Session,
         *,
         user_id: int,
         post_id: int,
@@ -376,15 +413,15 @@ class CommunityRepository:
 
         db.add(hidden_preference)
 
-        await db.flush()
-        await db.refresh(hidden_preference)
+        db.flush()
+        db.refresh(hidden_preference)
 
         return hidden_preference
     
     @staticmethod
     # 사용자가 특정 커뮤니티 게시글을 신고한 기록을 생성.
-    async def create_report(
-        db: AsyncSession,
+    def create_report(
+        db: Session,
         *,
         reporter_id: int,
         post_id: int,
@@ -399,8 +436,8 @@ class CommunityRepository:
 
         db.add(report)
 
-        await db.flush()
-        await db.refresh(report)
+        db.flush()
+        db.refresh(report)
 
         return report
 
@@ -409,8 +446,8 @@ class CommunityRepository:
     """
 
     @staticmethod
-    async def list_recent_quest_submissions(
-        db: AsyncSession,
+    def list_recent_quest_submissions(
+        db: Session,
         *,
         user_id: int,
         days: int = 30,
@@ -427,7 +464,7 @@ class CommunityRepository:
             select(QuestSubmission)
             .where(
                 QuestSubmission.user_id == user_id,
-                QuestSubmission.final_status == "ACCEPTED",
+                QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
                 QuestSubmission.submitted_at >= submitted_after,
             )
             .order_by(
@@ -438,6 +475,6 @@ class CommunityRepository:
             .limit(limit)
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
 
         return list(result.scalars().all())
