@@ -79,6 +79,99 @@ class CommunityPostResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+class CommunityAuthorResponse(BaseModel):
+    """커뮤니티 작성자 요약 응답."""
+
+    user_id: int
+    nickname: str
+    profile_image_url: str | None
+
+class CommunityCommentDetailResponse(BaseModel):
+    """작성자 정보가 포함된 댓글 응답."""
+
+    comment_id: int
+    post_id: int
+    content: str
+    created_at: datetime
+    updated_at: datetime
+    author: CommunityAuthorResponse
+
+class CommunityFeedItemResponse(BaseModel):
+    """기본 커뮤니티 피드 게시글 응답."""
+
+    post_id: int
+    submission_id: int | None
+    media_url: str
+    caption: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    author: CommunityAuthorResponse
+
+    like_count: int = Field(
+        ...,
+        ge=0,
+        description="게시글 좋아요 수",
+    )
+
+    comment_count: int = Field(
+        ...,
+        ge=0,
+        description="게시글 댓글 수",
+    )
+
+    is_liked: bool = Field(
+        ...,
+        description="현재 사용자의 좋아요 여부",
+    )
+
+    comment_previews: list[CommunityCommentDetailResponse] = Field(
+        default_factory=list,
+        description="피드에 표시할 최근 댓글 미리보기",
+    )
+
+
+class PostLikeToggleResponse(BaseModel):
+    """게시글 좋아요 토글 결과."""
+
+    post_id: int
+    is_liked: bool
+
+    like_count: int = Field(
+        ...,
+        ge=0,
+        description="토글 처리 후 게시글 좋아요 수",
+    )
+
+
+class PostLikeUserResponse(BaseModel):
+    """게시글을 좋아요 한 사용자 응답."""
+
+    user_id: int
+    nickname: str
+    profile_image_url: str | None
+
+
+class CommunityCommentCreate(BaseModel):
+    """게시글 댓글 생성 요청."""
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="댓글 내용",
+    )
+
+    @field_validator("content")
+    @classmethod
+    def validate_community_comment_not_blank(cls, value: str) -> str:
+        stripped_value = value.strip()
+
+        if not stripped_value:
+            raise ValueError("댓글 내용은 공백일 수 없습니다.")
+
+        return stripped_value
+
 
 
 class PostLikeCreate(BaseModel):

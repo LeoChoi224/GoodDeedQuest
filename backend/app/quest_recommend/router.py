@@ -39,6 +39,15 @@ async def recommend_quests(
         "request_message": req.request_message
     }
 
+    # 요청 당시 수집된 Context 데이터 구성
+    request_context = {
+        "interests": user_interests,
+        "latitude": req.latitude,
+        "longitude": req.longitude,
+        "level": user.get("level", 1),
+        "request_message": req.request_message
+    }
+
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             ai_service_url = f"{get_setting().AI_SERVICE_URL}/ai/recommend"
