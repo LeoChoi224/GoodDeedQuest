@@ -1,6 +1,6 @@
 import unittest
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.request_agent import analyze_request
+from ai.app.quest_recommend.nodes.request_agent import analyze_request
 
 class TestRequestAgent(unittest.TestCase):
     def test_analyze_request_empty(self):

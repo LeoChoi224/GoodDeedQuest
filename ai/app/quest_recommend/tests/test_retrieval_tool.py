@@ -1,6 +1,6 @@
 import unittest
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.retrieval_tool import retrieve_volunteers
+from ai.app.quest_recommend.nodes.retrieval_tool import retrieve_volunteers
 from ai.app.common.vector_adapter import get_vector_store_adapter
 
 class TestRetrievalTool(unittest.TestCase):

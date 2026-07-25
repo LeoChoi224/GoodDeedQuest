@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.validation_agent import validate_candidates
+from ai.app.quest_recommend.nodes.validation_agent import validate_candidates
 
 class TestValidationAgent(unittest.TestCase):
     def test_validate_candidates_lcel_critic_success(self):
