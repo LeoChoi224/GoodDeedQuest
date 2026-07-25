@@ -25,6 +25,7 @@ class VolunteerCenter(Base):
     longitude: Mapped[Decimal] = mapped_column(DECIMAL(10, 7), nullable=True, comment="봉사센터 경도")
     # 크롤링 갱신 시각 - 오래된(사라진) 공고 판별용
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="마지막 크롤링 확인 시각")
+    vol_title: Mapped[str] = mapped_column(String(500), nullable=True, comment="봉사 모집 제목")
 
 class Region(Base):
     __tablename__ = "region"
