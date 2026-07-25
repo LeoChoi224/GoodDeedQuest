@@ -13,64 +13,63 @@ from langchain_core.exceptions import OutputParserException
 logger = logging.getLogger(__name__)
 
 class GoodDeedCandidate(BaseModel):
-    """최종 퀘스트 테이블 규격과 정합성이 완료된 개별 퀘스트 후보 스키마"""
+    """유저 맞춤형 일상 선행(GOOD_DEED) 퀘스트의 세부 항목 스키마"""
     category_name: str = Field(
         ...,
-        # "유저 관심사에 맞는 카테고리 이름 ('ENVIRONMENT', 'SHARING', 'ANIMAL', 'COMMUNITY', 'OTHER' 중 하나)."
+        # "유저 관심사 기반 카테고리 ('ENVIRONMENT', 'SHARING', 'ANIMAL', 'COMMUNITY', 'OTHER')"
         description="Category name matching user interests (e.g., 'ENVIRONMENT', 'SHARING', 'ANIMAL', 'COMMUNITY', 'OTHER')."
     )
     quest_title: str = Field(
         ...,
-        # "일상 선행 퀘스트의 제목."
+        # "AI가 기발하게 창작한 일상 선행 퀘스트 제목"
         description="The title of the daily good deed quest."
     )
     quest_description: str = Field(
         ...,
-        # "퀘스트의 상세 설명 및 실천 가이드."
+        # "퀘스트의 명확한 실천 지침 및 재미있는 상세 설명"
         description="Detailed description and execution guide of the quest."
     )
     quest_target: str = Field(
         ...,
-        # "참여 방식 모드: 'SOLO' (개인) 또는 'TEAM' (협동)."
+        # "퀘스트 참여 모드 ('SOLO': 개인 / 'TEAM': 협동)"
         description="Target participation mode: 'SOLO' or 'TEAM'."
     )
     quest_type: str = Field(
         "GOOD_DEED",
-        # "퀘스트 종류: AI가 창작한 일상 선행의 경우 항상 'GOOD_DEED'."
+        # "퀘스트 유형 (AI 창작 일상 선행은 고정값 'GOOD_DEED')"
         description="Type of the quest: Always 'GOOD_DEED' for AI created tasks."
     )
     location: Optional[str] = Field(
         None,
-        # "일상 선행(GOOD_DEED) 퀘스트의 경우 반드시 null/None이어야 함."
+        # "일상 선행 퀘스트는 장소 제약이 없으므로 항상 None"
         description="Must be null/None for GOOD_DEED daily quests."
     )
     difficulty: str = Field(
         ...,
-        # "퀘스트 난이도: 'VERY_EASY', 'EASY', 'NORMAL', 'HARD', 'VERY_HARD' 중 하나."
+        # "체감 난이도 ('VERY_EASY', 'EASY', 'NORMAL', 'HARD', 'VERY_HARD')"
         description="Quest difficulty: 'VERY_EASY', 'EASY', 'NORMAL', 'HARD', 'VERY_HARD'."
     )
     estimated_duration: Optional[int] = Field(
         15,
-        # "분 단위 예상 소요 시간 (예: 10, 15, 30)."
+        # "부담 없이 실천할 수 있는 분 단위 예상 소요 시간"
         description="Estimated duration in minutes (e.g., 10, 15, 30)."
     )
     recommendation_reason: str = Field(
         ...,
-        # "사용자의 상황에 따라 이 퀘스트가 추천되는 이유 (한국어)."
+        # "유저의 현재 상황, 날씨, 요청에 딱 맞춘 공감형 추천 사유 (한글)"
         description="Why this quest is recommended for the user based on their situation."
     )
     priority_score: int = Field(
         ...,
-        # "적합성을 나타내는 1부터 10까지의 우선순위 점수 (10이 가장 높음)."
+        # "상황 맞춤 적합도 점수 (1~10점, 10점이 최고 점수)"
         description="Priority score from 1 to 10 indicating suitability (10 is highest)."
     )
-
-class GoodDeedCandidateOutput(BaseModel):
-    """LLM이 최종 반환할 구조화된 후보군 목록 스키마"""
+class GoodDeedCandidatesOutput(BaseModel):
+    """LLM이 최종 출력할 센스 있는 AI 일상 선행 6개 묶음 스키마"""
     quests: List[GoodDeedCandidate] = Field(
-    default_factory=list,
-    # "정확히 6개의 AI 생성 일상 선행 퀘스트 후보 리스트."
-    description="A list of exactly 6 AI-created daily good deeds."
+        default_factory=list,
+        # "유저 맞춤형 AI 일상 선행 퀘스트 후보 6개 리스트"
+        description="A list of exactly 6 AI-created daily good deeds."
     )
 
 def create_good_deeds(state: RecommendState) -> Dict[str, Any]:
