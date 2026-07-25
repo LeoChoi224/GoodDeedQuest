@@ -5,14 +5,14 @@ from langgraph.graph import StateGraph, END
 from ai.app.quest_recommend.state import RecommendState
 
 # 8개 노드 및 각 모듈별 응집된 라우터 함수 임포트
-from ai.app.quest_recommend.user_profile_agent import analyze_user_profile
-from ai.app.quest_recommend.situation_agent import analyze_situation
-from ai.app.quest_recommend.request_agent import analyze_request
-from ai.app.quest_recommend.planner_agent import analyze_strategy
-from ai.app.quest_recommend.retrieval_tool import retrieve_volunteers
-from ai.app.quest_recommend.quest_recommendation_agent import recommend_quests, route_recommendation_need
-from ai.app.quest_recommend.validation_agent import validate_candidates, route_validation
-from ai.app.quest_recommend.response_agent import format_response
+from ai.app.quest_recommend.agents.user_profile_agent import analyze_user_profile
+from ai.app.quest_recommend.agents.situation_agent import analyze_situation
+from ai.app.quest_recommend.agents.request_agent import analyze_request
+from ai.app.quest_recommend.agents.planner_agent import analyze_strategy
+from ai.app.quest_recommend.agents.retrieval_tool import retrieve_volunteers
+from ai.app.quest_recommend.agents.quest_recommendation_agent import recommend_quests, route_recommendation_need
+from ai.app.quest_recommend.agents.validation_agent import validate_candidates, route_validation
+from ai.app.quest_recommend.agents.response_agent import format_response
 
 logger = logging.getLogger(__name__)
 

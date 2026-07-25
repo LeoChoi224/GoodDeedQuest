@@ -1,6 +1,6 @@
 import unittest
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.planner_agent import analyze_strategy
+from ai.app.quest_recommend.agents.planner_agent import analyze_strategy
 
 class TestPlannerAgent(unittest.TestCase):
     def test_analyze_strategy_sunny_weekend(self):

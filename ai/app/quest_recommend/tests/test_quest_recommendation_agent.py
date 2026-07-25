@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.quest_recommendation_agent import recommend_quests
+from ai.app.quest_recommend.agents.quest_recommendation_agent import recommend_quests
 
 class TestQuestRecommendationAgent(unittest.TestCase):
     def test_recommend_quests_normal(self):
