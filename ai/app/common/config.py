@@ -21,6 +21,9 @@ class AISettings(BaseSettings):
     DEFAULT_VISION_MODEL: str = os.getenv("DEFAULT_VISION_MODEL", "gemini-2.5-flash")
     DEFAULT_STORY_MODEL: str = os.getenv("DEFAULT_STORY_MODEL", "gpt-4o-mini")
 
+    # Validation configs
+    MAX_CAPTION_LENGTH: int = int(os.getenv("MAX_CAPTION_LENGTH", "30"))
+
     # Embedding configs
     DEFAULT_EMBEDDING_PROVIDER: str = os.getenv("DEFAULT_EMBEDDING_PROVIDER", "openai")
     DEFAULT_OPENAI_EMBEDDING_MODEL: str = os.getenv("DEFAULT_OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
