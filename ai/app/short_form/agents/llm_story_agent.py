@@ -7,11 +7,45 @@ LLM Story Agent
 
 주의: TTS 없음. 나레이션 음성이 아니라 화면에 얹을 텍스트 자막을 생성.
 """
+import re
+
 from langchain_core.messages import HumanMessage
 
 from ..state import ShortFormState
 from ...common.llm import get_openai_model
 from ...common.config import settings
+
+# "1. "내용"" 또는 "1. 내용" 형태의 번호 매김 패턴
+_NUMBERED_LINE_PATTERN = re.compile(r'^\s*\d+\.\s*"?(.+?)"?\s*$', re.MULTILINE)
+
+
+def _parse_story_response(raw_text: str, scene_count: int, user_name: str, quest_title: str) -> list[str]:
+    """LLM raw response(자유 형식 텍스트)를 씬별 캡션 리스트로 파싱.
+
+    1차: 번호 매김 패턴("1. "내용"" / "1. 내용")으로 추출
+    2차(1차 실패 시): 개행 또는 마침표(". ") 기준 단순 split
+    최종 fallback(2차도 실패 시): 기본 문구로 scene_count개 채움
+    """
+    captions = [c.strip() for c in _NUMBERED_LINE_PATTERN.findall(raw_text) if c.strip()]
+
+    if not captions:
+        parts = re.split(r'\n+|\.\s+', raw_text)
+        captions = [p.strip() for p in parts if p.strip()]
+
+    if not captions:
+        # TODO: 아래 기본 문구는 임시 예시이며 추후 조정 가능
+        captions = [f"{user_name}님의 '{quest_title}' 완수!" for _ in range(scene_count)]
+
+    return captions
+
+
+def _fit_caption_count(captions: list[str], scene_count: int) -> list[str]:
+    """캡션 리스트 길이를 scene_count에 맞춤 (많으면 앞에서부터 자르고, 적으면 마지막 캡션을 반복해서 채움)"""
+    if len(captions) > scene_count:
+        return captions[:scene_count]
+    if len(captions) < scene_count:
+        captions = captions + [captions[-1]] * (scene_count - len(captions))
+    return captions
 
 
 def _build_story_prompt(state: ShortFormState) -> str:
@@ -46,8 +80,14 @@ def llm_story_agent(state: ShortFormState) -> ShortFormState:
         response = model.invoke([HumanMessage(content=prompt)])
         print(f"[LlmStoryAgent] raw response: {response.content}")
 
-        # TODO(#90): raw response를 씬별 자막 리스트로 파싱
-        state["generated_captions"] = [str(response.content)]
+        scene_count = len(state.get("vision_results", [])) or 1
+        captions = _parse_story_response(
+            str(response.content), scene_count, state["user_name"], state["quest_title"]
+        )
+        captions = _fit_caption_count(captions, scene_count)
+        captions = [c[:settings.MAX_CAPTION_LENGTH] for c in captions]
+
+        state["generated_captions"] = captions
 
     except Exception as e:
         print(f"[LlmStoryAgent] LLM 호출 실패: {e}")
