@@ -19,6 +19,7 @@ class AISettings(BaseSettings):
     # Model configs
     DEFAULT_LLM_MODEL: str = os.getenv("DEFAULT_LLM_MODEL", "gpt-4o")
     DEFAULT_VISION_MODEL: str = os.getenv("DEFAULT_VISION_MODEL", "gemini-2.5-flash")
+    DEFAULT_STORY_MODEL: str = os.getenv("DEFAULT_STORY_MODEL", "gpt-4o-mini")
 
     # Embedding configs
     DEFAULT_EMBEDDING_PROVIDER: str = os.getenv("DEFAULT_EMBEDDING_PROVIDER", "openai")

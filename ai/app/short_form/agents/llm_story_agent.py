@@ -7,7 +7,27 @@ LLM Story Agent
 
 주의: TTS 없음. 나레이션 음성이 아니라 화면에 얹을 텍스트 자막을 생성.
 """
+from langchain_core.messages import HumanMessage
+
 from ..state import ShortFormState
+from ...common.llm import get_openai_model
+from ...common.config import settings
+
+
+def _build_story_prompt(state: ShortFormState) -> str:
+    scene_descriptions = "\n".join(
+        f"- {r['scene_description']}" for r in state.get("vision_results", [])
+    )
+    return f"""당신은 선행 인증 숏폼 영상의 온스크린 자막을 작성하는 작가입니다.
+
+사용자 이름: {state['user_name']}
+퀘스트 제목: {state['quest_title']}
+장면 설명:
+{scene_descriptions}
+
+위 정보를 바탕으로, 영상에 표시할 짧고 임팩트 있는 온스크린 자막 문구들을 작성해주세요.
+나레이션 음성이 아니라 화면에 텍스트로 얹는 자막입니다. 간결하고 감동적인 톤으로 작성하세요.
+"""
 
 
 def llm_story_agent(state: ShortFormState) -> ShortFormState:
@@ -19,11 +39,19 @@ def llm_story_agent(state: ShortFormState) -> ShortFormState:
 
     print(f"[LlmStoryAgent] quest_title={state['quest_title']}, user_name={state['user_name']}")
 
-    # TODO: 실제 LLM 호출로 교체 (이슈 3에서 작업, vision_results의 scene_description 활용)
-    dummy_captions = [
-        f"{state['user_name']}님의 '{state['quest_title']}' 완수!",
-        "작은 선행이 큰 변화를 만듭니다.",
-    ]
+    prompt = _build_story_prompt(state)
 
-    state["generated_captions"] = dummy_captions
+    try:
+        model = get_openai_model(model_name=settings.DEFAULT_STORY_MODEL)
+        response = model.invoke([HumanMessage(content=prompt)])
+        print(f"[LlmStoryAgent] raw response: {response.content}")
+
+        # TODO(#90): raw response를 씬별 자막 리스트로 파싱
+        state["generated_captions"] = [str(response.content)]
+
+    except Exception as e:
+        print(f"[LlmStoryAgent] LLM 호출 실패: {e}")
+        state["error_message"] = f"LLM Story Agent 호출 실패: {e}"
+        state["status"] = "FAILED"
+
     return state
