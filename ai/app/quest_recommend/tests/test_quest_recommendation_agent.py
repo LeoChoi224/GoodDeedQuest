@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.quest_recommendation_agent import recommend_quests
+from ai.app.quest_recommend.nodes.quest_recommendation_agent import recommend_quests
 
 class TestQuestRecommendationAgent(unittest.TestCase):
     def test_recommend_quests_normal(self):
@@ -61,8 +61,7 @@ class TestQuestRecommendationAgent(unittest.TestCase):
         
         for q in candidates:
             self.assertIn("category_name", q)
-            # 영문 카테고리 규격 준수 여부 검증 (VULNERABLE_GROUP 반영)
-            self.assertIn(q["category_name"], ["ENVIRONMENT", "SHARING", "ANIMAL", "COMMUNITY", "VULNERABLE_GROUP", "OTHER"])
+            self.assertIn(q["category_name"], ["VOLUNTEER", "ENVIRONMENT", "SHARING", "ANIMAL", "COMMUNITY", "OTHER"])
             self.assertIn("quest_title", q)
             self.assertIn("quest_description", q)
             self.assertIn("quest_target", q)

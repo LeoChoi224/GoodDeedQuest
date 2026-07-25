@@ -1,6 +1,6 @@
 import unittest
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.validation_agent import route_validation
+from ai.app.quest_recommend.nodes.validation_agent import route_validation
 
 class TestSelfCorrectionLoop(unittest.TestCase):
     def test_route_validation_pass(self):

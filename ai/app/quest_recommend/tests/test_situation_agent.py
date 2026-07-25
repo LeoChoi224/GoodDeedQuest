@@ -1,6 +1,6 @@
 import unittest
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.situation_agent import analyze_situation
+from ai.app.quest_recommend.nodes.situation_agent import analyze_situation
 
 
 class TestContextAgent(unittest.TestCase):

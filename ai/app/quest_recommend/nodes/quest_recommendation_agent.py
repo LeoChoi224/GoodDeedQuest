@@ -13,8 +13,8 @@ class QuestCandidate(BaseModel):
     """최종 퀘스트 테이블 규격과 정합성이 완료된 개별 퀘스트 후보 스키마"""
     category_name: str = Field(
         ...,
-        # "유저의 관심사와 매치되는 퀘스트 카테고리 이름 (예: '환경', '나눔', '동물', '지역사회', '취약계층', '기타')."
-        description="Category name matching user interests (e.g., 'ENVIRONMENT', 'SHARING', 'ANIMAL', 'COMMUNITY', 'VULNERABLE_GROUP', 'OTHER')."
+        # "유저의 관심사와 매치되는 퀘스트 카테고리 이름 (예: '봉사', '환경', '나눔', '동물', '지역사회', '기타')."
+        description="Category name matching user interests (e.g., 'VOLUNTEER', 'ENVIRONMENT', 'SHARING', 'ANIMAL', 'COMMUNITY', 'OTHER')."
         )
     quest_title: str = Field(
         ...,
@@ -99,11 +99,11 @@ def recommend_quests(state: RecommendState) -> Dict[str, Any]:
             - 동일한 추천 세트(6~7개 후보군) 내부에서 제목이 서로 중복되는 퀘스트를 생성하지 마십시오 (각 후보의 제목은 고유해야 합니다).
             - 완료 목록(completed_history)은 사용자의 취향과 선호를 나타내므로, 완료 이력이 있는 활동이나 유사한 활동은 적극적으로 재추천하십시오. 단, 다양성을 위해 한 번의 추천 세트 내에서 동일한 완료 퀘스트가 중복 등장하는 것은 최대 1개까지만 허용하십시오.
             - 카테고리명('category_name')은 반드시 다음 영문 대문자 문자열 중 하나로만 지정하십시오:
+            - 'VOLUNTEER' (실제 봉사 활동)
             - 'ENVIRONMENT' (환경 관련 활동)
             - 'SHARING' (기부 또는 나눔 관련 활동)
             - 'ANIMAL' (동물 케어 및 보호 관련 활동)
             - 'COMMUNITY' (지역사회 돕기 관련 활동)
-            - 'VULNERABLE_GROUP' (취약계층 지원 또는 봉사 관련 활동)
             - 'OTHER' (기타 다양한 선행 활동)
             - '검색된 실제 봉사 데이터'에서 실제 봉사 활동을 추출해 변환하고(quest_type='VOLUNTEER'로 설정하고 제목/내용/장소를 유지할 것), 여기에 유저 상황에 알맞은 기발한 일상 선행 활동을 창작하여 융합하십시오 (quest_type='GOOD_DEED'로 설정하고 location=None으로 지정하며, 재미있고 실행 가능하도록 설계할 것).
             - 각 퀘스트 후보에 대해 사용자의 관심사 및 레벨(난이도), 실시간 날씨 및 야외 가능 여부, 평일/주말 상황, 수립된 기획 전략, 그리고 사용자가 직접 메시지로 요구한 특별한 요청사항(예: 건강 상태, 소요 시간, 시간대 선호 등)에 어떻게 정교하게 부합하는지 설명하는 맞춤형 'recommendation_reason'(추천 사유)을 한국어로 자세히 작성하십시오.
@@ -126,11 +126,11 @@ Combine the retrieved real volunteer work data and AI-created daily good deeds t
 - Do not recommend duplicate quest titles within the same generated set of 6 to 7 quest candidates (each candidate must have a unique title).
 - The completed history (completed_history) represents the user's preferred activities. You should actively recommend similar or identical quests from their history to reinforce their habits. However, to maintain variety, allow at most 1 exact repetition from the completed history within the same candidate set.
 - The 'category_name' must be strictly set to one of the following uppercase strings matching the quest category:
+  - 'VOLUNTEER' (for volunteer activities)
   - 'ENVIRONMENT' (for environmental tasks)
   - 'SHARING' (for donation or sharing tasks)
   - 'ANIMAL' (for animal care/protection tasks)
   - 'COMMUNITY' (for local community helper tasks)
-  - 'VULNERABLE_GROUP' (for volunteering or supporting vulnerable groups)
   - 'OTHER' (for other miscellaneous tasks)
 - Extract and convert actual volunteer tasks from the 'Retrieved Real Volunteer Tasks' (set quest_type='VOLUNTEER', and preserve their titles, content, and location), and blend them with creative daily good deeds tailored to the user's situation (set quest_type='GOOD_DEED', location=None, and design them to be fun and actionable).
 - For each quest candidate, provide a customized 'recommendation_reason' in Korean explaining in detail how this task aligns with the user's interests and level, real-time weather and outdoor feasibility, weekday/weekend availability, the planned strategy, and any specific custom request (e.g., physical condition, preferred duration, or time constraints) they messaged.

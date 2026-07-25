@@ -32,13 +32,13 @@ class TestBackendQuestRecommendRouter(unittest.TestCase):
                     "quest_description": "Delivering food packages for elderly people.",
                     "quest_type": "VOLUNTEER",
                     "reason": "Matches user interest in vulnerable groups",
-                    "category_name": "VULNERABLE_GROUP"
+                    "category_name": "VOLUNTEER"
                 }
             ]
         }
         mock_post.return_value = mock_response
 
-        payload = {"interests": ["VULNERABLE_GROUP"]}
+        payload = {"interests": ["VOLUNTEER"]}
         response = self.client.post("/api/v1/quest-recommend", json=payload)
         
         self.assertEqual(response.status_code, 200)
