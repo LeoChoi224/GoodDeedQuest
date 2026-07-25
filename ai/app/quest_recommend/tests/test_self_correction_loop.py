@@ -1,114 +1,94 @@
 import unittest
+from unittest.mock import patch
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.nodes.validation_agent import route_validation
+from ai.app.quest_recommend.nodes.validation_agent import validate_candidates, route_validation
 
 class TestSelfCorrectionLoop(unittest.TestCase):
-    def test_route_validation_pass(self):
-        """최종 합격 퀘스트가 5개 이상일 때 정상적으로 response로 통과하는지 검증"""
+    def test_rejection_feedback_collection(self):
+        """Critic 반려 시 rejection_reasons_en 및 rejection_reasons_ko 수집 및 Planner 회귀 조건 검증"""
         mock_state: RecommendState = {
             "user_id": 1,
-            "interests": [],
-            "region_id": None,
-            "latitude": None,
-            "longitude": None,
+            "interests": ["ENVIRONMENT"],
+            "region_id": 1,
+            "latitude": 37.566,
+            "longitude": 126.978,
             "level": 1,
             "history_quests": [],
             "recent_recommendations": [],
-            "preferred_difficulty": "ANY",
+            "preferred_difficulty": "NORMAL",
             "request_message": None,
-            "user_profile": {},
-            "situation_context": {},
+            "user_profile": {"interests": ["ENVIRONMENT"]},
+            "situation_context": {"today_weather": "rainy", "is_outdoor_feasible": False},
             "request_context": {},
-            "recommendation_strategy": {},
-            "retrieved_volunteers": [{"title": "봉사1"}],
-            "candidate_quests": [
-                {"title": "퀘스트1"}, {"title": "퀘스트2"}, {"title": "퀘스트3"},
-                {"title": "퀘스트4"}, {"title": "퀘스트5"}
+            "recommendation_strategy": {"strategy": "Must be indoor", "llm_constraints": ["must be indoor"]},
+            "retrieved_volunteers": [
+                {
+                    "vol_name": "야외 플로깅",
+                    "vol_act": "야외 정화 활동",
+                    "vol_address": "서울시 마포구"
+                }
             ],
+            "ai_good_deeds": [
+                {
+                    "category_name": "ENVIRONMENT",
+                    "quest_title": "야외 쓰레기 줍기",
+                    "quest_description": "빗속 쓰레기 줍기",
+                    "quest_target": "SOLO",
+                    "quest_type": "GOOD_DEED",
+                    "location": None,
+                    "difficulty": "EASY",
+                    "estimated_duration": 15,
+                    "recommendation_reason": "야외 활동",
+                    "priority_score": 5
+                }
+            ],
+            "candidate_quests": [],
+            "accumulated_candidates": [],
+            "rejection_reasons_en": [],
+            "rejection_reasons_ko": [],
             "retry_count": 0,
             "recommended_quests": []
         }
-        
-        result = route_validation(mock_state)
-        self.assertEqual(result, "response")
 
-    def test_route_validation_max_retries(self):
-        """후보가 5개 미만이더라도 재시도가 3회 이상이면 response로 탈출하여 폴백하는지 검증"""
-        mock_state: RecommendState = {
-            "user_id": 1,
-            "interests": [],
-            "region_id": None,
-            "latitude": None,
-            "longitude": None,
-            "level": 1,
-            "history_quests": [],
-            "recent_recommendations": [],
-            "preferred_difficulty": "ANY",
-            "request_message": None,
-            "user_profile": {},
-            "situation_context": {},
-            "request_context": {},
-            "recommendation_strategy": {},
-            "retrieved_volunteers": [{"title": "봉사1"}],
-            "candidate_quests": [{"title": "퀘스트1"}],  # 1개뿐이지만
-            "retry_count": 3,  # 3회 초과
-            "recommended_quests": []
-        }
-        
-        result = route_validation(mock_state)
-        self.assertEqual(result, "response")
+        class DummyEvaluation:
+            def __init__(self, title, is_valid, reason, reason_ko):
+                self.quest_title = title
+                self.is_valid = is_valid
+                self.reason = reason
+                self.reason_ko = reason_ko
 
-    def test_route_validation_insufficient_search(self):
-        """후보가 부족한데 검색 결과조차 없으면 retrieval(검색 툴)로 돌아가는지 검증"""
-        mock_state: RecommendState = {
-            "user_id": 1,
-            "interests": [],
-            "region_id": None,
-            "latitude": None,
-            "longitude": None,
-            "level": 1,
-            "history_quests": [],
-            "recent_recommendations": [],
-            "preferred_difficulty": "ANY",
-            "request_message": None,
-            "user_profile": {},
-            "situation_context": {},
-            "request_context": {},
-            "recommendation_strategy": {},
-            "retrieved_volunteers": [],  # 검색 결과 없음
-            "candidate_quests": [{"title": "퀘스트1"}],
-            "retry_count": 0,
-            "recommended_quests": []
-        }
-        
-        result = route_validation(mock_state)
-        self.assertEqual(result, "retrieval")
+        class DummyReport:
+            evaluations = [
+                DummyEvaluation("야외 플로깅", False, "Violates indoor constraint", "실내 필수 제약조건 위반"),
+                DummyEvaluation("야외 쓰레기 줍기", False, "Violates indoor constraint", "실내 필수 제약조건 위반")
+            ]
 
-    def test_route_validation_low_quality(self):
-        """후보가 부족하고 검색 결과는 충분했으나 비평가 탈락인 경우 planner로 회귀하는지 검증"""
-        mock_state: RecommendState = {
-            "user_id": 1,
-            "interests": [],
-            "region_id": None,
-            "latitude": None,
-            "longitude": None,
-            "level": 1,
-            "history_quests": [],
-            "recent_recommendations": [],
-            "preferred_difficulty": "ANY",
-            "request_message": None,
-            "user_profile": {},
-            "situation_context": {},
-            "request_context": {},
-            "recommendation_strategy": {},
-            "retrieved_volunteers": [{"title": "봉사1"}, {"title": "봉사2"}],  # 검색 재료는 있음
-            "candidate_quests": [{"title": "퀘스트1"}],  # 비평에서 탈락하여 1개만 남음
-            "retry_count": 0,
-            "recommended_quests": []
-        }
-        
-        result = route_validation(mock_state)
-        self.assertEqual(result, "planner")
+        with patch("ai.app.quest_recommend.nodes.validation_agent.get_openai_model") as mock_get_openai:
+            mock_chain = unittest.mock.MagicMock()
+            mock_chain.invoke.return_value = DummyReport()
+            mock_get_openai.return_value.with_structured_output.return_value = mock_chain
+
+            result = validate_candidates(mock_state)
+
+        rejection_en = result.get("rejection_reasons_en", [])
+        rejection_ko = result.get("rejection_reasons_ko", [])
+        candidate_quests = result.get("candidate_quests", [])
+
+        # 검수 결과 반려 사유가 영문/한글 각자 정상 수집되었는지 확인
+        self.assertEqual(len(candidate_quests), 0)
+        self.assertEqual(len(rejection_en), 2)
+        self.assertEqual(len(rejection_ko), 2)
+        self.assertIn("Violates indoor constraint", rejection_en[0])
+        self.assertIn("실내 필수 제약조건 위반", rejection_ko[0])
+
+        # State에 수집된 데이터를 반영하여 라우터 분기 검증
+        mock_state["retrieved_volunteers"] = [{"vol_name": "봉사1"}]  # 검색된 봉사데이터 존재 조건
+        mock_state["candidate_quests"] = candidate_quests
+        mock_state["accumulated_candidates"] = []
+        mock_state["retry_count"] = 0
+
+        next_node = route_validation(mock_state)
+        self.assertEqual(next_node, "planner", "Critic 반려로 인해 5개 미만일 시 planner로 회귀해야 합니다.")
 
 if __name__ == "__main__":
     unittest.main()
