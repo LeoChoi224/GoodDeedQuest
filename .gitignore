@@ -174,3 +174,4 @@ npm-debug.*
 
 # Antigravity agent configurations and rules
 .agents/
+CLAUDE.local.md
