@@ -12,7 +12,7 @@ from langchain_core.exceptions import OutputParserException
 
 logger = logging.getLogger(__name__)
 
-class QuestCandidate(BaseModel):
+class GoodDeedCandidate(BaseModel):
     """최종 퀘스트 테이블 규격과 정합성이 완료된 개별 퀘스트 후보 스키마"""
     category_name: str = Field(
         ...,
@@ -65,9 +65,9 @@ class QuestCandidate(BaseModel):
         description="Priority score from 1 to 10 indicating suitability (10 is highest)."
     )
 
-class QuestCandidatesOutput(BaseModel):
+class GoodDeedCandidateOutput(BaseModel):
     """LLM이 최종 반환할 구조화된 후보군 목록 스키마"""
-    quests: List[QuestCandidate] = Field(
+    quests: List[GoodDeedCandidate] = Field(
     default_factory=list,
     # "정확히 6개의 AI 생성 일상 선행 퀘스트 후보 리스트."
     description="A list of exactly 6 AI-created daily good deeds."
@@ -151,7 +151,7 @@ Generate exactly 6 creative and actionable daily good deed (GOOD_DEED) quests ta
     try:
         # 1. 정상 연산: OpenAI 모델 호출
         llm = get_openai_model(model_name=model_name, temperature=0.7)  # 다양하고 참신한 선행 창작을 위해 온도=0.7
-        structured_llm = llm.with_structured_output(QuestCandidatesOutput)
+        structured_llm = llm.with_structured_output(GoodDeedCandidateOutput)
 
         recommendation_chain = recommendation_prompt | structured_llm
         response = recommendation_chain.invoke(input_data)
@@ -162,7 +162,7 @@ Generate exactly 6 creative and actionable daily good deed (GOOD_DEED) quests ta
         response = invoke_gemini_fallback(
             prompt=recommendation_prompt,
             input_data=input_data,
-            structured_schema=QuestCandidatesOutput,
+            structured_schema=GoodDeedCandidateOutput,
             temperature=0.7
         )
     except Exception as e:
