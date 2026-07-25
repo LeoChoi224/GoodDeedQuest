@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     DEFAULT_LLM_MODEL: str = "gpt-4o"
     DEFAULT_VISION_MODEL: str = "gemini-1.5-flash"
 
+    # Kakao
+    KAKAO_REST_API_KEY: SecretStr | None = None  # .env 파일에 적으세요
+
+
     # AWS S3
     AWS_REGION: str = "ap-northeast-2"
     AWS_ACCESS_KEY_ID: SecretStr # 위와같은 이유로 바꿈 .env 파일에 적으세요
