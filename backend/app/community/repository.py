@@ -22,23 +22,26 @@ from __future__ import annotations
 # 5. 트랜잭션 처리
 #    - Repository는 flush()까지만 수행.
 #    - commit()과 rollback()은 공통 get_db()에서 처리.
+#
+# 6. 개인화 추천 피드 (알고리즘)
+#    - 관심 없음으로 처리한 게시글은 추천 후보에서 제외.
+#    - Repository에서는 후보 데이터만 조회하고 추천 점수 계산과 정렬은 Service에서 처리.
 # =========================================================
 
-from datetime import datetime, timedelta
-
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import Select, exists, func, select
 from sqlalchemy.orm import Session
 
 from backend.app.auth.models import User
 from backend.app.admin.models import Report
-
 from backend.app.community.models import (
     Comment,
     CommunityPost,
     FeedHiddenPreference,
     PostLike,
 )
-
+from backend.app.map.models import Region
+from backend.app.quest.models import Category, Quest
 from backend.app.quest_verification.enums import SubmissionStatus
 from backend.app.quest_verification.models import QuestSubmission
 
@@ -74,7 +77,7 @@ class CommunityRepository:
         db: Session,
         *,
         user_id: int,
-        submission_id: int | None,
+        submission_id: int,
         media_url: str,
         caption: str | None,
     ) -> CommunityPost:
@@ -100,7 +103,8 @@ class CommunityRepository:
         post_id: int,
     ) -> CommunityPost | None:
 
-        # 관리자 승인으로 삭제된 게시글은 DB에 존재하지 않으므로 게시글 ID만으로 조회.
+        # 게시글 존재 여부와 활성 상태 확인을 분리하기 위해
+        # 게시글 ID만으로 조회하고 활성 여부는 Service에서 확인합니다.
         query: Select[tuple[CommunityPost]] = select(CommunityPost).where(
             CommunityPost.post_id == post_id,
         )
@@ -164,6 +168,8 @@ class CommunityRepository:
             )
             .where(
                 CommunityPost.is_active.is_(True),
+                CommunityPost.submission_id.is_not(None),
+                User.is_active.is_(True),
             )
             .order_by(
                 CommunityPost.created_at.desc(),
@@ -190,6 +196,159 @@ class CommunityRepository:
             # 조회 결과의 모든 행을 순회합니다.
             for row in result.all()
         ]
+
+
+    @staticmethod
+    # 개인화 피드 점수 계산에 사용할 추천 후보 게시글을 조회.
+    def list_personalized_feed_candidates(
+        db: Session,
+        *,
+        user_id: int,
+        candidate_limit: int = 200,
+    ) -> list[
+        tuple[
+            CommunityPost,
+            User,
+            int | None,
+            str | None,
+            int,
+            int,
+            bool,
+        ]
+    ]:
+
+        # 각 게시글의 좋아요 개수를 계산하는 연관 서브쿼리.
+        like_count_query = (
+            select(func.count(PostLike.user_id))
+            .where(
+                PostLike.post_id == CommunityPost.post_id,
+            )
+            .correlate(CommunityPost)
+            .scalar_subquery()
+        )
+
+        # 각 게시글의 댓글 개수를 계산하는 연관 서브쿼리.
+        comment_count_query = (
+            select(func.count(Comment.comment_id))
+            .where(
+                Comment.post_id == CommunityPost.post_id,
+            )
+            .correlate(CommunityPost)
+            .scalar_subquery()
+        )
+
+        # 현재 사용자가 해당 게시글에 좋아요를 눌렀는지 확인.
+        current_user_liked_query = exists(
+            select(1).where(
+                PostLike.post_id == CommunityPost.post_id,
+                PostLike.user_id == user_id,
+            )
+        )
+
+        # 현재 사용자가 관심 없음으로 처리한 게시글인지 확인.
+        hidden_post_query = exists(
+            select(1).where(
+                FeedHiddenPreference.post_id == CommunityPost.post_id,
+                FeedHiddenPreference.user_id == user_id,
+            )
+        )
+
+        # 추천 점수 계산에 필요한 후보 게시글 정보를 조회.
+        query = (
+            select(
+                CommunityPost,
+                User,
+                Category.category_id.label("quest_category_id"),
+                Quest.location.label("quest_location"),
+                like_count_query.label("like_count"),
+                comment_count_query.label("comment_count"),
+                current_user_liked_query.label("is_liked"),
+            )
+            # 게시글 작성자 정보를 조회.
+            .join(
+                User,
+                User.user_id == CommunityPost.user_id,
+            )
+            # 게시글과 연결된 승인 인증 정보를 조회합니다.
+            .join(
+                QuestSubmission,
+                QuestSubmission.submission_id
+                == CommunityPost.submission_id,
+            )
+
+            # 인증 내역과 연결된 퀘스트 정보를 조회합니다.
+            .join(
+                Quest,
+                Quest.quest_id == QuestSubmission.quest_id,
+            )
+
+            # 퀘스트 카테고리 정보를 조회합니다.
+            .join(
+                Category,
+                Category.category_id == Quest.category_id,
+            )
+            .where(
+                CommunityPost.is_active.is_(True),
+                CommunityPost.submission_id.is_not(None),
+                QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
+                User.is_active.is_(True),
+                ~hidden_post_query,
+            )
+            # 후보 제한 전 최신 게시글을 우선 조회.
+            .order_by(
+                CommunityPost.created_at.desc(),
+                CommunityPost.post_id.desc(),
+            )
+            # 전체 게시글을 무제한 조회하지 않도록 후보 수를 제한.
+            .limit(candidate_limit)
+        )
+
+        result = db.execute(query)
+
+        # SQLAlchemy Row 결과를 Service에서 사용하기 쉬운 튜플로 변환.
+        return [
+            (
+                # 커뮤니티 게시글 객체.
+                row[0],
+                # 게시글 작성자 객체.
+                row[1],
+                # 연결된 퀘스트의 카테고리 ID.
+                row[2],
+                # 연결된 퀘스트의 장소.
+                row[3],
+                # 게시글 좋아요 수.
+                int(row[4] or 0),
+                # 게시글 댓글 수.
+                int(row[5] or 0),
+                # 현재 사용자의 좋아요 여부.
+                bool(row[6]),
+            )
+            for row in result.all()
+        ]
+
+    @staticmethod
+    # 사용자의 region_id와 연결된 실제 지역명을 조회.
+    def get_region_name_by_id(
+        db: Session,
+        *,
+        region_id: int | None,
+    ) -> str | None:
+        """지역 ID로 Region의 지역명을 조회합니다."""
+
+        # 사용자가 지역을 선택하지 않은 경우 DB를 조회하지 않음.
+        if region_id is None:
+            return None
+
+        query = (
+            select(Region.region_name)
+            .where(
+                Region.region_id == region_id,
+            )
+        )
+
+        result = db.execute(query)
+
+        return result.scalar_one_or_none()
 
     @staticmethod
     # 현재 사용자의 특정 게시글 좋아요 기록을 조회.
@@ -424,6 +583,25 @@ class CommunityRepository:
 
         return hidden_preference
     
+
+    @staticmethod
+    def get_report_by_reporter_and_post(
+        db: Session,
+        *,
+        reporter_id: int,
+        post_id: int,
+    ) -> Report | None:
+        """사용자의 동일 게시글 신고 기록을 조회합니다."""
+
+        query: Select[tuple[Report]] = select(Report).where(
+            Report.reporter_id == reporter_id,
+            Report.post_id == post_id,
+        )
+
+        result = db.execute(query)
+
+        return result.scalar_one_or_none()
+
     @staticmethod
     # 사용자가 특정 커뮤니티 게시글을 신고한 기록을 생성.
     def create_report(
@@ -458,7 +636,10 @@ class CommunityRepository:
     ) -> list[QuestSubmission]:
         """최근 30일 내 승인된 퀘스트 인증 내역을 조회."""
 
-        submitted_after = datetime.now().astimezone() - timedelta(days=days)
+        submitted_after = (
+            datetime.now(timezone.utc)
+            - timedelta(days=days)
+        )
 
         # 사용자의 최근 승인된 퀘스트 인증 내역 조회 쿼리.
         query: Select[tuple[QuestSubmission]] = (

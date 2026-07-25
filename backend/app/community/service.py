@@ -9,12 +9,18 @@ from __future__ import annotations
 # 2. 게시글 수정·사용자 직접 삭제 기능은 이번 프로젝트 범위에서 구현하지 않습니다.
 # =========================================================
 
+from datetime import datetime, timezone
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.auth.models import User
 from backend.app.community.models import CommunityPost
 from backend.app.community.repository import CommunityRepository
+from backend.app.community.scoring import (
+    CommunityRecommendationScore,
+    calculate_community_recommendation_score,
+)
 from backend.app.community.schema import (
     CommunityAuthorResponse,
     CommunityCommentDetailResponse,
@@ -23,8 +29,69 @@ from backend.app.community.schema import (
     FeedHiddenPreferenceResponse,
     PostLikeToggleResponse,
     PostLikeUserResponse,
+    RecentQuestSubmissionResponse,
+    CommunityReportCreate,
+    CommunityReportResponse,
 )
 
+# 추천 점수가 계산된 게시글 후보를 Service 내부에서 관리.
+class _ScoredCommunityFeedCandidate:
+    """점수 계산이 완료된 커뮤니티 추천 후보."""
+    def __init__(
+        self,
+        *,
+        post: CommunityPost,
+        author: User,
+        like_count: int,
+        comment_count: int,
+        is_liked: bool,
+        recommendation_score: CommunityRecommendationScore,
+    ) -> None:
+        self.post = post
+        self.author = author
+        self.like_count = like_count
+        self.comment_count = comment_count
+        self.is_liked = is_liked
+        self.recommendation_score = recommendation_score
+
+# 게시글 생성 시각을 추천 정렬에 사용할 UTC timestamp로 변환.
+def _get_feed_sort_timestamp(created_at: datetime) -> float:
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    else:
+        created_at = created_at.astimezone(timezone.utc)
+
+    return created_at.timestamp()
+
+def get_recent_accepted_quest_submissions(
+    db: Session,
+    *,
+    current_user: User,
+    skip: int = 0,
+    limit: int = 20,
+) -> list[RecentQuestSubmissionResponse]:
+    """게시글 작성에 사용할 최근 승인 인증 내역을 반환합니다."""
+
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "비활성화된 사용자는 "
+                "퀘스트 인증 내역을 조회할 수 없습니다."
+            ),
+        )
+
+    submissions = CommunityRepository.list_recent_quest_submissions(
+        db=db,
+        user_id=current_user.user_id,
+        skip=skip,
+        limit=limit,
+    )
+
+    return [
+        RecentQuestSubmissionResponse.model_validate(submission)
+        for submission in submissions
+    ]
 
 # 커뮤니티 게시글 생성과 관련된 비즈니스 로직을 처리.
 def create_community_post(
@@ -41,22 +108,21 @@ def create_community_post(
             detail="비활성화된 사용자는 게시글을 작성할 수 없습니다.",
         )
 
-    # 요청에 퀘스트 인증 ID가 포함된 경우 해당 인증 내역을 검증.
-    if request.submission_id is not None:
-        submission = CommunityRepository.get_accepted_submission_by_id(
-            db=db,
-            submission_id=request.submission_id,
-            user_id=current_user.user_id,
-        )
+    # 현재 사용자의 승인된 퀘스트 인증 내역인지 확인합니다.
+    submission = CommunityRepository.get_accepted_submission_by_id(
+        db=db,
+        submission_id=request.submission_id,
+        user_id=current_user.user_id,
+    )
 
-        if submission is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "게시글에 연결할 수 있는 승인된 "
-                    "퀘스트 인증 내역이 없습니다."
-                ),
-            )
+    if submission is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "게시글에 연결할 수 있는 승인된 "
+                "퀘스트 인증 내역이 없습니다."
+            ),
+        )
 
     # 검증이 완료된 요청 데이터로 새 커뮤니티 게시글을 생성.
     post = CommunityRepository.create_post(
@@ -120,6 +186,46 @@ def _build_comment_response(
         author=_build_author_response(author),
     )
 
+# 게시글과 집계 데이터를 피드 화면 응답으로 변환.
+def _build_feed_item_response(
+    db: Session,
+    *,
+    post: CommunityPost,
+    author: User,
+    like_count: int,
+    comment_count: int,
+    is_liked: bool,
+) -> CommunityFeedItemResponse:
+    # Repository에서 최신 댓글부터 최대 미리보기 두 개를 조회.
+    preview_rows = CommunityRepository.list_comment_previews(
+        db=db,
+        post_id=post.post_id,
+        limit=2,
+    )
+
+    # 화면에서는 오래된 댓글부터 읽을 수 있도록 조회 결과를 뒤집음.
+    comment_previews = [
+        _build_comment_response(
+            comment=comment,
+            author=comment_author,
+        )
+        for comment, comment_author in reversed(preview_rows)
+    ]
+
+    return CommunityFeedItemResponse(
+        post_id=post.post_id,
+        submission_id=post.submission_id,
+        media_url=post.media_url,
+        caption=post.caption,
+        created_at=post.created_at,
+        updated_at=post.updated_at,
+        author=_build_author_response(author),
+        like_count=like_count,
+        comment_count=comment_count,
+        is_liked=is_liked,
+        comment_previews=comment_previews,
+    )
+
 def get_community_feed(
     db: Session,
     *,
@@ -127,8 +233,14 @@ def get_community_feed(
     skip: int = 0,
     limit: int = 20,
 ) -> list[CommunityFeedItemResponse]:
-    """최신순 기본 피드와 댓글 미리보기를 반환합니다."""
 
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="비활성화된 사용자는 커뮤니티 피드를 조회할 수 없습니다.",
+        )
+
+    """최신순 기본 피드와 댓글 미리보기를 반환합니다."""
     # 게시글과 작성자, 좋아요·댓글 집계 정보를 한 번에 조회.
     feed_rows = CommunityRepository.list_feed_posts(
         db=db,
@@ -137,43 +249,118 @@ def get_community_feed(
         limit=limit,
     )
 
-    feed_items: list[CommunityFeedItemResponse] = []
 
-    # 각 게시글을 피드 화면용 응답으로 변환.
-    for post, author, like_count, comment_count, is_liked in feed_rows:
-        # Repository는 최신 댓글부터 최대 두 개를 반환.
-        preview_rows = CommunityRepository.list_comment_previews(
+    # 각 게시글을 공통 피드 응답 변환 함수로 변환.
+    return [
+        _build_feed_item_response(
             db=db,
-            post_id=post.post_id,
-            limit=2,
+            post=post,
+            author=author,
+            like_count=like_count,
+            comment_count=comment_count,
+            is_liked=is_liked,
+        )
+        for post, author, like_count, comment_count, is_liked in feed_rows
+    ]
+
+# 현재 사용자의 관심 정보와 게시글 반응을 이용한 개인화 피드(알고리즘)를 반환.
+def get_personalized_community_feed(
+    db: Session,
+    *,
+    current_user: User,
+    skip: int = 0,
+    limit: int = 20,
+    candidate_limit: int = 200,
+) -> list[CommunityFeedItemResponse]:
+
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="비활성화된 사용자는 추천 피드를 조회할 수 없습니다.",
         )
 
-        # 화면에서는 오래된 댓글부터 자연스럽게 읽히도록 순서를 뒤집습니다.
-        comment_previews = [
-            _build_comment_response(
-                comment=comment,
-                author=comment_author,
-            )
-            for comment, comment_author in reversed(preview_rows)
-        ]
+    # 현재 사용자의 region_id를 이용해 추천 점수용 실제 지역명을 조회.
+    user_region_name = CommunityRepository.get_region_name_by_id(
+        db=db,
+        region_id=current_user.region_id,
+    )
 
-        feed_items.append(
-            CommunityFeedItemResponse(
-                post_id=post.post_id,
-                submission_id=post.submission_id,
-                media_url=post.media_url,
-                caption=post.caption,
-                created_at=post.created_at,
-                updated_at=post.updated_at,
-                author=_build_author_response(author),
+    # Repository에서 관심 없음 게시글이 제외된 추천 후보를 조회.
+    candidate_rows = CommunityRepository.list_personalized_feed_candidates(
+        db=db,
+        user_id=current_user.user_id,
+        candidate_limit=candidate_limit,
+    )
+
+    # 같은 요청 안에서 모든 게시글의 최신성 기준 시간을 동일하게 사용.
+    reference_time = datetime.now(timezone.utc)
+
+    scored_candidates: list[_ScoredCommunityFeedCandidate] = []
+
+    # 각 추천 후보에 카테고리·지역·최신성·반응도 점수를 계산.
+    for (
+        post,
+        author,
+        quest_category_id,
+        quest_location,
+        like_count,
+        comment_count,
+        is_liked,
+    ) in candidate_rows:
+        recommendation_score = calculate_community_recommendation_score(
+            # User.category의 JSON 카테고리 ID 목록을 전달.
+            user_category_ids=(
+                current_user.category
+                if isinstance(current_user.category, list)
+                else None
+            ),
+            user_region_name=user_region_name,
+            quest_category_id=quest_category_id,
+            quest_location=quest_location,
+            created_at=post.created_at,
+            like_count=like_count,
+            comment_count=comment_count,
+            reference_time=reference_time,
+        )
+
+        scored_candidates.append(
+            _ScoredCommunityFeedCandidate(
+                post=post,
+                author=author,
                 like_count=like_count,
                 comment_count=comment_count,
                 is_liked=is_liked,
-                comment_previews=comment_previews,
+                recommendation_score=recommendation_score,
             )
         )
 
-    return feed_items
+    # 최종 점수, 생성 시각, 게시글 ID를 모두 내림차순으로 정렬.
+    scored_candidates.sort(
+        key=lambda candidate: (
+            candidate.recommendation_score.final_score,
+            _get_feed_sort_timestamp(candidate.post.created_at),
+            candidate.post.post_id,
+        ),
+        reverse=True,
+    )
+
+    # 점수 정렬이 완료된 전체 후보에서 요청한 페이지 범위만 추출.
+    paginated_candidates = scored_candidates[
+        skip : skip + limit
+    ]
+
+    return [
+        _build_feed_item_response(
+            db=db,
+            post=candidate.post,
+            author=candidate.author,
+            like_count=candidate.like_count,
+            comment_count=candidate.comment_count,
+            is_liked=candidate.is_liked,
+        )
+        for candidate in paginated_candidates
+    ]
+
 
 def toggle_post_like(
     db: Session,
@@ -364,3 +551,52 @@ def hide_post_from_recommendation(
     return FeedHiddenPreferenceResponse.model_validate(
         hidden_preference
     )
+
+def create_community_report(
+    db: Session,
+    *,
+    post_id: int,
+    request: CommunityReportCreate,
+    current_user: User,
+) -> CommunityReportResponse:
+    """현재 사용자의 커뮤니티 게시글 신고를 접수합니다."""
+
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="비활성화된 사용자는 게시글을 신고할 수 없습니다.",
+        )
+
+    post = _get_active_community_post(
+        db=db,
+        post_id=post_id,
+    )
+
+    if post.user_id == current_user.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="본인이 작성한 게시글은 신고할 수 없습니다.",
+        )
+
+    existing_report = (
+        CommunityRepository.get_report_by_reporter_and_post(
+            db=db,
+            reporter_id=current_user.user_id,
+            post_id=post_id,
+        )
+    )
+
+    if existing_report is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 신고한 게시글입니다.",
+        )
+
+    report = CommunityRepository.create_report(
+        db=db,
+        reporter_id=current_user.user_id,
+        post_id=post_id,
+        reason=request.reason,
+    )
+
+    return CommunityReportResponse.model_validate(report)

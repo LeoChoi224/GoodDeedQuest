@@ -9,10 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class CommunityPostCreate(BaseModel):
     """커뮤니티 게시글 생성 요청."""
 
-    submission_id: int | None = Field(
-        default=None,
+    submission_id: int = Field(
+        ...,
         gt=0,
-        description="게시글과 연결할 퀘스트 인증 ID",
+        description="게시글과 연결할 승인된 퀘스트 인증 ID",
     )
 
     media_url: str = Field(
@@ -54,6 +54,16 @@ class CommunityPostCreate(BaseModel):
 
         return stripped_value
 
+class RecentQuestSubmissionResponse(BaseModel):
+    """커뮤니티 게시글 작성에 사용할 최근 승인 인증 응답."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    submission_id: int
+    quest_id: int
+    media_url: str | None
+    submitted_at: datetime
+
 
 class CommunityPostStatusUpdate(BaseModel):
     """관리자가 게시글 활성 상태를 변경할 때 사용하는 요청."""
@@ -72,7 +82,7 @@ class CommunityPostResponse(BaseModel):
 
     post_id: int
     user_id: int
-    submission_id: int | None
+    submission_id: int
     media_url: str
     caption: str | None
     is_active: bool
@@ -100,7 +110,7 @@ class CommunityFeedItemResponse(BaseModel):
     """기본 커뮤니티 피드 게시글 응답."""
 
     post_id: int
-    submission_id: int | None
+    submission_id: int
     media_url: str
     caption: str | None
     created_at: datetime
@@ -277,3 +287,36 @@ class UserActivityLogResponse(BaseModel):
     activity_id: int
     user_id: int
     access_date: date
+
+class CommunityReportCreate(BaseModel):
+    """커뮤니티 게시글 신고 요청."""
+
+    reason: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="게시글 신고 사유",
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason_not_blank(cls, value: str) -> str:
+        stripped_value = value.strip()
+
+        if not stripped_value:
+            raise ValueError("신고 사유는 공백일 수 없습니다.")
+
+        return stripped_value
+
+
+class CommunityReportResponse(BaseModel):
+    """커뮤니티 게시글 신고 접수 응답."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    report_id: int
+    reporter_id: int
+    post_id: int | None
+    reason: str
+    status: str
+    created_at: datetime
