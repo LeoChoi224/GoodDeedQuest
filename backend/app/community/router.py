@@ -14,6 +14,11 @@ from __future__ import annotations
 # 4. 현재 사용자 인증은 Auth의 get_current_db_user 의존성을 재사용.
 #
 # 5. 관심 없음 API는 게시글을 즉시 숨기지 않고 추천 알고리즘에서 사용할 기록만 생성.
+#
+# 6. 개인화 추천 피드
+#    - 사용자의 관심 카테고리·지역과 게시글 최신성·반응도를 기준으로 정렬.
+#    - 관심 없음으로 기록한 게시글은 추천 후보에서 제외.
+#    - 점수가 같으면 최신 게시글과 큰 post_id를 우선.
 # =========================================================
 
 from fastapi import APIRouter, Depends, Query, status
@@ -32,12 +37,45 @@ from backend.app.community.schema import (
     FeedHiddenPreferenceResponse,
     PostLikeToggleResponse,
     PostLikeUserResponse,
+    RecentQuestSubmissionResponse,
+    CommunityReportCreate,
+    CommunityReportResponse,
 )
 
 router = APIRouter(
     prefix="/community",
     tags=["Community"],
 )
+
+@router.get(
+    "/quest-submissions/recent",
+    response_model=list[RecentQuestSubmissionResponse],
+    status_code=status.HTTP_200_OK,
+    summary="최근 승인 퀘스트 인증 목록 조회",
+)
+def get_recent_accepted_quest_submissions(
+    skip: int = Query(
+        default=0,
+        ge=0,
+        description="건너뛸 인증 내역 수",
+    ),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="조회할 인증 내역 수",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> list[RecentQuestSubmissionResponse]:
+    """커뮤니티 게시글 작성에 사용할 승인 인증 내역을 반환합니다."""
+
+    return service.get_recent_accepted_quest_submissions(
+        db=db,
+        current_user=current_user,
+        skip=skip,
+        limit=limit,
+    )
 
 # 로그인한 사용자가 새 커뮤니티 게시글을 생성하는 API.
 @router.post(
@@ -89,6 +127,38 @@ def get_community_feed(
     """활성 게시글을 최신순으로 조회합니다."""
 
     return service.get_community_feed(
+        db=db,
+        current_user=current_user,
+        skip=skip,
+        limit=limit,
+    )
+
+
+# 로그인한 사용자의 관심 정보와 게시글 반응을 반영한 추천 피드를 반환.
+@router.get(
+    "/posts/recommended",
+    response_model=list[CommunityFeedItemResponse],
+    status_code=status.HTTP_200_OK,
+    summary="커뮤니티 개인화 추천 피드 조회",
+)
+def get_personalized_community_feed(
+    skip: int = Query(
+        default=0,
+        ge=0,
+        description="건너뛸 추천 게시글 수",
+    ),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="조회할 추천 게시글 수",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> list[CommunityFeedItemResponse]:
+    """현재 사용자의 관심 정보가 반영된 추천 피드를 반환합니다."""
+
+    return service.get_personalized_community_feed(
         db=db,
         current_user=current_user,
         skip=skip,
@@ -209,5 +279,26 @@ def hide_post_from_recommendation(
     return service.hide_post_from_recommendation(
         db=db,
         post_id=post_id,
+        current_user=current_user,
+    )
+
+@router.post(
+    "/posts/{post_id}/reports",
+    response_model=CommunityReportResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="커뮤니티 게시글 신고",
+)
+def create_community_report(
+    post_id: int,
+    request: CommunityReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> CommunityReportResponse:
+    """커뮤니티 게시글 신고를 접수합니다."""
+
+    return service.create_community_report(
+        db=db,
+        post_id=post_id,
+        request=request,
         current_user=current_user,
     )
