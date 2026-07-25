@@ -1,6 +1,6 @@
 import unittest
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.agents.user_profile_agent import analyze_user_profile
+from ai.app.quest_recommend.nodes.user_profile_agent import analyze_user_profile
 
 
 class TestUserProfileAgent(unittest.TestCase):

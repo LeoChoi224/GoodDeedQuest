@@ -1,6 +1,6 @@
 import unittest
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.agents.response_agent import format_response
+from ai.app.quest_recommend.nodes.response_agent import format_response
 
 class TestResponseAgent(unittest.TestCase):
     def test_format_response_sorting_and_slicing(self):
