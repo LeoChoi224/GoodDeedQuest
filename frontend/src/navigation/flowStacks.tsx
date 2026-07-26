@@ -10,6 +10,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import QuestHome from '../screens/quest/HomeScreen';
 import QuestDetailScreen from '../screens/quest/QuestDetailScreen';
 import QuestVerifyScreen from '../screens/quest/QuestVerifyScreen';
+import QuestChallengeScreen from '../screens/quest/QuestChallengeScreen';
 import QuestCompleteScreen from '../screens/quest/QuestCompleteScreen';
 import QuestRegisterScreen from '../screens/quest/QuestRegisterScreen';
 import AiRecommendScreen from '../screens/quest/AiRecommendScreen';
@@ -57,6 +58,7 @@ export function HomeStack() {
       <S.Screen name="QuestHome" component={QuestHome} />
       <S.Screen name="QuestDetail" component={QuestDetailScreen} />
       <S.Screen name="QuestVerify" component={QuestVerifyScreen} options={{ presentation: 'transparentModal', animation: 'fade' }} />
+      <S.Screen name="QuestChallenge" component={QuestChallengeScreen} />
       <S.Screen name="QuestComplete" component={QuestCompleteScreen} options={{ animation: 'fade' }} />
       <S.Screen name="QuestRegister" component={QuestRegisterScreen} />
       <S.Screen name="AiRecommend" component={AiRecommendScreen} />

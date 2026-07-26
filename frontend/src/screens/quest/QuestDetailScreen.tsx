@@ -23,6 +23,8 @@ const DEFAULT_DESC =
 export default function QuestDetailScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
   const p = route?.params ?? {};
+  const questId = p.questId;
+  const questType = p.questType ?? 'GOOD_DEED';
   const title = p.title ?? '공원 플로깅';
   const category = p.category ?? 'environment';
   const desc = p.desc ?? DEFAULT_DESC;
@@ -78,7 +80,10 @@ export default function QuestDetailScreen({ navigation, route }: any) {
         style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}
       >
         {active ? (
-          <SpringButton onPress={() => navigation.navigate('QuestVerify', { title })} style={styles.ctaWrap}>
+          <SpringButton
+            onPress={() => navigation.navigate('QuestVerify', { questId, questType, title, exp, point })}
+            style={styles.ctaWrap}
+          >
             <LinearGradient colors={['#0A4F55', colors.primaryDark]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.ctaGrad}>
               <CameraIcon />
               <Text style={styles.ctaText}>퀘스트 인증</Text>

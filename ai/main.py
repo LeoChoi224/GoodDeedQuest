@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from ai.app.quest_recommend.router import router as quest_recommend_router
 from ai.app.challenge_recommend.router import router as challenge_recommend_router
+from ai.app.quest_verification.router import router as quest_verification_router
 
 app = FastAPI(
     title="Good Deed Quest AI Model Server",
@@ -17,6 +18,8 @@ app = FastAPI(
 app.include_router(challenge_recommend_router)
 # 퀘스트 추천 API (모듈화된 라우터 등록)
 app.include_router(quest_recommend_router)
+# 퀘스트 인증 API (Vision 판정 + 랜덤 챌린지)
+app.include_router(quest_verification_router)
 
 @app.get("/")
 def home():

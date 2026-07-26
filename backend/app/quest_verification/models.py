@@ -43,6 +43,10 @@ class QuestSubmission(Base):
     ai_verdict: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)         # Gemini Vision 판단
     ai_generated_suspicion: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
+    # 랜덤 챌린지 — 의심스러울 때 발급하는 4자리 코드와, 사용자가 올린 응답 사진
+    challenge_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    challenge_media_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     # [enum] 인증 결과 (AI/서버가 정함). 제출 직후 기본값 PENDING
     final_status: Mapped[SubmissionStatus] = mapped_column(
         SqlEnum(SubmissionStatus, validate_strings=True), nullable=False,  # validate_strings -> 파인썬 단위에서 enum 검사 혹시 ai 가 이상한 난이도 배출했을 때 방지
