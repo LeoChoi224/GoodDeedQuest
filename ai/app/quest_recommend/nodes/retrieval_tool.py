@@ -12,6 +12,7 @@ def retrieve_volunteers(state: RecommendState) -> Dict[str, Any]:
     벡터 DB에서 하이브리드 검색을 수행하여 연관 봉사활동(retrieved_volunteers)을 수집하는 노드 함수입니다.
     """
     recommendation_strategy = state.get("recommendation_strategy")
+    user_profile = state.get("user_profile", {})
     search_query = recommendation_strategy["search_query"]
 
     # 쿼리가 비어 있는 경우 기본 검색어인 "volunteer"(봉사활동)로 대치하여 검색 오류 방어
@@ -27,8 +28,17 @@ def retrieve_volunteers(state: RecommendState) -> Dict[str, Any]:
         dummy_docs = get_dummy_volunteer_data()
         adapter.add_documents(dummy_docs)
 
-    # 하이브리드 검색 (Top 5 추출)
+    # 1. 하이브리드 검색 (Top 5 추출)
     logger.info(f"검색 쿼리 '{search_query}'로 벡터 DB 하이브리드 검색을 수행합니다.")
     results = adapter.hybrid_search(query=search_query, top_k=5)
+
+    # 2. 1차 수색 결과가 0개일 경우, 검색 키워드를 단순화하여 2차 재수색 (Fall-back Broad Search)
+    if not results or len(results) == 0:
+        interests = user_profile.get("interests", [])
+        fallback_query = interests[0] if interests else "봉사"
+        logger.warning(f"1차 봉사 수색 결과 0개 감지. 키워드 단순화 2차 수색 가동: '{fallback_query}'")
+        results = adapter.hybrid_search(query=fallback_query, top_k=5)
+        
+    logger.info(f"봉사 데이터 수색 최종 완료. 수집 개수: {len(results)}개")
     
     return {"retrieved_volunteers": results}
