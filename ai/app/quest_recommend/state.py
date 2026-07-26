@@ -11,6 +11,7 @@ class RecommendState(TypedDict):
     latitude: Optional[float]
     longitude: Optional[float]
     level: int
+
     history_quests: List[str]
     recent_recommendations: List[str]
     preferred_difficulty: str
@@ -19,11 +20,15 @@ class RecommendState(TypedDict):
     user_profile: Dict[str, Any]
     situation_context: Dict[str, Any]
     request_context: Dict[str, Any]
-
     recommendation_strategy: Dict[str, Any]
+
     retrieved_volunteers: List[Dict[str, Any]]
+    ai_good_deeds: List[Dict[str, Any]]
     candidate_quests: List[Dict[str, Any]]
+    accumulated_candidates: List[Dict[str, Any]]
+
+    rejection_reasons_en: List[str]
+    rejection_reasons_ko: List[str]
 
     retry_count: int
-    accumulated_candidates: List[Dict[str, Any]]
     recommended_quests: List[Dict[str, Any]]
