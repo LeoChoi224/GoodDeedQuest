@@ -1,66 +1,117 @@
-/**
- * SCREEN 1 · 팀챌린지 팝업 (route: TeamHome — team stack root, reached from drawer).
- * 커뮤니티 피드 위에 뜬 중앙 소개 카드(dim 없음). MainHeader = 뒤로가기 없음 + 햄버거.
- * "방 찾기" → RoomFind · "방 만들기" → TeamList. 카드 스프링 팝인.
- */
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import Animated, { ZoomIn } from 'react-native-reanimated';
+import { useFocusEffect } from '@react-navigation/native';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
-import { colors } from '../../theme';
-import { PopupTealBtn, PopupGoldBtn, PixelTitle } from './_parts';
+import SpringButton from '../../components/SpringButton';
+import EmptyState from '../../components/EmptyState';
+import { useToast } from '../../components/Toast';
+import { colors, fonts } from '../../theme';
+import {
+  getChallengeErrorMessage,
+  getMyInvites,
+  respondTeamInvite,
+  TeamInvite,
+} from '../../api/challenge';
+import { PopupGoldBtn, PopupTealBtn, PixelTitle } from './_parts';
 
 export default function TeamHomeScreen({ navigation }: any) {
-  // 팀 챌린지 하위(방 찾기/방 만들기)로 이동. 드로어(TeamStack)·커뮤니티(CommunityStack)
-  // 어느 진입점에서든 해결되도록 드로어의 TeamChallenge 플로우를 지정한다.
+  const toast = useToast();
+  const [invites, setInvites] = useState<TeamInvite[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [processingId, setProcessingId] = useState<number | null>(null);
+
   const goTeam = (screen: string) => navigation.navigate('TeamChallenge', { screen });
+
+  const loadInvites = useCallback(async () => {
+    setLoading(true);
+    try {
+      setInvites(await getMyInvites());
+    } catch {
+      setInvites([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { void loadInvites(); }, [loadInvites]));
+
+  const respond = async (inviteId: number, status: 'ACCEPTED' | 'REJECTED') => {
+    setProcessingId(inviteId);
+    try {
+      await respondTeamInvite(inviteId, status);
+      toast.show(status === 'ACCEPTED' ? '팀 초대를 수락했습니다' : '팀 초대를 거절했습니다');
+      await loadInvites();
+    } catch (error) {
+      toast.show(getChallengeErrorMessage(error));
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      {/* 커뮤니티에서 진입하면 뒤로가기(→Feed), 드로어 루트에선 햄버거만 */}
       <MainHeader showBack={navigation.canGoBack()} />
-
-      {/* faded community feed behind the intro card (placeholder, opacity .5) */}
-      <View style={styles.feed} pointerEvents="none">
-        <View style={[styles.feedCard, { height: 120 }]} />
-        <View style={[styles.feedCard, { height: 200 }]} />
-      </View>
-
-      {/* centered intro card — no dim backdrop */}
-      <View style={styles.center} pointerEvents="box-none">
-        <Animated.View entering={ZoomIn.duration(220)} style={styles.panelWrap}>
-          <View style={styles.panel}>
-            <PixelTitle size={18} color={colors.primaryDark} style={styles.title}>
-              새로운 팀을 찾습니다.
-            </PixelTitle>
-            <View style={styles.btnRow}>
-              <PopupTealBtn label="방 찾기" onPress={() => goTeam('RoomFind')} />
-              <PopupGoldBtn label="방 만들기" onPress={() => goTeam('TeamList')} />
-            </View>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <PixelTitle size={24} style={styles.title}>함께하면 더 큰 선행!</PixelTitle>
+          <Text style={styles.sub}>챌린지 팀을 찾거나 직접 만들어보세요.</Text>
+          <View style={styles.buttons}>
+            <PopupTealBtn label="방 찾기" onPress={() => goTeam('RoomFind')} />
+            <PopupGoldBtn label="방 만들기" onPress={() => goTeam('TeamList')} />
           </View>
-        </Animated.View>
-      </View>
+        </View>
+
+        <View style={styles.inviteSection}>
+          <PixelTitle size={17} style={{ marginBottom: 10 }}>받은 팀 초대</PixelTitle>
+          {loading ? (
+            <Text style={styles.muted}>초대 목록을 불러오는 중...</Text>
+          ) : invites.length === 0 ? (
+            <EmptyState icon="✉️" message="대기 중인 팀 초대가 없어요" />
+          ) : invites.map((invite) => (
+            <View key={invite.invite_id} style={styles.inviteCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inviteTitle}>팀 #{invite.team_id} 초대</Text>
+                <Text style={styles.muted}>초대 번호 #{invite.invite_id}</Text>
+              </View>
+              <SpringButton
+                disabled={processingId === invite.invite_id}
+                style={[styles.smallBtn, styles.accept]}
+                onPress={() => void respond(invite.invite_id, 'ACCEPTED')}
+              >
+                <Text style={styles.smallText}>수락</Text>
+              </SpringButton>
+              <SpringButton
+                disabled={processingId === invite.invite_id}
+                style={[styles.smallBtn, styles.reject]}
+                onPress={() => void respond(invite.invite_id, 'REJECTED')}
+              >
+                <Text style={[styles.smallText, { color: colors.primaryDark }]}>거절</Text>
+              </SpringButton>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.screenBg },
-  feed: { paddingHorizontal: 16, paddingTop: 14, opacity: 0.5 },
-  feedCard: { backgroundColor: colors.white, borderRadius: 12, marginBottom: 10 },
-  center: { ...StyleSheet.absoluteFillObject, alignItems: 'stretch', justifyContent: 'center', paddingHorizontal: 20 },
-  panelWrap: { marginTop: -40 },
-  panel: {
-    backgroundColor: colors.parchment,
-    borderWidth: 1.5,
-    borderColor: colors.pixelBorder,
-    borderRadius: 16,
-    paddingHorizontal: 22,
-    paddingVertical: 24,
-  },
-  title: { textAlign: 'center', marginBottom: 20 },
-  btnRow: { flexDirection: 'row', gap: 10 },
+  body: { padding: 20, paddingBottom: 48 },
+  hero: { marginTop: 32, alignItems: 'center' },
+  title: { textAlign: 'center' },
+  sub: { marginTop: 10, color: colors.textMuted, fontFamily: fonts.bodyR, textAlign: 'center' },
+  buttons: { width: '100%', flexDirection: 'row', gap: 10, marginTop: 28 },
+  inviteSection: { marginTop: 42 },
+  inviteCard: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, marginBottom: 8, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 12 },
+  inviteTitle: { fontFamily: fonts.bodyM, color: colors.primaryDark },
+  muted: { color: colors.textMuted, fontFamily: fonts.bodyR, fontSize: 12 },
+  smallBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  accept: { backgroundColor: colors.xpGreen },
+  reject: { backgroundColor: colors.screenBg, borderWidth: 1, borderColor: colors.pixelBorder },
+  smallText: { color: colors.white, fontFamily: fonts.pixel, fontSize: 12 },
 });
