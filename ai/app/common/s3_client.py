@@ -39,3 +39,19 @@ def download_file_from_s3(s3_key: str, local_path: str) -> None:
     except Exception:
         logger.exception(f"[S3Client] 다운로드 실패: s3_key={s3_key}")
         raise
+
+
+def upload_file_to_s3(local_path: str, s3_key: str) -> None:
+    """
+    로컬 파일을 S3에 업로드한다. (Render Agent의 최종 영상 업로드용)
+
+    Args:
+        local_path: 업로드할 로컬 파일 경로
+        s3_key: 업로드될 S3 객체 키
+    """
+    try:
+        _s3_client.upload_file(local_path, settings.S3_BUCKET_NAME, s3_key)
+        logger.info(f"[S3Client] 업로드 성공: local_path={local_path} -> s3_key={s3_key}")
+    except Exception:
+        logger.exception(f"[S3Client] 업로드 실패: local_path={local_path} -> s3_key={s3_key}")
+        raise
