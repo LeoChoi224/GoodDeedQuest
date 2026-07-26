@@ -1,11 +1,11 @@
 import unittest
 from unittest.mock import patch
 from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.nodes.quest_recommendation_agent import recommend_quests
+from ai.app.quest_recommend.nodes.good_deed_agent import create_good_deeds
 
 class TestQuestRecommendationAgent(unittest.TestCase):
-    def test_recommend_quests_normal(self):
-        """정상 조건 하에서 6~7개의 맞춤형 봉사/선행 후보군 조립 및 사유/점수/영문카테고리 검증"""
+    def test_create_good_deeds_normal(self):
+        """정상 조건 하에서 6개의 순수 AI 일상 선행(GOOD_DEED) 창작 및 스키마/점수/카테고리 검증"""
         mock_state: RecommendState = {
             "user_id": 1,
             "interests": ["ENVIRONMENT", "ANIMAL"],
@@ -36,51 +36,65 @@ class TestQuestRecommendationAgent(unittest.TestCase):
                 "search_query": "environmental cleanup and animal care",
                 "llm_constraints": ["allow outdoor tasks"]
             },
-            "retrieved_volunteers": [
-                {
-                    "id": 1001,
-                    "title": "한강 시민공원 망원지구 쓰레기 줍기 플로깅",
-                    "content": "한강 일대 방치된 쓰레기를 수거하고 환경 정화 활동을 펼칩니다.",
-                    "category": "ENVIRONMENT",
-                    "location": "서울시 마포구",
-                    "url": "https://www.1365.go.kr/nanum/prg/egvh/vnt/vntProgCode=1001",
-                    "is_volunteer": True
-                }
-            ],
+            "retrieved_volunteers": [],
+            "ai_good_deeds": [],
             "candidate_quests": [],
+            "accumulated_candidates": [],
+            "rejection_reasons_en": [],
+            "rejection_reasons_ko": [],
             "retry_count": 0,
             "recommended_quests": []
         }
         
-        result = recommend_quests(mock_state)
-        candidates = result.get("candidate_quests")
+        result = create_good_deeds(mock_state)
+        ai_good_deeds = result.get("ai_good_deeds")
         
-        self.assertIsNotNone(candidates)
-        self.assertIsInstance(candidates, list)
-        self.assertTrue(6 <= len(candidates) <= 7, f"Expected 6-7 candidates, got {len(candidates)}")
+        self.assertIsNotNone(ai_good_deeds)
+        self.assertIsInstance(ai_good_deeds, list)
         
-        for q in candidates:
-            self.assertIn("category_name", q)
-            self.assertIn(q["category_name"], ["VOLUNTEER", "ENVIRONMENT", "SHARING", "ANIMAL", "COMMUNITY", "OTHER"])
-            self.assertIn("quest_title", q)
-            self.assertIn("quest_description", q)
-            self.assertIn("quest_target", q)
-            self.assertIn("quest_type", q)
-            self.assertIn("recommendation_reason", q)
-            self.assertIn("priority_score", q)
-            self.assertIsInstance(q["priority_score"], int)
-            self.assertTrue(1 <= q["priority_score"] <= 10)
-            self.assertIn(q["quest_type"], ["VOLUNTEER", "GOOD_DEED"])
-            self.assertIn(q["difficulty"], ["VERY_EASY", "EASY", "NORMAL", "HARD", "VERY_HARD"])
-            self.assertIsInstance(q["estimated_duration"], int)
+        if ai_good_deeds:
+            self.assertEqual(len(ai_good_deeds), 6, f"Expected exactly 6 AI good deeds, got {len(ai_good_deeds)}")
             
-            if q["quest_type"] == "GOOD_DEED":
+            for q in ai_good_deeds:
+                self.assertIn("category_name", q)
+                self.assertIn(q["category_name"], ["ENVIRONMENT", "SHARING", "ANIMAL", "COMMUNITY", "OTHER"])
+                self.assertIn("quest_title", q)
+                self.assertIn("quest_description", q)
+                self.assertIn("quest_target", q)
+                self.assertEqual(q["quest_type"], "GOOD_DEED")
                 self.assertIsNone(q["location"])
-                
-    @patch("ai.app.quest_recommend.quest_recommendation_agent.get_openai_model")
-    def test_recommend_quests_fallback(self, mock_get_openai):
-        """API 장애를 모의(Mocking)하여 영문 카테고리가 세팅된 Fallback 리스트를 반환하는지 검증"""
+                self.assertIn("recommendation_reason", q)
+                self.assertIn("priority_score", q)
+                self.assertIsInstance(q["priority_score"], int)
+                self.assertTrue(1 <= q["priority_score"] <= 10)
+                self.assertIn(q["difficulty"], ["VERY_EASY", "EASY", "NORMAL", "HARD", "VERY_HARD"])
+                self.assertIsInstance(q["estimated_duration"], int)
+
+    @patch("ai.app.quest_recommend.nodes.good_deed_agent.get_openai_model")
+    @patch("ai.app.quest_recommend.nodes.good_deed_agent.invoke_gemini_fallback")
+    def test_create_good_deeds_fallback_to_gemini(self, mock_gemini_fallback, mock_get_openai):
+        """OpenAI API 예외 발생 시 무소음 Gemini 백업 모델이 가동되어 6개 후보를 반환하는지 검증"""
         mock_get_openai.side_effect = Exception("OpenAI API Connection Timeout")
+        
+        class DummyOutput:
+            quests = [
+                type("Quest", (), {
+                    "model_dump": lambda self: {
+                        "category_name": "ENVIRONMENT",
+                        "quest_title": "Gemini 텀블러 사용하기",
+                        "quest_description": "일회용 컵 대신 개인 텀블러를 사용하여 환경 보호 실천하기",
+                        "quest_target": "SOLO",
+                        "quest_type": "GOOD_DEED",
+                        "location": None,
+                        "difficulty": "EASY",
+                        "estimated_duration": 15,
+                        "recommendation_reason": "Gemini 백업 모델 추천 사유",
+                        "priority_score": 9
+                    }
+                })() for _ in range(6)
+            ]
+
+        mock_gemini_fallback.return_value = DummyOutput()
 
         mock_state: RecommendState = {
             "user_id": 2,
@@ -93,30 +107,27 @@ class TestQuestRecommendationAgent(unittest.TestCase):
             "recent_recommendations": [],
             "preferred_difficulty": "NORMAL",
             "request_message": None,
-            "user_profile": {
-                "interests": ["ENVIRONMENT"],
-                "target_difficulty": "NORMAL",
-                "exclusions": [],
-                "completed_history": []
-            },
+            "user_profile": {"interests": ["ENVIRONMENT"], "target_difficulty": "NORMAL", "exclusions": [], "completed_history": []},
             "situation_context": {},
             "request_context": {},
             "recommendation_strategy": {},
             "retrieved_volunteers": [],
+            "ai_good_deeds": [],
             "candidate_quests": [],
+            "accumulated_candidates": [],
+            "rejection_reasons_en": [],
+            "rejection_reasons_ko": [],
             "retry_count": 0,
             "recommended_quests": []
         }
         
-        result = recommend_quests(mock_state)
-        candidates = result.get("candidate_quests")
+        result = create_good_deeds(mock_state)
+        ai_good_deeds = result.get("ai_good_deeds")
         
-        self.assertIsNotNone(candidates)
-        self.assertTrue(len(candidates) > 0)
-        self.assertEqual(candidates[0]["quest_title"], "텀블러 사용하기")
-        self.assertEqual(candidates[0]["category_name"], "ENVIRONMENT")
-        self.assertIn("recommendation_reason", candidates[0])
-        self.assertEqual(candidates[0]["priority_score"], 9)
+        self.assertIsNotNone(ai_good_deeds)
+        self.assertEqual(len(ai_good_deeds), 6)
+        self.assertEqual(ai_good_deeds[0]["quest_title"], "Gemini 텀블러 사용하기")
+        mock_gemini_fallback.assert_called_once()
 
 if __name__ == "__main__":
     unittest.main()
