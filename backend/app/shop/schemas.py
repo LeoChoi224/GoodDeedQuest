@@ -37,4 +37,9 @@ class PurchaseResponse(BaseModel):
     purchased_at: datetime
     item: ItemResponse
 
-    
+class PurchaseHistoryListResponse(BaseModel):
+    """사용자 구매 내역 목록 조회 응답 DTO"""
+    purchases: List[PurchaseResponse]
+    total_count: int
+
+
