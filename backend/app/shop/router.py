@@ -11,7 +11,12 @@ from backend.app.common.response import APIResponse
 from backend.app.shop.models import Item
 from backend.app.shop.schemas import ItemResponse, PurchaseCreate, PurchaseResponse
 from backend.app.shop.seed import seed_shop_items
-from backend.app.shop.service import get_active_items, get_item_by_id, execute_purchase
+from backend.app.shop.service import (
+    get_active_items,
+    get_item_by_id,
+    execute_purchase,
+    get_user_purchases,
+)
 
 router = APIRouter(prefix="/shop", tags=["Shop"])
 
@@ -30,6 +35,22 @@ def get_shop_items(
     seed_shop_items(item_repo)
     items = get_active_items(item_repo)
     return APIResponse.ok(data=items, message="상점 상품 목록 조회 성공")
+
+
+@router.get(
+    "/purchases",
+    response_model=APIResponse[List[PurchaseResponse]],
+    status_code=status.HTTP_200_OK,
+    summary="사용자 구매 내역 조회",
+    description="현재 로그인한 사용자가 구매 완료한 아이템 이력 목록을 최신순으로 조회합니다.",
+)
+def get_my_purchases(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.get("id") or current_user.get("user_id")
+    purchases = get_user_purchases(db, user_id=user_id)
+    return APIResponse.ok(data=purchases, message="사용자 구매 내역 조회 성공")
 
 
 @router.get(
