@@ -14,6 +14,9 @@ from ..state import ShortFormState
 # #91에서 값 확정 완료 (씬 1개당 자막 전체 글자수 기준, 변경 없음 - VALIDATION_CRITERIA.md 참고)
 MAX_CAPTION_LENGTH = 60
 
+# #92: 부적절 표현 필터링 - 키워드 기반, 최소 세트로 시작 (VALIDATION_CRITERIA.md 참고)
+FORBIDDEN_WORDS = ["씨발", "개새끼", "병신", "지랄", "좆"]
+
 
 def validation_agent(state: ShortFormState) -> ShortFormState:
     errors: list[str] = []
@@ -23,6 +26,10 @@ def validation_agent(state: ShortFormState) -> ShortFormState:
             errors.append(
                 f"씬 {idx + 1}: 자막 길이 초과 ({len(caption)}자 / 최대 {MAX_CAPTION_LENGTH}자): {caption[:20]}..."
             )
+
+    for idx, caption in enumerate(state["generated_captions"]):
+        if any(word in caption for word in FORBIDDEN_WORDS):
+            errors.append(f"씬 {idx + 1}: 부적절한 표현이 포함되어 있습니다.")
 
     if not state.get("bgm_match") or not state["bgm_match"].get("bgm_id"):
         errors.append("BGM 매칭 결과 없음 (bgm_id 누락)")
