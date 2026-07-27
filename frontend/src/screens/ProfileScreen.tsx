@@ -22,6 +22,7 @@ import { useSignup } from '../context/SignupContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useToast } from '../components/Toast';
 import { register } from '../api/auth';
+import { Modal } from 'react-native';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
 
@@ -121,21 +122,15 @@ export default function ProfileScreen({ navigation }: Props) {
               rightAccessory={<CalIcon />}
             />
           </Pressable>
-          {showDatePicker && (
+          {Platform.OS === 'android' && showDatePicker && (
             <DateTimePicker
               value={s.birthday ?? new Date(2000, 0, 1)}
               mode="date"
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              display="default"
               maximumDate={new Date()}
               onChange={onChangeBirthday}
             />
           )}
-          {Platform.OS === 'ios' && showDatePicker && (
-            <SpringButton style={styles.dateDoneBtn} onPress={() => setShowDatePicker(false)}>
-              <Text style={styles.dateDoneText}>완료</Text>
-            </SpringButton>
-          )}
-
           {/* categories */}
           <Text style={styles.section}>선호 카테고리</Text>
           <View style={styles.grid}>
@@ -173,6 +168,21 @@ export default function ProfileScreen({ navigation }: Props) {
             })}
           </View>
         </ScrollView>
+              <Modal visible={Platform.OS === 'ios' && showDatePicker} transparent animationType="slide">
+        <Pressable style={styles.dateBackdrop} onPress={() => setShowDatePicker(false)} />
+        <View style={styles.dateSheet}>
+          <DateTimePicker
+            value={s.birthday ?? new Date(2000, 0, 1)}
+            mode="date"
+            display="spinner"
+            maximumDate={new Date()}
+            onChange={onChangeBirthday}
+          />
+          <SpringButton style={styles.dateDoneBtn} onPress={() => setShowDatePicker(false)}>
+            <Text style={styles.dateDoneText}>완료</Text>
+          </SpringButton>
+        </View>
+      </Modal>
       </KeyboardAvoidingView>
 
       <LinearGradient
@@ -199,6 +209,8 @@ const styles = StyleSheet.create({
   dupBtn: { width: 80, height: 50, borderRadius: radii.input, backgroundColor: colors.primaryDark, alignItems: 'center', justifyContent: 'center' },
   dupText: { color: colors.white, fontSize: 13, fontWeight: '600', fontFamily: fonts.bodyM },
   fieldMsg: { marginTop: 8, marginLeft: 2, fontSize: 12, fontWeight: '600', fontFamily: fonts.bodyM },
+  dateBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  dateSheet: { backgroundColor: colors.white, paddingBottom: 24, paddingHorizontal: 20 },
   dateDoneBtn: { alignSelf: 'flex-end', marginTop: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: radii.input, backgroundColor: colors.primaryDark },
   dateDoneText: { color: colors.white, fontSize: 13, fontWeight: '600', fontFamily: fonts.bodyM },
   section: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, marginTop: 22, marginBottom: 12, fontFamily: fonts.bodyB },

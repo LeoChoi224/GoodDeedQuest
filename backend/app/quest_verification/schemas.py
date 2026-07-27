@@ -19,4 +19,11 @@ class SubmitResponse(BaseModel):
   reason: str
   xp_gained: int = 0
   points_gained: int = 0
-  
+  # 랜덤 챌린지 — 진위가 의심스러울 때만 채워진다
+  challenge_required: bool = False
+  challenge_code: Optional[str] = None
+  submission_id: Optional[int] = None
+
+class ChallengeRequest(BaseModel):
+  submission_id: int
+  s3_key: str

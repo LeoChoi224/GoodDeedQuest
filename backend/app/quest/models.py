@@ -13,6 +13,7 @@ class Category(Base):
 
     category_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(50), nullable=False, comment="카테고리명 (예: 환경, 봉사)")
+    code: Mapped[str] = mapped_column(String(30), nullable=False, server_default="other", comment="프론트 아이콘 매칭용 코드 (environment, volunteer 등)")
     icon_url: Mapped[str] = mapped_column(String(500), nullable=False, comment="카테고리 아이콘 이미지 URL")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="카테고리 활성화 상태")
 

@@ -3,7 +3,7 @@
  * MainHeader (no back). 진행중 퀘스트 드래그 캐러셀(빈 상태 토글) · 오늘의 추천 리스트
  * (스태거 페이드업) · 다시 추천 받기 · 퀘스트 등록 / 커스텀 추천 액션.
  */
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
+  ActivityIndicator,
   useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -23,54 +24,64 @@ import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import { Coin, Star, DiffChip, ChevRight, ChevLeft, EmptyScroll, FloatSpark, Bob } from './_parts';
+import { getQuests, difficultyLabel, type Quest } from '../../api/quest';
 
-const RECOMMENDED = [
-  { title: '유기견 산책 봉사', category: 'animal', diff: '쉬움', point: '200P', exp: '80 EXP' },
-  { title: '독거 어르신 안부 전화', category: 'community', diff: '보통', point: '300P', exp: '120 EXP' },
-  { title: '공원 플로깅', category: 'environment', diff: '쉬움', point: '250P', exp: '100 EXP' },
-  { title: '무료급식 배식 봉사', category: 'sharing', diff: '보통', point: '400P', exp: '150 EXP' },
-  { title: '헌혈 참여', category: 'volunteer', diff: '어려움', point: '500P', exp: '200 EXP' },
-];
-
-const ACTIVE = [
-  { title: '골목길 쓰레기 줍기', category: 'environment', prog: 60, point: '250 P', exp: '100 EXP' },
-  { title: '플리마켓 물품 기부', category: 'sharing', prog: 35, point: '300 P', exp: '120 EXP' },
-  { title: '공원 플로깅', category: 'environment', prog: 80, point: '250 P', exp: '100 EXP' },
-];
-
-const num = (s: string) => parseInt(s.replace(/[^0-9]/g, ''), 10) || 0;
+const iconFor = (code: string) => CATEGORY_ICONS[code] ?? CATEGORY_ICONS.other;
 
 export default function HomeScreen({ navigation }: any) {
   const { width } = useWindowDimensions();
-  // 진행중 퀘스트 유무 (실서비스에선 데이터에서 결정). 기본 false = 카러셀 표시.
-  const empty = false;
+  const [quests, setQuests] = useState<Quest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [idx, setIdx] = useState(0);
   const [recRot, setRecRot] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
-  const r = recRot % RECOMMENDED.length;
-  const recList = [...RECOMMENDED.slice(r), ...RECOMMENDED.slice(0, r)];
+  const load = async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      setQuests(await getQuests());
+    } catch (err: any) {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const activeQuests = quests.filter((q) => q.quest_status === 'IN_PROGRESS');
+  const empty = activeQuests.length === 0;
+
+  const r = quests.length ? recRot % quests.length : 0;
+  const recList = [...quests.slice(r), ...quests.slice(0, r)];
 
   const INNER = width - 32; // ScrollView horizontal padding 16 each side
   const CARD_W = INNER * 0.84;
   const STEP = CARD_W + 12;
 
-  const openDetail = (q: { title: string; category: string; point: string; exp: string }, active: boolean) => {
+  const openDetail = (q: Quest, active: boolean) => {
     navigation.navigate('QuestDetail', {
-      title: q.title,
-      category: q.category,
-      point: num(q.point),
-      exp: num(q.exp),
+      questId: q.quest_id,
+      questType: q.quest_type,
+      title: q.quest_title,
+      desc: q.quest_description,
+      category: q.category_code,
+      point: q.reward_point ?? 0,
+      exp: q.reward_exp ?? 0,
       active,
     });
   };
 
   const onCarouselEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const i = Math.round(e.nativeEvent.contentOffset.x / STEP);
-    setIdx(Math.max(0, Math.min(ACTIVE.length - 1, i)));
+    setIdx(Math.max(0, Math.min(activeQuests.length - 1, i)));
   };
   const goTo = (i: number) => {
-    const n = Math.max(0, Math.min(ACTIVE.length - 1, i));
+    const n = Math.max(0, Math.min(activeQuests.length - 1, i));
     setIdx(n);
     scrollRef.current?.scrollTo({ x: n * STEP, animated: true });
   };
@@ -99,9 +110,11 @@ export default function HomeScreen({ navigation }: any) {
           <View style={styles.emptyBox}>
             <EmptyScroll />
             <Text style={styles.emptyText}>진행중인 퀘스트가 없어요</Text>
-            <Pressable onPress={() => openDetail(RECOMMENDED[2], false)} hitSlop={6}>
-              <Text style={styles.emptyLink}>퀘스트 시작하기</Text>
-            </Pressable>
+            {quests.length > 0 && (
+              <Pressable onPress={() => openDetail(quests[0], false)} hitSlop={6}>
+                <Text style={styles.emptyLink}>퀘스트 시작하기</Text>
+              </Pressable>
+            )}
           </View>
         ) : (
           <View style={styles.carouselWrap}>
@@ -116,11 +129,11 @@ export default function HomeScreen({ navigation }: any) {
               onMomentumScrollEnd={onCarouselEnd}
               contentContainerStyle={styles.carouselContent}
             >
-              {ACTIVE.map((q, i) => (
+              {activeQuests.map((q, i) => (
                 <Pressable
-                  key={q.title + i}
+                  key={q.quest_id}
                   onPress={() => openDetail(q, true)}
-                  style={[styles.activeCard, { width: CARD_W, marginRight: i === ACTIVE.length - 1 ? 0 : 12 }]}
+                  style={[styles.activeCard, { width: CARD_W, marginRight: i === activeQuests.length - 1 ? 0 : 12 }]}
                 >
                   <LinearGradient
                     colors={['#0E4F40', '#033236']}
@@ -133,18 +146,18 @@ export default function HomeScreen({ navigation }: any) {
                   <FloatSpark left="46%" top="24%" delay={1300} glyph="✦" color="#7FD69A" size={9} />
                   <View style={styles.activeRow}>
                     <Bob amp={4} style={styles.activeIconTile}>
-                      <Image source={CATEGORY_ICONS[q.category]} style={styles.activeIcon} />
+                      <Image source={iconFor(q.category_code)} style={styles.activeIcon} />
                     </Bob>
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.activeTitle} numberOfLines={1}>{q.title}</Text>
+                      <Text style={styles.activeTitle} numberOfLines={1}>{q.quest_title}</Text>
                       <View style={styles.rewardRow}>
                         <View style={styles.rewardItem}>
                           <Coin />
-                          <Text style={styles.coinText}>{q.point}</Text>
+                          <Text style={styles.coinText}>{q.reward_point ?? 0} P</Text>
                         </View>
                         <View style={styles.rewardItem}>
                           <Star />
-                          <Text style={styles.expText}>{q.exp}</Text>
+                          <Text style={styles.expText}>{q.reward_exp ?? 0} EXP</Text>
                         </View>
                       </View>
                     </View>
@@ -156,7 +169,7 @@ export default function HomeScreen({ navigation }: any) {
               ))}
             </ScrollView>
             <View style={styles.dots}>
-              {ACTIVE.map((_, i) => (
+              {activeQuests.map((_, i) => (
                 <View key={i} style={[styles.dot, i === idx ? styles.dotOn : styles.dotOff]} />
               ))}
             </View>
@@ -168,28 +181,45 @@ export default function HomeScreen({ navigation }: any) {
           <Text style={styles.sectionTitle}>오늘의 추천 퀘스트</Text>
         </View>
         <View style={styles.recList}>
-          {recList.map((q, i) => (
-            <Animated.View key={`${q.title}-${recRot}`} entering={FadeInDown.delay(60 + i * 80).duration(460)}>
-              <SpringButton onPress={() => openDetail(q, false)} pressScale={0.97} style={styles.recCard}>
-                <Image source={CATEGORY_ICONS[q.category]} style={styles.recIcon} />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.recTitle} numberOfLines={2}>{q.title}</Text>
-                  <View style={styles.recMeta}>
-                    <DiffChip diff={q.diff} />
-                    <View style={styles.rewardItem}>
-                      <Coin />
-                      <Text style={styles.coinText}>{q.point}</Text>
-                    </View>
-                    <View style={styles.rewardItem}>
-                      <Star />
-                      <Text style={styles.expText}>{q.exp}</Text>
+          {loading ? (
+            <View style={styles.listStateBox}>
+              <ActivityIndicator color={colors.primaryDark} />
+            </View>
+          ) : loadError ? (
+            <View style={styles.listStateBox}>
+              <Text style={styles.listStateText}>퀘스트를 불러오지 못했어요</Text>
+              <Pressable onPress={load} hitSlop={6}>
+                <Text style={styles.emptyLink}>다시 시도</Text>
+              </Pressable>
+            </View>
+          ) : quests.length === 0 ? (
+            <View style={styles.listStateBox}>
+              <Text style={styles.listStateText}>등록된 퀘스트가 없어요</Text>
+            </View>
+          ) : (
+            recList.map((q, i) => (
+              <Animated.View key={`${q.quest_id}-${recRot}`} entering={FadeInDown.delay(60 + i * 80).duration(460)}>
+                <SpringButton onPress={() => openDetail(q, false)} pressScale={0.97} style={styles.recCard}>
+                  <Image source={iconFor(q.category_code)} style={styles.recIcon} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.recTitle} numberOfLines={2}>{q.quest_title}</Text>
+                    <View style={styles.recMeta}>
+                      <DiffChip diff={difficultyLabel(q.difficulty)} />
+                      <View style={styles.rewardItem}>
+                        <Coin />
+                        <Text style={styles.coinText}>{q.reward_point ?? 0}P</Text>
+                      </View>
+                      <View style={styles.rewardItem}>
+                        <Star />
+                        <Text style={styles.expText}>{q.reward_exp ?? 0} EXP</Text>
+                      </View>
                     </View>
                   </View>
-                </View>
-                <ChevRight color="#B8A57F" />
-              </SpringButton>
-            </Animated.View>
-          ))}
+                  <ChevRight color="#B8A57F" />
+                </SpringButton>
+              </Animated.View>
+            ))
+          )}
         </View>
 
         <SpringButton onPress={() => setRecRot((v) => v + 1)} style={styles.retryBtn}>
@@ -275,6 +305,8 @@ const styles = StyleSheet.create({
   dotOff: { width: 7, backgroundColor: '#C9D6CE' },
 
   recList: { gap: 10, marginBottom: 16 },
+  listStateBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32, gap: 10 },
+  listStateText: { fontSize: 13, color: colors.textMuted, fontFamily: fonts.bodyR },
   recCard: {
     flexDirection: 'row',
     alignItems: 'center',
