@@ -1,5 +1,9 @@
 import api from "./client";
 
+// AI 판정은 기본 10초로 모자란다. 특히 동영상은 다운로드 + 프레임 추출까지 붙는다.
+// 클라이언트가 먼저 포기하면 서버는 처리를 마쳤는데 화면엔 실패로 뜬다.
+const AI_TIMEOUT = 120000;
+
 export type PresignResult = {
   upload_url: string,
   s3_key: string
@@ -48,7 +52,7 @@ export async function submitVerification(questId: number, s3Key: string, extraMe
     quest_id: questId,
     s3_key: s3Key,
     extra_media_keys: extraMediaKeys
-  });
+  }, { timeout: AI_TIMEOUT });
   return response.data
 }
 
@@ -57,6 +61,6 @@ export async function submitChallenge(submissionId: number, s3Key: string): Prom
   const response = await api.post('/quest-verification/challenge', {
     submission_id: submissionId,
     s3_key: s3Key,
-  });
+  }, { timeout: AI_TIMEOUT });
   return response.data
 }
