@@ -29,6 +29,7 @@ def get_item_by_id(item_repo: DatabaseRepository[Item], item_id: int) -> Item:
         )
     return item
 
+
 def execute_purchase(db: Session, user_id: int, item_id: int) -> Purchase:
     """
     포인트를 사용하여 상점 아이템을 구매합니다.
@@ -99,8 +100,20 @@ def execute_purchase(db: Session, user_id: int, item_id: int) -> Purchase:
     # 8. 최종 트랜잭션 커밋
     db.commit()
     db.refresh(new_purchase)
-    
+
     return new_purchase
+
+
+def get_user_purchases(db: Session, user_id: int) -> List[Purchase]:
+    """
+    현재 로그인한 사용자가 구매 완료(COMPLETED)한 아이템 목록을 최신순으로 조회합니다.
+    """
+    return (
+        db.query(Purchase)
+        .filter(Purchase.user_id == user_id, Purchase.status == PurchaseStatus.COMPLETED)
+        .order_by(Purchase.purchased_at.desc())
+        .all()
+    )
 
 
 
