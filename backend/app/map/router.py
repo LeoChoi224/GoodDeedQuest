@@ -10,9 +10,13 @@ from backend.app.map.models import VolunteerCenter, Region, Competition, Competi
 from backend.app.auth.models import User
 from backend.app.map.schemas import VolunteerCenterResponse
 from backend.app.map.enums import CompetitionStatus
+from backend.app.map.ai_client import VolCategoryCommentAIClient, VolCategoryCommentClientError
 
 
 router = APIRouter(prefix="/map", tags=["Map Quests"])
+
+# ai/app/vol_category/classify.py의 CATEGORIES 키와 동일하게 유지 (실제 배정 가능한 카테고리 목록, '기타' 제외)
+ALL_VOLUNTEER_CATEGORIES = ["환경", "동물", "아동청소년", "어르신", "장애인", "교육", "다문화", "재난안전", "지역사회"]
 
 
 class TeamSelectRequest(BaseModel):
@@ -176,7 +180,11 @@ def get_region_detail_ranking(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    """시군구별 상세 랭킹페이지 - 개인 랭킹 + AI 부족봉사 추천(규칙기반, mock 데이터). 정산 중에도 조회 가능"""
+    """시군구별 상세 랭킹페이지 - 개인 랭킹 + AI 부족봉사 추천(ai_category 기반 실집계).
+    부족한 카테고리는 '이 지역'을 기준으로 판단하지만, 추천 시설은 그 카테고리가 부족한 바로 이 지역이 아니라
+    '다른 지역'에서 찾아서 보여줌 (같은 지역에서 찾으면 애초에 부족하다고 판단된 카테고리라 항상 텅 비거나
+    의미 없는 결과가 나오기 때문 - "우리 동네엔 없지만 다른 동네엔 이런 봉사가 있다"는 참고용 추천).
+    정산 중에도 조회 가능"""
     competition = _get_current_competition(db, include_settling=True)
     if competition is None:
         return APIResponse.fail(message="진행 중이거나 정산 중인 대항전이 없습니다")
@@ -207,23 +215,58 @@ def get_region_detail_ranking(
         for idx, r in enumerate(personal_results)
     ]
 
-    # AI 부족봉사 판단 - 규칙기반 mock (실LLM 연동/실데이터 연결은 크롤러 완성 후 별도 작업)
-    # 이 지역 내 봉사센터를 target(봉사 대상) 기준으로 묶어서, 가장 적은 유형을 "부족한 봉사"로 판단
-    category_counts = (
-        db.query(VolunteerCenter.target, func.count(VolunteerCenter.center_id))
-        .filter(VolunteerCenter.region_id == region_id, VolunteerCenter.target.isnot(None))
-        .group_by(VolunteerCenter.target)
+    # AI 부족봉사 판단 - VolunteerCenter.ai_category(임베딩+키워드 기반 사전 분류, ai/app/vol_category 배치)로 집계.
+    # 지역에 존재하는 카테고리뿐 아니라 아예 0건인 카테고리도 "부족"으로 잡히도록 전체 카테고리 목록 기준으로 채움.
+    raw_counts = dict(
+        db.query(VolunteerCenter.ai_category, func.count(VolunteerCenter.center_id))
+        .filter(VolunteerCenter.region_id == region_id, VolunteerCenter.ai_category.isnot(None))
+        .group_by(VolunteerCenter.ai_category)
         .all()
     )
-    lacking_category = min(category_counts, key=lambda c: c[1])[0] if category_counts else None
+    category_counts = {cat: raw_counts.get(cat, 0) for cat in ALL_VOLUNTEER_CATEGORIES}
+    lacking_category = min(category_counts, key=category_counts.get)
 
+    # 추천은 '다른 지역'에서 같은 카테고리 시설을 찾음 (이유는 위 docstring 참고)
+    # 안내 문구에 지역명을 넣기 위해 Region을 조인해서 region_name도 함께 가져옴
     recommended = (
-        db.query(VolunteerCenter)
-        .filter(VolunteerCenter.region_id == region_id, VolunteerCenter.target == lacking_category)
+        db.query(VolunteerCenter, Region.region_name)
+        .join(Region, Region.region_id == VolunteerCenter.region_id)
+        .filter(
+            VolunteerCenter.ai_category == lacking_category,
+            VolunteerCenter.region_id != region_id,
+        )
         .limit(3)
         .all()
-        if lacking_category else []
     )
+
+    recommended_facilities = [
+        {
+            "center_id": f.center_id,
+            "vol_name": f.vol_name,
+            "ai_category": f.ai_category,
+            "region_id": f.region_id,
+            "region_name": facility_region_name,
+        }
+        for f, facility_region_name in recommended
+    ]
+
+    # LLM 자연어 안내 문구 생성 - AI 서버 호출 실패 시에도 region-ranking API 전체가 죽으면 안 되므로
+    # 규칙 기반 문구로 대체하고 계속 진행 (개인 랭킹 등 핵심 데이터는 이 문구와 무관하게 항상 반환되어야 함)
+    try:
+        lacking_category_comment = VolCategoryCommentAIClient().request_comment(
+            payload={
+                "region_name": region.region_name,
+                "lacking_category": lacking_category,
+                "recommended_facilities": [
+                    {"vol_name": rf["vol_name"], "region_name": rf["region_name"]}
+                    for rf in recommended_facilities
+                ],
+            }
+        )
+    except VolCategoryCommentClientError:
+        lacking_category_comment = (
+            f"{region.region_name}은(는) 다른 지역에 비해 '{lacking_category}' 관련 봉사가 부족해요."
+        )
 
     return APIResponse.ok(data={
         "region_id": region_id,
@@ -231,10 +274,8 @@ def get_region_detail_ranking(
         "competition_id": competition.competition_id,
         "personal_ranking": personal_ranking,
         "lacking_category": lacking_category,
-        "recommended_facilities": [
-            {"center_id": f.center_id, "vol_name": f.vol_name, "target": f.target}
-            for f in recommended
-        ],
+        "lacking_category_comment": lacking_category_comment,
+        "recommended_facilities": recommended_facilities,
     })
 
 
