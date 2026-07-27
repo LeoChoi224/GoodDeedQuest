@@ -24,6 +24,12 @@ class AISettings(BaseSettings):
     # Validation configs
     MAX_CAPTION_LENGTH: int = int(os.getenv("MAX_CAPTION_LENGTH", "30"))
 
+    # AWS / S3 (backend와 동일한 루트 .env를 공유)
+    AWS_REGION: str = os.getenv("AWS_REGION", "")
+    AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID", "")
+    AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+    S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME", "")
+
     # Embedding configs
     DEFAULT_EMBEDDING_PROVIDER: str = os.getenv("DEFAULT_EMBEDDING_PROVIDER", "openai")
     DEFAULT_OPENAI_EMBEDDING_MODEL: str = os.getenv("DEFAULT_OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
