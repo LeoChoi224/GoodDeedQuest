@@ -1,16 +1,25 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
 
+from backend.app.common.database import get_db
+from backend.app.common.auth import get_current_user
 from backend.app.common.deps import get_repository
 from backend.app.common.repository import DatabaseRepository
 from backend.app.common.response import APIResponse
 from backend.app.shop.models import Item
-from backend.app.shop.schemas import ItemResponse
+from backend.app.shop.schemas import ItemResponse, PurchaseCreate, PurchaseResponse
 from backend.app.shop.seed import seed_shop_items
-from backend.app.shop.service import get_active_items, get_item_by_id
+from backend.app.shop.service import (
+    get_active_items,
+    get_item_by_id,
+    execute_purchase,
+    get_user_purchases,
+)
 
 router = APIRouter(prefix="/shop", tags=["Shop"])
+
 
 @router.get(
     "",
@@ -29,6 +38,22 @@ def get_shop_items(
 
 
 @router.get(
+    "/purchases",
+    response_model=APIResponse[List[PurchaseResponse]],
+    status_code=status.HTTP_200_OK,
+    summary="사용자 구매 내역 조회",
+    description="현재 로그인한 사용자가 구매 완료한 아이템 이력 목록을 최신순으로 조회합니다.",
+)
+def get_my_purchases(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.get("id") or current_user.get("user_id")
+    purchases = get_user_purchases(db, user_id=user_id)
+    return APIResponse.ok(data=purchases, message="사용자 구매 내역 조회 성공")
+
+
+@router.get(
     "/{item_id}",
     response_model=APIResponse[ItemResponse],
     status_code=status.HTTP_200_OK,
@@ -41,3 +66,22 @@ def get_shop_item_detail(
 ):
     item = get_item_by_id(item_repo, item_id)
     return APIResponse.ok(data=item, message="상품 상세 조회 성공")
+
+
+@router.post(
+    "/purchase",
+    response_model=APIResponse[PurchaseResponse],
+    status_code=status.HTTP_200_OK,
+    summary="아이템 구매 처리",
+    description="포인트를 차감하여 아이템을 구매하고 거래 원장을 기록합니다.",
+)
+def purchase_item(
+    req: PurchaseCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.get("id") or current_user.get("user_id")
+    purchase = execute_purchase(db, user_id=user_id, item_id=req.item_id)
+    return APIResponse.ok(data=purchase, message="아이템 구매가 성공적으로 완료되었습니다.")
+
+

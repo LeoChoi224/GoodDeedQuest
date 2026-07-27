@@ -1,12 +1,7 @@
-/**
- * SCREEN 5 · 팀 목록 및 생성 (route: TeamList).
- * 팀 카드(스태거) → TeamDetail. 하단 sticky "방만들기" → 팀 생성 폼(BottomSheet).
- * 생성 폼: 팀 이름 · 카테고리 · 공개/비공개(SegmentedTabs) → 비공개 시 비밀번호 필드.
- * 빈 상태: "함께할 팀 유저를 찾아보세요."
- */
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useFocusEffect } from '@react-navigation/native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
@@ -14,132 +9,151 @@ import SpringButton from '../../components/SpringButton';
 import GdqInput from '../../components/GdqInput';
 import BottomSheet from '../../components/BottomSheet';
 import SegmentedTabs from '../../components/SegmentedTabs';
-import Shake from '../../components/Shake';
 import EmptyState from '../../components/EmptyState';
-import { colors, fonts, CATEGORY_DEFS } from '../../theme';
+import { useToast } from '../../components/Toast';
+import { colors, fonts } from '../../theme';
 import {
-  TEAMS,
-  PixelTitle,
-  CatIcon,
-  IconChevRight,
-  StickyFooter,
-  INFO,
-  staggerDelay,
-} from './_parts';
+  createTeam,
+  getChallengeErrorMessage,
+  getMyTeams,
+  TeamListItem,
+} from '../../api/challenge';
+import { PixelTitle, CatIcon, IconChevRight, StickyFooter, INFO, staggerDelay } from './_parts';
 
-export default function TeamListScreen({ navigation }: any) {
-  const [sheet, setSheet] = useState(false);
+function teamCategory(team: TeamListItem): string {
+  const text = `${team.name} ${team.notification}`;
+  if (text.includes('환경')) return 'environment';
+  if (text.includes('봉사')) return 'volunteer';
+  if (text.includes('동물')) return 'animal';
+  if (text.includes('나눔')) return 'sharing';
+  return 'community';
+}
+
+export default function TeamListScreen({ navigation, route }: any) {
+  const toast = useToast();
+  const [teams, setTeams] = useState<TeamListItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [sheet, setSheet] = useState(Boolean(route?.params?.openCreate));
+  const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
-  const [catKey, setCatKey] = useState<string>('environment');
-  const [vis, setVis] = useState(0); // 0=공개 1=비공개
+  const [questId, setQuestId] = useState('');
+  const [region, setRegion] = useState('');
+  const [notification, setNotification] = useState('잘 부탁드립니다.');
+  const [maxMembers, setMaxMembers] = useState('4');
+  const [vis, setVis] = useState(0);
   const [pw, setPw] = useState('');
-  const [nameShake, setNameShake] = useState(0);
 
-  const resetForm = () => {
-    setName('');
-    setCatKey('environment');
-    setVis(0);
-    setPw('');
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setTeams(await getMyTeams({ size: 100 }));
+    } catch (error) {
+      toast.show(getChallengeErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  const reset = () => {
+    setName(''); setQuestId(''); setRegion(''); setNotification('잘 부탁드립니다.');
+    setMaxMembers('4'); setVis(0); setPw('');
   };
 
-  const onCreate = () => {
-    if (!name.trim()) {
-      setNameShake((s) => s + 1);
+  const onCreate = async () => {
+    const parsedQuestId = Number(questId);
+    const parsedMax = Number(maxMembers);
+    if (!name.trim() || !Number.isInteger(parsedQuestId) || parsedQuestId <= 0 || !region.trim()) {
+      toast.show('팀 이름, 퀘스트 ID, 활동 지역을 확인해주세요.');
       return;
     }
-    const label = CATEGORY_DEFS.find((c) => c.key === catKey)?.label ?? '기타';
-    const room = { name: name.trim(), info: `${label} · 새 팀`, category: catKey, locked: vis === 1 };
-    setSheet(false);
-    resetForm();
-    navigation.navigate('TeamDetail', { room });
+    if (!Number.isInteger(parsedMax) || parsedMax < 2 || parsedMax > 10) {
+      toast.show('최대 인원은 2명부터 10명까지 가능합니다.');
+      return;
+    }
+    if (vis === 1 && pw.trim().length < 4) {
+      toast.show('비공개 팀 비밀번호는 4자 이상 입력해주세요.');
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const team = await createTeam({
+        quest_id: parsedQuestId,
+        name: name.trim(),
+        password: vis === 1 ? pw.trim() : null,
+        notification: notification.trim() || '잘 부탁드립니다.',
+        region: region.trim(),
+        is_public: vis === 0,
+        max_members: parsedMax,
+      });
+      setSheet(false);
+      reset();
+      toast.show('팀이 생성되었습니다');
+      navigation.navigate('TeamDetail', { teamId: team.team_id });
+    } catch (error) {
+      toast.show(getChallengeErrorMessage(error));
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      <MainHeader showBack title="팀 목록" onBack={() => navigation.goBack()} />
-
+      <MainHeader showBack title="내 팀" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <PixelTitle size={18} style={{ marginBottom: 12 }}>
-          팀 목록
-        </PixelTitle>
-
-        {TEAMS.length === 0 ? (
-          <EmptyState icon="🧭" message="함께할 팀 유저를 찾아보세요" />
-        ) : (
-          <View style={{ gap: 10 }}>
-            {TEAMS.map((t, i) => (
-              <Animated.View key={t.name} entering={FadeInDown.delay(staggerDelay(i)).duration(450)}>
-                <SpringButton
-                  pressScale={0.98}
-                  style={styles.card}
-                  onPress={() => navigation.navigate('TeamDetail', { room: t })}
-                >
-                  <CatIcon category={t.category} />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.name}>{t.name}</Text>
-                    <Text style={styles.info}>{t.info}</Text>
-                  </View>
-                  <IconChevRight />
-                </SpringButton>
-              </Animated.View>
-            ))}
-          </View>
-        )}
+        <PixelTitle size={18} style={{ marginBottom: 12 }}>참여 중인 팀</PixelTitle>
+        {loading ? <Text style={styles.loading}>불러오는 중...</Text> : teams.length === 0 ? (
+          <EmptyState icon="🧭" message="아직 참여 중인 팀이 없어요" subMessage="방 찾기 또는 방 만들기를 이용해보세요" />
+        ) : <View style={{ gap: 10 }}>
+          {teams.map((team, i) => (
+            <Animated.View key={team.team_id} entering={FadeInDown.delay(staggerDelay(i)).duration(450)}>
+              <SpringButton pressScale={0.98} style={styles.card} onPress={() => navigation.navigate('TeamDetail', { teamId: team.team_id })}>
+                <CatIcon category={teamCategory(team)} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.name}>{team.name}</Text>
+                  <Text style={styles.info}>{team.region} · {team.current_members}/{team.max_members}명</Text>
+                </View>
+                <IconChevRight />
+              </SpringButton>
+            </Animated.View>
+          ))}
+        </View>}
       </ScrollView>
-
-      <StickyFooter>
-        <SpringButton style={styles.makeBtn} onPress={() => setSheet(true)}>
-          <Text style={styles.makeText}>방만들기</Text>
+      <StickyFooter style={styles.footerRow}>
+        <SpringButton style={[styles.footerBtn, styles.findBtn]} onPress={() => navigation.navigate('RoomFind')}>
+          <Text style={[styles.footerText, { color: colors.primaryDark }]}>방 찾기</Text>
+        </SpringButton>
+        <SpringButton style={[styles.footerBtn, styles.makeBtn]} onPress={() => setSheet(true)}>
+          <Text style={[styles.footerText, { color: colors.white }]}>방 만들기</Text>
         </SpringButton>
       </StickyFooter>
 
-      {/* 팀 생성 폼 */}
-      <BottomSheet visible={sheet} onClose={() => setSheet(false)} title="팀 만들기">
-        <Text style={styles.formLabel}>팀 이름</Text>
-        <Shake trigger={nameShake}>
-          <GdqInput value={name} onChangeText={setName} placeholder="팀 이름을 입력하세요" maxLength={20} />
-        </Shake>
-
-        <Text style={[styles.formLabel, { marginTop: 16 }]}>카테고리</Text>
-        <View style={styles.chipWrap}>
-          {CATEGORY_DEFS.map((c) => {
-            const on = catKey === c.key;
-            return (
-              <SpringButton
-                key={c.key}
-                pressScale={0.94}
-                onPress={() => setCatKey(c.key)}
-                style={[styles.chip, on ? styles.chipOn : styles.chipOff]}
-              >
-                <CatIcon category={c.key} size={20} />
-                <Text style={[styles.chipText, { color: on ? colors.white : colors.textPrimary }]}>{c.label}</Text>
-              </SpringButton>
-            );
-          })}
-        </View>
-
-        <Text style={[styles.formLabel, { marginTop: 16 }]}>공개 설정</Text>
-        <SegmentedTabs tabs={['공개', '비공개']} index={vis} onChange={setVis} />
-
-        {vis === 1 ? (
-          <Animated.View entering={FadeInDown.duration(260)} style={{ marginTop: 12 }}>
-            <Text style={styles.formLabel}>비밀번호</Text>
-            <GdqInput
-              value={pw}
-              onChangeText={setPw}
-              placeholder="숫자 4자리"
-              secureTextEntry
-              keyboardType="number-pad"
-              maxLength={4}
-            />
-          </Animated.View>
-        ) : null}
-
-        <SpringButton style={styles.createBtn} onPress={onCreate}>
-          <Text style={styles.createText}>만들기</Text>
-        </SpringButton>
+      <BottomSheet visible={sheet} onClose={() => setSheet(false)} title="새 챌린지 팀 만들기">
+        <ScrollView style={{ maxHeight: 560 }} contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
+          <Text style={styles.label}>팀 이름 *</Text>
+          <GdqInput value={name} onChangeText={setName} placeholder="팀 이름" />
+          <Text style={styles.label}>퀘스트 ID *</Text>
+          <GdqInput value={questId} onChangeText={setQuestId} keyboardType="number-pad" placeholder="예: 1" />
+          <Text style={styles.label}>활동 지역 *</Text>
+          <GdqInput value={region} onChangeText={setRegion} placeholder="예: 서울 마포구" />
+          <Text style={styles.label}>팀 공지</Text>
+          <GdqInput value={notification} onChangeText={setNotification} placeholder="팀원에게 안내할 내용" />
+          <Text style={styles.label}>최대 인원 (2~10)</Text>
+          <GdqInput value={maxMembers} onChangeText={setMaxMembers} keyboardType="number-pad" placeholder="4" />
+          <Text style={styles.label}>공개 설정</Text>
+          <SegmentedTabs tabs={['공개', '비공개']} index={vis} onChange={setVis} />
+          {vis === 1 ? <>
+            <Text style={styles.label}>비밀번호 *</Text>
+            <GdqInput value={pw} onChangeText={setPw} secureTextEntry placeholder="4~20자" />
+          </> : null}
+          <SpringButton disabled={creating} style={styles.createBtn} onPress={() => void onCreate()}>
+            <Text style={styles.createText}>{creating ? '생성 중...' : '팀 생성하기'}</Text>
+          </SpringButton>
+        </ScrollView>
       </BottomSheet>
     </View>
   );
@@ -147,48 +161,18 @@ export default function TeamListScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.screenBg },
-  body: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 130 },
-  empty: { textAlign: 'center', color: colors.textSecondary, fontSize: 14, marginTop: 40, fontFamily: fonts.bodyR },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.pixelBorder,
-    borderRadius: 12,
-    padding: 12,
-    shadowColor: colors.pixelBorder,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-  },
+  body: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 140 },
+  loading: { textAlign: 'center', color: colors.textMuted, marginTop: 40, fontFamily: fonts.bodyR },
+  card: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 12, padding: 12 },
   name: { fontSize: 15, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
-  info: { fontSize: 13, color: INFO, fontFamily: fonts.bodyR },
-  makeBtn: { height: 52, borderRadius: 8, backgroundColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
-  makeText: { fontFamily: fonts.pixel, fontSize: 18, color: colors.primaryDark },
-  // create form
-  formLabel: { fontSize: 12, fontWeight: '600', color: colors.textPrimary, marginBottom: 7, fontFamily: fonts.bodyM },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 40,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-  },
-  chipOn: { backgroundColor: colors.primaryDark, borderWidth: 2, borderColor: colors.primaryDark },
-  chipOff: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.inputBorder },
-  chipText: { fontSize: 13, fontWeight: '600', fontFamily: fonts.bodyM },
-  createBtn: {
-    height: 52,
-    borderRadius: 8,
-    backgroundColor: colors.gold,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 22,
-  },
-  createText: { fontFamily: fonts.pixel, fontSize: 18, color: colors.primaryDark },
+  info: { fontSize: 13, color: INFO, marginTop: 3, fontFamily: fonts.bodyR },
+  footerRow: { flexDirection: 'row', gap: 10 },
+  footerBtn: { flex: 1, height: 52, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  findBtn: { backgroundColor: colors.screenBg, borderWidth: 1, borderColor: colors.pixelBorder },
+  makeBtn: { backgroundColor: colors.xpGreen },
+  footerText: { fontFamily: fonts.pixel, fontSize: 16 },
+  form: { gap: 8, paddingBottom: 24 },
+  label: { marginTop: 8, fontFamily: fonts.bodyB, color: colors.primaryDark, fontSize: 13 },
+  createBtn: { height: 50, borderRadius: 8, backgroundColor: colors.xpGreen, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
+  createText: { color: colors.white, fontFamily: fonts.pixel, fontSize: 16 },
 });
