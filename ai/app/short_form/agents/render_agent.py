@@ -8,8 +8,9 @@ FFmpeg Render Agent
 1. media_keys, BGM(s3_key는 bgm_id로 DB 재조회) 파일을 로컬 임시 디렉토리로 다운로드
 2. FFmpeg으로 이미지(씬)마다 자막을 drawtext로 오버레이하고, concat으로 이어붙인 뒤
    BGM을 -shortest로 붙여 결과 mp4를 로컬에 생성
-3. S3 업로드 및 state["rendered_video_key"] 반영은 #94에서 처리.
-   이번 이슈에서는 기존 더미 값(dummy_video_key, status="COMPLETED")을 그대로 유지.
+3. 결과 mp4를 S3에 업로드하고 그 key를 state["rendered_video_key"]에 반영,
+   status를 "COMPLETED"로 설정 (#94)
+4. 성공/실패 여부와 무관하게 로컬 임시 작업 디렉토리는 항상 삭제
 
 TTS/나레이션 음성 트랙 없음 -- 오디오 트랙은 BGM만 사용.
 
@@ -20,6 +21,7 @@ TTS/나레이션 음성 트랙 없음 -- 오디오 트랙은 BGM만 사용.
 """
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -28,7 +30,7 @@ from sqlalchemy import select
 
 from ..models import BackgroundMusic
 from ...common.database import SessionLocal
-from ...common.s3_client import download_file_from_s3
+from ...common.s3_client import download_file_from_s3, upload_file_to_s3
 from ..state import ShortFormState
 
 logger = logging.getLogger(__name__)
@@ -68,26 +70,27 @@ def render_agent(state: ShortFormState) -> ShortFormState:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
         logger.info(f"[RenderAgent] 로컬 렌더링 완료: {output_path}")
 
+        video_s3_key = f"shortform/{shorts_id}/render_result.mp4"
+        upload_file_to_s3(output_path, video_s3_key)
+
+        state["rendered_video_key"] = video_s3_key
+        state["status"] = "COMPLETED"
+
     except subprocess.CalledProcessError as e:
-        logger.error(
-            f"[RenderAgent] FFmpeg 실행 실패: returncode={e.returncode}, "
-            f"stderr={e.stderr}"
-        )
-        # TODO(#94): error_message 필드에 실패 사유 반영
+        error_message = f"FFmpeg 렌더링 실패 (returncode={e.returncode}): {e.stderr}"
+        logger.error(f"[RenderAgent] {error_message}")
         state["status"] = "FAILED"
-        return state
+        state["error_message"] = error_message
 
-    except Exception:
-        logger.exception("[RenderAgent] 렌더링 중 예외 발생")
-        # TODO(#94): error_message 필드에 실패 사유 반영
+    except Exception as e:
+        error_message = f"렌더링/업로드 중 오류 발생: {e}"
+        logger.exception(f"[RenderAgent] {error_message}")
         state["status"] = "FAILED"
-        return state
+        state["error_message"] = error_message
 
-    # TODO(#94): output_path를 S3에 업로드하고 실제 key를 rendered_video_key에 반영
-    dummy_video_key = f"shortform/{shorts_id}/render_result.mp4"
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
-    state["rendered_video_key"] = dummy_video_key
-    state["status"] = "COMPLETED"
     return state
 
 
