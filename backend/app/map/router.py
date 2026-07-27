@@ -10,6 +10,7 @@ from backend.app.map.models import VolunteerCenter, Region, Competition, Competi
 from backend.app.auth.models import User
 from backend.app.map.schemas import VolunteerCenterResponse
 from backend.app.map.enums import CompetitionStatus
+from backend.app.map.ai_client import VolCategoryCommentAIClient, VolCategoryCommentClientError
 
 
 router = APIRouter(prefix="/map", tags=["Map Quests"])
@@ -226,8 +227,10 @@ def get_region_detail_ranking(
     lacking_category = min(category_counts, key=category_counts.get)
 
     # 추천은 '다른 지역'에서 같은 카테고리 시설을 찾음 (이유는 위 docstring 참고)
+    # 안내 문구에 지역명을 넣기 위해 Region을 조인해서 region_name도 함께 가져옴
     recommended = (
-        db.query(VolunteerCenter)
+        db.query(VolunteerCenter, Region.region_name)
+        .join(Region, Region.region_id == VolunteerCenter.region_id)
         .filter(
             VolunteerCenter.ai_category == lacking_category,
             VolunteerCenter.region_id != region_id,
@@ -236,21 +239,43 @@ def get_region_detail_ranking(
         .all()
     )
 
+    recommended_facilities = [
+        {
+            "center_id": f.center_id,
+            "vol_name": f.vol_name,
+            "ai_category": f.ai_category,
+            "region_id": f.region_id,
+            "region_name": facility_region_name,
+        }
+        for f, facility_region_name in recommended
+    ]
+
+    # LLM 자연어 안내 문구 생성 - AI 서버 호출 실패 시에도 region-ranking API 전체가 죽으면 안 되므로
+    # 규칙 기반 문구로 대체하고 계속 진행 (개인 랭킹 등 핵심 데이터는 이 문구와 무관하게 항상 반환되어야 함)
+    try:
+        lacking_category_comment = VolCategoryCommentAIClient().request_comment(
+            payload={
+                "region_name": region.region_name,
+                "lacking_category": lacking_category,
+                "recommended_facilities": [
+                    {"vol_name": rf["vol_name"], "region_name": rf["region_name"]}
+                    for rf in recommended_facilities
+                ],
+            }
+        )
+    except VolCategoryCommentClientError:
+        lacking_category_comment = (
+            f"{region.region_name}은(는) 다른 지역에 비해 '{lacking_category}' 관련 봉사가 부족해요."
+        )
+
     return APIResponse.ok(data={
         "region_id": region_id,
         "region_name": region.region_name,
         "competition_id": competition.competition_id,
         "personal_ranking": personal_ranking,
         "lacking_category": lacking_category,
-        "recommended_facilities": [
-            {
-                "center_id": f.center_id,
-                "vol_name": f.vol_name,
-                "ai_category": f.ai_category,
-                "region_id": f.region_id,
-            }
-            for f in recommended
-        ],
+        "lacking_category_comment": lacking_category_comment,
+        "recommended_facilities": recommended_facilities,
     })
 
 
