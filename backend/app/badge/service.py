@@ -1,0 +1,139 @@
+"""
+backend/app/badge/service.py
+
+Badge 도메인 서비스 레이어.
+라우터(엔드포인트)와 models/schemas 사이에서 실제 "비즈니스 로직"을 담당하는 계층.
+
+포함 기능:
+- 전체 배지 도감 조회 (미보유 포함, is_owned 계산)
+- 내가 보유한 배지 목록 조회
+- 배지 장착 / 해제 (유저당 최대 1개 장착 정책)
+
+컨벤션:
+- DB 세션은 함수 인자로 직접 주입받는다 (shop/service.py 패턴과 동일).
+- 존재하지 않는 리소스에 대한 예외는 shop/service.py와 동일하게 서비스 레이어에서
+  바로 HTTPException(404)을 raise한다 (라우터에서 별도 변환 불필요).
+- 배지 지급(award) 로직은 이 파일의 범위가 아니다 (별도 이슈에서 처리 예정).
+"""
+
+from typing import List
+
+from fastapi import HTTPException, status
+from sqlalchemy.orm import Session, joinedload
+
+from backend.app.badge.models import Badge, UserBadge
+from backend.app.badge.schemas import BadgeResponse, MyBadgeResponse
+
+
+# ---------------------------------------------------------------------------
+# 배지 도감 조회
+# ---------------------------------------------------------------------------
+
+def get_all_badges(db: Session, user_id: int) -> List[BadgeResponse]:
+    """
+    전체 Badge 목록을 조회하고, 각 배지에 대해 현재 유저의 보유 여부(is_owned)를
+    계산해서 채워 넣는다. is_owned는 DB 컬럼이 아니라 이 함수에서 계산되는 값이다.
+    """
+    badges = db.query(Badge).all()
+
+    # 유저가 보유한 badge_id만 별도로 조회해서 set으로 만들어 둠 (매 배지마다 쿼리 날리지 않기 위함)
+    owned_badge_ids = {
+        row.badge_id
+        for row in db.query(UserBadge.badge_id).filter(UserBadge.user_id == user_id).all()
+    }
+
+    return [
+        BadgeResponse(
+            badge_id=badge.badge_id,
+            name=badge.name,
+            description=badge.description,
+            icon_url=badge.icon_url,
+            badge_category=badge.badge_category,
+            is_owned=badge.badge_id in owned_badge_ids,
+        )
+        for badge in badges
+    ]
+
+
+def get_my_badges(db: Session, user_id: int) -> List[MyBadgeResponse]:
+    """
+    현재 유저가 보유한 UserBadge 목록을 Badge와 조인해서 조회한다.
+    joinedload로 badge 정보를 함께 로드해서 N+1 쿼리를 방지한다.
+    """
+    user_badges = (
+        db.query(UserBadge)
+        .options(joinedload(UserBadge.badge))
+        .filter(UserBadge.user_id == user_id)
+        .all()
+    )
+
+    return [
+        MyBadgeResponse(
+            badge_id=user_badge.badge.badge_id,
+            name=user_badge.badge.name,
+            description=user_badge.badge.description,
+            icon_url=user_badge.badge.icon_url,
+            badge_category=user_badge.badge.badge_category,
+            is_equipped=user_badge.is_equipped,
+            awarded_at=user_badge.awarded_at,
+        )
+        for user_badge in user_badges
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 배지 장착 / 해제 (유저당 최대 1개 장착 정책)
+# ---------------------------------------------------------------------------
+
+def equip_badge(db: Session, user_id: int, badge_id: int) -> UserBadge:
+    """
+    유저가 보유한 배지를 장착한다. 유저당 장착 가능한 배지는 최대 1개이므로,
+    기존에 장착되어 있던 배지가 있으면 먼저 전부 해제한 뒤 대상 배지를 장착한다.
+    """
+    target = (
+        db.query(UserBadge)
+        .filter(UserBadge.user_id == user_id, UserBadge.badge_id == badge_id)
+        .first()
+    )
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"보유하지 않은 배지입니다. (badge_id={badge_id})",
+        )
+
+    # 유저당 최대 1개 장착 정책 - 기존에 장착 중이던 배지를 전부 해제
+    # synchronize_session=False: target은 아래에서 명시적으로 다시 세팅하므로 세션 동기화 불필요
+    db.query(UserBadge).filter(
+        UserBadge.user_id == user_id,
+        UserBadge.is_equipped == True,
+    ).update({"is_equipped": False}, synchronize_session=False)
+
+    target.is_equipped = True
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+def unequip_badge(db: Session, user_id: int, badge_id: int) -> UserBadge:
+    """
+    장착 중인 배지를 해제한다. 대상이 애초에 장착 상태가 아니면 404를 반환한다.
+    """
+    target = (
+        db.query(UserBadge)
+        .filter(
+            UserBadge.user_id == user_id,
+            UserBadge.badge_id == badge_id,
+            UserBadge.is_equipped == True,
+        )
+        .first()
+    )
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"장착된 배지가 아닙니다. (badge_id={badge_id})",
+        )
+
+    target.is_equipped = False
+    db.commit()
+    db.refresh(target)
+    return target
