@@ -19,6 +19,7 @@ from backend.app.quest_verification.media import (compute_sha256, compute_media_
 from backend.app.quest_verification.challenge import (
     generate_challenge_code, build_challenge_message, calculate_suspicion, needs_challenge,
 )
+from backend.app.badge.service import check_and_award_badges
 from backend.app.auth.router import get_current_db_user
 from backend.app.auth.models import User
 
@@ -176,7 +177,13 @@ def submit_verification(
         current_user.current_xp += xp_gained
         current_user.point_balance += points_gained
         submission_respository.session.commit()
-    
+        # ⭐ 수정: final_status가 ACCEPTED로 확정된 직후 카테고리 기반 배지 자동 지급
+        check_and_award_badges(
+            db=submission_respository.session,
+            user_id=current_user.user_id,
+            category_code=quest.category.code,
+        )
+
     return SubmitResponse(
         verified=result["verified"],
         reason=result["reason"],
@@ -229,6 +236,14 @@ def submit_challenge(
 
     # 상태 변경과 보상 지급이 함께 저장되도록 마지막에 한 번만 커밋한다
     submission_respository.session.commit()
+
+    if matched:
+        # ⭐ 수정: final_status가 ACCEPTED로 확정된 직후 카테고리 기반 배지 자동 지급
+        check_and_award_badges(
+            db=submission_respository.session,
+            user_id=submission.user_id,
+            category_code=quest.category.code,
+        )
 
     return SubmitResponse(
         verified=matched,

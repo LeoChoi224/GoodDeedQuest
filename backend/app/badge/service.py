@@ -8,21 +8,25 @@ Badge 도메인 서비스 레이어.
 - 전체 배지 도감 조회 (미보유 포함, is_owned 계산)
 - 내가 보유한 배지 목록 조회
 - 배지 장착 / 해제 (유저당 최대 1개 장착 정책)
+- 카테고리 기반 배지 자동 지급 (check_and_award_badges)
 
 컨벤션:
 - DB 세션은 함수 인자로 직접 주입받는다 (shop/service.py 패턴과 동일).
 - 존재하지 않는 리소스에 대한 예외는 shop/service.py와 동일하게 서비스 레이어에서
   바로 HTTPException(404)을 raise한다 (라우터에서 별도 변환 불필요).
-- 배지 지급(award) 로직은 이 파일의 범위가 아니다 (별도 이슈에서 처리 예정).
 """
 
 from typing import List
 
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from backend.app.badge.models import Badge, UserBadge
 from backend.app.badge.schemas import BadgeResponse, MyBadgeResponse
+from backend.app.quest.models import Quest, Category
+from backend.app.quest_verification.models import QuestSubmission
+from backend.app.quest_verification.enums import SubmissionStatus
 
 
 # ---------------------------------------------------------------------------
@@ -137,3 +141,49 @@ def unequip_badge(db: Session, user_id: int, badge_id: int) -> UserBadge:
     db.commit()
     db.refresh(target)
     return target
+
+
+# ---------------------------------------------------------------------------
+# 카테고리 기반 배지 자동 지급 (award)
+# ---------------------------------------------------------------------------
+
+def check_and_award_badges(db: Session, user_id: int, category_code: str) -> List[Badge]:
+    """
+    유저가 특정 카테고리 퀘스트를 완료(ACCEPTED)했을 때 호출.
+    해당 카테고리 완료 횟수를 계산해 조건을 만족하는 미보유 배지를 지급한다.
+    """
+    completed_count = (
+        db.query(func.count(QuestSubmission.submission_id))
+        .join(Quest, QuestSubmission.quest_id == Quest.quest_id)
+        .join(Category, Quest.category_id == Category.category_id)
+        .filter(
+            QuestSubmission.user_id == user_id,
+            Category.code == category_code,
+            QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
+        )
+        .scalar()
+    )
+
+    owned_badge_ids = {
+        row.badge_id
+        for row in db.query(UserBadge.badge_id).filter(UserBadge.user_id == user_id).all()
+    }
+
+    eligible_badges = (
+        db.query(Badge)
+        .filter(
+            Badge.condition_category == category_code,
+            Badge.condition_count <= completed_count,
+            Badge.badge_id.notin_(owned_badge_ids),
+        )
+        .all()
+    )
+
+    if not eligible_badges:
+        return []
+
+    for badge in eligible_badges:
+        db.add(UserBadge(user_id=user_id, badge_id=badge.badge_id, is_equipped=False))
+
+    db.commit()
+    return eligible_badges
