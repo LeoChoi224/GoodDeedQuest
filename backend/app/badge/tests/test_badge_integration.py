@@ -32,18 +32,25 @@ class TestBadgeE2EIntegration(unittest.TestCase):
             description="통합 테스트용 배지 A",
             icon_url="https://example.com/badge_a.png",
             badge_category=TEST_BADGE_CATEGORY,
+            # ⭐ 수정: condition_category/condition_count NOT NULL 컬럼 추가로 인한 값 지정
+            condition_category=TEST_BADGE_CATEGORY,
+            condition_count=1,
         )
         self.badge_b = Badge(
             name="테스트배지B",
             description="통합 테스트용 배지 B",
             icon_url="https://example.com/badge_b.png",
             badge_category=TEST_BADGE_CATEGORY,
+            condition_category=TEST_BADGE_CATEGORY,
+            condition_count=1,
         )
         self.badge_c = Badge(
             name="테스트배지C(미보유)",
             description="통합 테스트용 배지 C - 유저가 보유하지 않음",
             icon_url="https://example.com/badge_c.png",
             badge_category=TEST_BADGE_CATEGORY,
+            condition_category=TEST_BADGE_CATEGORY,
+            condition_count=1,
         )
         self.db.add_all([self.badge_a, self.badge_b, self.badge_c])
         self.db.commit()
