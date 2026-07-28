@@ -103,6 +103,22 @@ def render_shortform_task(
             ShortFormStatus.COMPLETED,
             final_video_s3_key=result["s3_key"],
         )
+    # ⭐ 수정: AI서버가 4xx/5xx로 응답할 때(response.raise_for_status()가 던지는 예외)는
+    # 응답 바디의 detail(예: "씬 1: 부적절한 표현이 포함되어 있습니다.")이 실제 실패 사유인데,
+    # 기존에는 이 분기가 없어서 일반 HTTPStatusError 문자열("Client error '422 ...'")만
+    # error_message에 남고 detail은 버려지고 있었다.
+    except httpx.HTTPStatusError as exc:
+        try:
+            detail = exc.response.json().get("detail")
+        except ValueError:
+            detail = None  # 응답이 JSON이 아니면 detail을 못 꺼내니 아래 fallback으로
+        message = detail or str(exc)
+        service.update_shortform_status(
+            db,
+            shorts_id,
+            ShortFormStatus.FAILED,
+            error_message=f"영상 생성 실패: {message}",
+        )
     except Exception as exc:
         # AI서버 호출 실패, DB 조회 실패, 응답 파싱 실패 등 어떤 이유로든
         # 여기까지 오면 실패로 간주하고 FAILED 처리한다.

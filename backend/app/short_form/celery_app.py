@@ -16,6 +16,16 @@ from celery import Celery
 
 from backend.app.common.config import get_setting
 
+# ⭐ 수정: 워커 프로세스는 backend.main(FastAPI 앱)을 거치지 않고 이 파일에서 바로
+# 기동되기 때문에, ShortForm.user 등 relationship이 문자열로 참조하는 User/UserBadge
+# 같은 다른 도메인 모델이 한 번도 import되지 않아 SQLAlchemy 매퍼 등록이 안 된 상태였다.
+# (실제로 render_shortform_task가 ShortForm을 조회하는 순간
+#  "InvalidRequestError: failed to locate a name ('User')"로 워커가 죽는 문제 발생)
+# backend.main을 그대로 import하면 main -> short_form.router -> service -> tasks ->
+# 이 파일(celery_app)로 다시 돌아오는 순환 import가 생겨서 대신 라우터를 전혀 거치지
+# 않는 models_registry(모든 도메인 모델만 모아 import하는 전용 모듈)를 사용한다.
+import backend.app.models_registry  # noqa: F401,E402 - 모든 도메인 모델을 미리 등록해 매퍼 오류 방지
+
 # get_setting()은 @lru_cache가 걸려있어 매번 새로 만들지 않고
 # 캐싱된 Settings 인스턴스를 반환한다. 모듈 로드 시 한 번만 호출해서 재사용.
 settings = get_setting()

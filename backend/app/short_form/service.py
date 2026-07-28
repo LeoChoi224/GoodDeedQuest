@@ -101,6 +101,7 @@ def create_shortform(
     shortform = ShortForm(
         user_id=user_id,
         bgm_id=bgm_id,
+        title=request.title,  # ⭐ 수정: title 컬럼이 NOT NULL인데 누락되어 IntegrityError가 나던 부분 - 요청 값 그대로 사용
         status=ShortFormStatus.PENDING,  # 생성 직후엔 항상 PENDING, 아직 아무 작업도 시작 안 함
         created_at=datetime.now(timezone.utc),
     )
@@ -262,6 +263,8 @@ def generate_ai_script(
     # → 실제 스키마 필드인 selected_media_s3_keys로 수정 (mood_tag는 스키마에 없어 제거)
     payload = {
         "shorts_id": shorts_id,  # ⭐ 수정: shortform_id → shorts_id
+        "user_name": shortform.user.nickname,  # ⭐ 수정: LLM Story Agent 프롬프트용 - ShortForm.user 관계로 바로 조회
+        "quest_title": request.quest_title,  # ⭐ 수정: LLM Story Agent 프롬프트용 - 프론트가 실어 보낸 값 그대로 전달
         "media_keys": request.selected_media_s3_keys,
     }
 
