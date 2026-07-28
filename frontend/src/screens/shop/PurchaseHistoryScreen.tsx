@@ -2,18 +2,36 @@
  * SCREEN 04-4 · 구매 내역 (back). 구매한 아이템 리스트(이미지·이름·정보·일자). 행 탭 →
  * 아이템 상세. 스태거 등장. 빈 상태: 빈 상자 + "상점 가기" 링크.
  */
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import { colors, fonts, shadow } from '../../theme';
-import { HISTORY, HistoryItem, SHOP_ITEMS, ItemTile } from './_parts';
+import { ItemTile } from './_parts';
+import { getPurchaseHistory, PurchaseRecord } from '../../api/shop';
 
 export default function PurchaseHistoryScreen({ navigation }: any) {
-  const rows = HISTORY;
+  const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await getPurchaseHistory();
+      setPurchases(data);
+    } catch (error) {
+      console.error('구매 내역 로딩 오류:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   return (
     <View style={styles.root}>
@@ -24,7 +42,11 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.sub}>포인트를 모아 아이템을 구매하세요</Text>
 
-        {rows.length === 0 ? (
+        {loading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={colors.primaryDark} />
+          </View>
+        ) : purchases.length === 0 ? (
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>📦</Text>
             <Text style={styles.emptyText}>아직 구매한 아이템이 없어요</Text>
@@ -34,8 +56,13 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
           </View>
         ) : (
           <View style={{ gap: 10 }}>
-            {rows.map((h, i) => (
-              <HistoryRow key={h.name + h.date} item={h} index={i} onPress={() => navigation.navigate('ItemDetail', { item: matchItem(h) })} />
+            {purchases.map((h, i) => (
+              <HistoryRow
+                key={h.purchase_id || i}
+                record={h}
+                index={i}
+                onPress={() => navigation.navigate('ItemDetail', { item: h.item, owned: true })}
+              />
             ))}
           </View>
         )}
@@ -44,19 +71,32 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
   );
 }
 
-function matchItem(h: HistoryItem) {
-  return SHOP_ITEMS.find((s) => s.name === h.name) ?? SHOP_ITEMS[0];
-}
+function HistoryRow({ record, index, onPress }: { record: PurchaseRecord; index: number; onPress: () => void }) {
+  const item = record.item || {};
+  const itemName = item.name || '프로필 테두리';
+  const itemDesc = item.description || '아이템 · 장식';
+  
+  // 날짜 포맷팅 (YYYY.MM.DD)
+  const formattedDate = record.purchased_at
+    ? record.purchased_at.split('T')[0].replace(/-/g, '.')
+    : '2026.07.26';
 
-function HistoryRow({ item, index, onPress }: { item: HistoryItem; index: number; onPress: () => void }) {
+  const c1 = (item as any).c1 || '#4A90E2';
+  const c2 = (item as any).c2 || '#50E3C2';
+  const emoji = (item as any).emoji || '🖼️';
+
   return (
     <Animated.View entering={FadeInDown.delay(50 + index * 80).duration(360)}>
       <SpringButton style={styles.card} pressScale={0.985} onPress={onPress}>
-        <ItemTile c1={item.c1} c2={item.c2} emoji={item.emoji} size={64} radius={10} emojiSize={26} diagonal />
+        <ItemTile c1={c1} c2={c2} emoji={emoji} size={64} radius={10} emojiSize={26} diagonal />
         <View style={styles.info}>
-          <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.metaInfo} numberOfLines={1}>{item.info}</Text>
-          <Text style={styles.date}>{item.date}</Text>
+          <Text style={styles.name} numberOfLines={1}>
+            {itemName}
+          </Text>
+          <Text style={styles.metaInfo} numberOfLines={1}>
+            {itemDesc}
+          </Text>
+          <Text style={styles.date}>{formattedDate}</Text>
         </View>
       </SpringButton>
     </Animated.View>
@@ -67,6 +107,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.screenBg },
   body: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 28 },
   sub: { fontSize: 12, color: colors.textSecondary, marginBottom: 14, fontFamily: fonts.bodyR },
+
+  loadingBox: { paddingVertical: 60, alignItems: 'center', justifyContent: 'center' },
 
   card: {
     flexDirection: 'row',
