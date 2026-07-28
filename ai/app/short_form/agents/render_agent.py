@@ -14,10 +14,10 @@ FFmpeg Render Agent
 
 TTS/나레이션 음성 트랙 없음 -- 오디오 트랙은 BGM만 사용.
 
-⚠️ FONT_PATH는 현재 로컬 Windows 개발 환경 경로로 하드코딩되어 있음.
-   Docker(Linux) 환경에서는 fonts-nanum 설치 후
-   /usr/share/fonts/truetype/nanum/NanumGothic.ttf 경로를 써야 하므로
-   OS 분기 처리가 필요함 (#94 또는 별도 이슈에서 정리 예정).
+⭐ 수정: FONT_PATH는 common/config.py의 settings.FONT_PATH를 참조한다.
+   기본값은 로컬 Windows 경로(C:\\Windows\\Fonts\\malgun.ttf)이며, Docker(Linux) 배포
+   시에는 FONT_PATH 환경변수로 /usr/share/fonts/truetype/nanum/NanumGothic.ttf를
+   주입한다 (ai/Dockerfile에 fonts-nanum 설치되어 있음).
 """
 import logging
 import os
@@ -29,14 +29,12 @@ from pathlib import Path
 from sqlalchemy import select
 
 from ..models import BackgroundMusic
+from ...common.config import settings  # ⭐ 수정: FONT_PATH를 settings에서 가져오기 위해 추가
 from ...common.database import SessionLocal
 from ...common.s3_client import download_file_from_s3, upload_file_to_s3
 from ..state import ShortFormState
 
 logger = logging.getLogger(__name__)
-
-# ⭐ 신규: 로컬 Windows 개발 환경 한글 폰트 경로 (Docker/Linux 분기는 후속 이슈)
-FONT_PATH = r"C:\Windows\Fonts\malgun.ttf"
 
 SCENE_DURATION_SECONDS = 3
 OUTPUT_WIDTH = 1080
@@ -129,7 +127,7 @@ def _build_ffmpeg_command(
 ) -> list[str]:
     """씬(이미지) + 자막 오버레이 + BGM 합성을 위한 FFmpeg 명령어를 구성한다."""
     scene_count = len(image_paths)
-    font_path_escaped = _escape_ffmpeg_path(FONT_PATH)
+    font_path_escaped = _escape_ffmpeg_path(settings.FONT_PATH)  # ⭐ 수정: OS별 경로를 settings에서 주입받음
 
     cmd = ["ffmpeg", "-y"]
     for image_path in image_paths:
