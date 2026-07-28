@@ -307,7 +307,7 @@ def generate_ai_script(
     )
 
 
-def validate_edited_captions(request: ScriptUpdateRequest) -> ScriptGenerateResponse:
+def validate_edited_captions(shorts_id: int, request: ScriptUpdateRequest) -> ScriptGenerateResponse:
     """
     사용자가 팝업에서 AI가 생성한 캡션을 직접 수정했을 때 호출하는 "검증 전용" 함수.
     이름 그대로 저장(update)이 아니라 validate이다 — DB에는 아무것도 쓰지 않는다.
@@ -320,8 +320,10 @@ def validate_edited_captions(request: ScriptUpdateRequest) -> ScriptGenerateResp
     # DB 조회 없음, Session 파라미터도 없음 → 완전히 stateless한 순수 검증 함수
     _validate_captions(request.captions)
     # ⭐ 수정: status 필드 채움 - 아직 렌더링 전 단계이므로 PENDING 고정
+    # ⭐ 수정: ScriptUpdateRequest엔 shorts_id 필드가 없어 request.shorts_id 참조가
+    # AttributeError였음 → router가 path parameter로 이미 받아 넘겨주는 shorts_id 사용
     return ScriptGenerateResponse(
-        shorts_id=request.shorts_id,  # ⭐ 수정: request.shortform_id → request.shorts_id
+        shorts_id=shorts_id,
         status=ShortFormStatus.PENDING,
         title=request.title,
         captions=request.captions,  # 입력받은 캡션을 그대로 되돌려줌 (검증 통과했다는 의미)
@@ -345,5 +347,5 @@ def _validate_captions(captions: list[CaptionItem]) -> None:
             # 에러 메시지에 캡션 앞부분만 잘라서 보여줘서 어떤 캡션이 문제인지 식별 가능하게 함
             raise ValueError(
                 f"캡션 텍스트는 {MAX_CAPTION_TEXT_LENGTH}자를 초과할 수 없습니다: "
-                f"'{caption.text[:20]}...'"
+                f"'{caption.caption[:20]}...'"  # ⭐ 수정: caption.text -> caption.caption (AttributeError 원인)
             )
