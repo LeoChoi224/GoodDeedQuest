@@ -5,6 +5,7 @@ from ai.app.challenge_recommend.router import router as challenge_recommend_rout
 from ai.app.quest_verification.router import router as quest_verification_router
 from ai.app.vol_category.router import router as vol_category_router
 from ai.app.quest_create.router import router as quest_create_router
+from ai.app.user.router import router as user_router
 
 app = FastAPI(
     title="Good Deed Quest AI Model Server",
@@ -26,6 +27,7 @@ app.include_router(quest_verification_router)
 app.include_router(vol_category_router)
 # 커스텀 퀘스트 심사 API (선행 여부 + 난이도 판정)
 app.include_router(quest_create_router)
+app.include_router(user_router)
 
 @app.get("/")
 def home():

@@ -150,7 +150,7 @@ Generate exactly 6 creative and actionable daily good deed (GOOD_DEED) quests ta
     try:
         # 1. 정상 연산: OpenAI 모델 호출
         llm = get_openai_model(model_name=model_name, temperature=0.7)  # 다양하고 참신한 선행 창작을 위해 온도=0.7
-        structured_llm = llm.with_structured_output(GoodDeedCandidateOutput)
+        structured_llm = llm.with_structured_output(GoodDeedCandidatesOutput)
 
         recommendation_chain = recommendation_prompt | structured_llm
         response = recommendation_chain.invoke(input_data)
@@ -161,7 +161,7 @@ Generate exactly 6 creative and actionable daily good deed (GOOD_DEED) quests ta
         response = invoke_gemini_fallback(
             prompt=recommendation_prompt,
             input_data=input_data,
-            structured_schema=GoodDeedCandidateOutput,
+            structured_schema=GoodDeedCandidatesOutput,
             temperature=0.7
         )
     except Exception as e:
