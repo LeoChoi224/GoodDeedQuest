@@ -1,7 +1,24 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from backend.app.quest.enums import QuestType, QuestStatus
 from backend.app.common.enums import Difficulty
+
+
+class CreateQuestRequest(BaseModel):
+    """사용자가 직접 만드는 퀘스트. 보상은 서버가 정하므로 받지 않는다."""
+    quest_title: str = Field(min_length=1, max_length=200)
+    quest_description: str = Field(min_length=1, max_length=1000)
+    category_code: str
+
+
+class CreateQuestResponse(BaseModel):
+    """심사 결과. 거절이면 reason만 채워지고 나머지는 비어 있다."""
+    accepted: bool
+    reason: str
+    difficulty: Optional[Difficulty] = None
+    reward_point: Optional[int] = None
+    reward_exp: Optional[int] = None
+    quest_id: Optional[int] = None
 
 
 class QuestSchema(BaseModel):

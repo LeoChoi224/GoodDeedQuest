@@ -37,6 +37,44 @@ export function isVideoQuest(questType: QuestType): boolean {
   return questType !== 'VOLUNTEER';
 }
 
+// AI 심사는 Gemini 응답을 기다려야 해서 기본 10초로는 모자란다.
+// 클라이언트가 먼저 포기하면 서버는 저장까지 마쳤는데 화면엔 실패로 뜬다.
+const AI_TIMEOUT = 90000;
+
+/** 커스텀 퀘스트 심사 결과. 거절이면 reason만 채워진다. */
+export type QuestJudgement = {
+  accepted: boolean;
+  reason: string;
+  difficulty: Difficulty | null;
+  reward_point: number | null;
+  reward_exp: number | null;
+  quest_id: number | null;
+};
+
+/** 등록 전 심사 미리보기. 저장되지 않는다. */
+export async function previewQuest(
+  questTitle: string, questDescription: string, categoryCode: string
+): Promise<QuestJudgement> {
+  const response = await api.post('/quests/preview', {
+    quest_title: questTitle,
+    quest_description: questDescription,
+    category_code: categoryCode,
+  }, { timeout: AI_TIMEOUT });
+  return response.data.data;
+}
+
+/** 실제 등록. 보상은 미리보기 값이 아니라 서버가 다시 판정한 값이다. */
+export async function createQuest(
+  questTitle: string, questDescription: string, categoryCode: string
+): Promise<QuestJudgement> {
+  const response = await api.post('/quests', {
+    quest_title: questTitle,
+    quest_description: questDescription,
+    category_code: categoryCode,
+  }, { timeout: AI_TIMEOUT });
+  return response.data.data;
+}
+
 export async function getQuests(): Promise<Quest[]> {
   const response = await api.get('/quests');
   return response.data.data ?? [];
