@@ -45,4 +45,5 @@ def home():
 
 if __name__ == "__main__":
     import uvicorn
+    # uvicorn 실행 (개발 시 python -m ai.main 로 기동)
     uvicorn.run("ai.main:app", host="0.0.0.0", port=8001, reload=True)

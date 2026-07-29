@@ -76,19 +76,25 @@ function HistoryRow({ record, index, onPress }: { record: PurchaseRecord; index:
   const itemName = item.name || '프로필 테두리';
   const itemDesc = item.description || '아이템 · 장식';
   
-  // 날짜 포맷팅 (YYYY.MM.DD)
   const formattedDate = record.purchased_at
     ? record.purchased_at.split('T')[0].replace(/-/g, '.')
     : '2026.07.26';
-
   const c1 = (item as any).c1 || '#4A90E2';
   const c2 = (item as any).c2 || '#50E3C2';
   const emoji = (item as any).emoji || '🖼️';
-
   return (
     <Animated.View entering={FadeInDown.delay(50 + index * 80).duration(360)}>
       <SpringButton style={styles.card} pressScale={0.985} onPress={onPress}>
-        <ItemTile c1={c1} c2={c2} emoji={emoji} size={64} radius={10} emojiSize={26} diagonal />
+        <ItemTile
+          imageUrl={item.image_url}
+          c1={c1}
+          c2={c2}
+          emoji={emoji}
+          size={64}
+          radius={10}
+          emojiSize={26}
+          diagonal
+        />
         <View style={styles.info}>
           <Text style={styles.name} numberOfLines={1}>
             {itemName}

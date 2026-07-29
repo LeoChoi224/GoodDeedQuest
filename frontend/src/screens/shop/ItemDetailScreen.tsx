@@ -5,7 +5,7 @@
  * 상태: 포인트 부족 / 이미 구매 시 버튼 비활성.
  */
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, Text, Image, StyleSheet, ScrollView, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -24,13 +24,13 @@ import SpringButton from '../../components/SpringButton';
 import GamePopup, { PopupButtons } from '../../components/GamePopup';
 import { useToast } from '../../components/Toast';
 import { colors, fonts, shadow, spring, gamePopup } from '../../theme';
-import { ShopItem, PixelCoin, POINTS_NUM } from './_parts';
+import { ShopItem, PixelCoin, getFullImageUrl } from './_parts';
 import { purchaseShopItem, getItemDetail } from '../../api/shop';
+import { getMyProfile } from '../../api/auth'; // ========================================== [추가] 프로필 API
 
 export default function ItemDetailScreen({ navigation, route }: any) {
   const toast = useToast();
   
-  // 전달받은 라우트 파라미터 파싱
   const routeItem: ShopItem = route?.params?.item;
   const routeItemId: number = route?.params?.itemId ?? routeItem?.item_id ?? 1;
 
@@ -54,29 +54,34 @@ export default function ItemDetailScreen({ navigation, route }: any) {
     }
   );
 
+  // [수정] 실시간 유저 포인트 잔액 상태 추가
+  const [userPoints, setUserPoints] = useState<number>(0);
   const owned: boolean = route?.params?.owned ?? item?.is_equipped ?? false;
   const [confirm, setConfirm] = useState(false);
   const [processing, setProcessing] = useState(false);
 
-  // 백엔드 데이터 상세 동기화
   useEffect(() => {
-    if (routeItemId) {
-      getItemDetail(routeItemId)
-        .then((data) => {
-          setItem((prev) => ({ ...prev, ...data }));
-        })
-        .catch((err) => {
-          console.log('단일 상세 조회  fallback:', err);
-        });
-    }
+    // 실시간 유저 잔액 및 상품 상세 정보 조회
+    Promise.all([
+      routeItemId ? getItemDetail(routeItemId).catch(() => null) : null,
+      getMyProfile().catch(() => null),
+    ]).then(([detailData, profileData]) => {
+      if (detailData) {
+        setItem((prev) => ({ ...prev, ...detailData }));
+      }
+      if (profileData && profileData.point_balance !== undefined) {
+        setUserPoints(profileData.point_balance);
+      }
+    });
   }, [routeItemId]);
 
   const priceNum = item.price_point ?? (item as any).priceNum ?? 1000;
-  const affordable = priceNum <= POINTS_NUM;
+  // [수정] 실제 유저 포인트(userPoints)와 비교
+  const affordable = priceNum <= userPoints;
   const canBuy = affordable && !owned;
   const buyLabel = owned ? '이미 구매한 아이템이에요' : !affordable ? '포인트가 부족해요' : '아이템 구매';
 
-  // ── 3D tilt (pan → rotateX / rotateY) ──
+  // ── 3D tilt ──
   const rx = useSharedValue(0);
   const ry = useSharedValue(0);
   const w = useSharedValue(1);
@@ -105,7 +110,6 @@ export default function ItemDetailScreen({ navigation, route }: any) {
     ],
   }));
 
-  // 백엔드 구매 API (`POST /api/v1/shop/purchase`) 연동 핸들러
   const onConfirmYes = async () => {
     if (processing) return;
     setProcessing(true);
@@ -120,7 +124,6 @@ export default function ItemDetailScreen({ navigation, route }: any) {
       setProcessing(false);
       setConfirm(false);
 
-      // 백엔드 예외 처리 (중복 구매 방지 400 Bad Request / 포인트 잔액 부족 400 Bad Request)
       const detailMsg =
         error.response?.data?.detail || error.message || '구매 도중 오류가 발생했습니다.';
 
@@ -134,6 +137,7 @@ export default function ItemDetailScreen({ navigation, route }: any) {
   const itemEmoji = (item as any).emoji || '🖼️';
   const itemDesc = item.description || (item as any).desc || '';
   const itemPriceFormatted = (item.price_point || (item as any).priceNum || 1000).toLocaleString();
+  const fullHeroImageUrl = getFullImageUrl(item.image_url);
 
   return (
     <View style={styles.root}>
@@ -149,8 +153,18 @@ export default function ItemDetailScreen({ navigation, route }: any) {
               onLayout={(e) => (w.value = e.nativeEvent.layout.width)}
               style={[styles.hero, tiltStyle]}
             >
-              <LinearGradient colors={[itemC1, itemC2]} start={{ x: 0.5, y: 0.05 }} end={{ x: 0.5, y: 1 }} style={StyleSheet.absoluteFill} />
-              <Text style={styles.heroEmoji}>{itemEmoji}</Text>
+              {fullHeroImageUrl ? (
+                <Image
+                  source={{ uri: fullHeroImageUrl }}
+                  style={{ width: 160, height: 160 }}
+                  resizeMode="contain"
+                />
+              ) : (
+                <>
+                  <LinearGradient colors={[itemC1, itemC2]} start={{ x: 0.5, y: 0.05 }} end={{ x: 0.5, y: 1 }} style={StyleSheet.absoluteFill} />
+                  <Text style={styles.heroEmoji}>{itemEmoji}</Text>
+                </>
+              )}
             </Animated.View>
           </GestureDetector>
         </View>

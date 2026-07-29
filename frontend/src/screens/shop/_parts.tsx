@@ -1,12 +1,12 @@
-/**
- * Shop flow (04) — screen-local data + small building blocks shared across the four
- * shop screens. Verbatim from design_files/04_shop_flow.dc.html renderVals().
- * Item art = gradient boxes + emoji + rarity frames (no new art, per contract).
- */
+// =========================================================================
+// File: frontend/src/screens/shop/_parts.tsx
+// Description: 기존 UI 100% 보존 및 백엔드 프로필 테두리 이미지 동적 렌더링 지원 (최소 변경)
+// =========================================================================
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, Image, StyleSheet } from 'react-native';
 import Svg, { Rect, Path } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -16,70 +16,45 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors, fonts } from '../../theme';
 
+// =========================================================================
+// [추가] 백엔드 정적 이미지 URL 변환 헬퍼 (Expo 에뮬레이터 / 실물기기 자동 대응)
+// =========================================================================
+const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0] || 'localhost';
+export const BACKEND_BASE_URL = `http://${debuggerHost}:8000`;
+
+export const getFullImageUrl = (url?: string): string => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  return `${BACKEND_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+// =========================================================================
+
 /* ────────────────────────────── data ────────────────────────────── */
 
 export type ShopItem = {
   id: string;
   name: string;
   desc: string;
-  price: string; // "1,200"
+  price: string;
   priceNum: number;
   c1: string;
   c2: string;
   emoji: string;
-  rare: string; // frame / rarity accent color
-  rareLabel: string; // 일반 · 희귀 · 영웅
+  rare: string;
+  rareLabel: string;
   epic: boolean;
+  image_url?: string;
 };
 
-const rawItems: [string, string, string, string, string, string, string, string, string][] = [
-  ['shield', '수호자의 방패', '프로필 수호자 뱃지', '1,200', '#5B9BD5', '#2E5A9B', '🛡️', '#5B9BD5', '희귀'],
-  ['sword', '영웅의 검', '레벨업 EXP +5%', '2,000', '#D4A017', '#A97D10', '⚔️', '#D4A017', '영웅'],
-  ['pot', '새싹 화분', '홈 화면 장식', '600', '#4CAF50', '#2E7D32', '🌱', '#4CAF50', '일반'],
-  ['crown', '황금 왕관', '랭킹 프로필 강조', '3,000', '#F0C850', '#C99A20', '👑', '#D4A017', '영웅'],
-  ['potion', '치유의 물약', '연속 달성 보호권', '900', '#E57373', '#B04A4A', '🧪', '#E57373', '희귀'],
-];
-
-export const SHOP_ITEMS: ShopItem[] = rawItems.map((a) => ({
-  id: a[0],
-  name: a[1],
-  desc: a[2],
-  price: a[3],
-  priceNum: Number(a[3].replace(/,/g, '')),
-  c1: a[4],
-  c2: a[5],
-  emoji: a[6],
-  rare: a[7],
-  rareLabel: a[8],
-  epic: a[8] === '영웅',
-}));
-
 export type HistoryItem = { name: string; info: string; date: string; c1: string; c2: string; emoji: string };
-export const HISTORY: HistoryItem[] = [
-  { name: '수호자의 방패', info: '아이템 · 장식', date: '2026.07.08', c1: '#5B9BD5', c2: '#2E5A9B', emoji: '🛡️' },
-  { name: '새싹 화분', info: '아이템 · 장식', date: '2026.07.02', c1: '#4CAF50', c2: '#2E7D32', emoji: '🌱' },
-  { name: '치유의 물약', info: '아이템 · 소모품', date: '2026.06.28', c1: '#E57373', c2: '#B04A4A', emoji: '🧪' },
-];
-
 export type OwnedItem = { id: string; name: string; desc: string; c1: string; c2: string; emoji: string };
-export const OWNED_ITEMS: OwnedItem[] = [
-  { id: 'shield', name: '수호자의 방패', desc: '프로필 수호자 뱃지', c1: '#5B9BD5', c2: '#2E5A9B', emoji: '🛡️' },
-  { id: 'pot', name: '새싹 화분', desc: '홈 화면 장식', c1: '#4CAF50', c2: '#2E7D32', emoji: '🌱' },
-  { id: 'potion', name: '치유의 물약', desc: '연속 달성 보호권', c1: '#E57373', c2: '#B04A4A', emoji: '🧪' },
-];
-
-export const TITLES: OwnedItem[] = [
-  { id: 'hero', name: '선한 영웅', desc: '누적 선행 100회 달성', c1: '#F0C850', c2: '#C99A20', emoji: '👑' },
-  { id: 'guardian', name: '마을 수호자', desc: '환경 퀘스트 50회 달성', c1: '#4CAF50', c2: '#2E7D32', emoji: '🌿' },
-  { id: 'angel', name: '나눔 천사', desc: '나눔 퀘스트 30회 달성', c1: '#E57373', c2: '#B04A4A', emoji: '💝' },
-  { id: 'sprout', name: '새싹 지키미', desc: '첫 퀘스트 완료', c1: '#7FD69A', c2: '#4CAF50', emoji: '🌱' },
-];
 
 export const POINTS_NUM = 3250;
 export const POINTS_LABEL = '3,250 P';
 
 /* ─────────────────────────── pixel coin ─────────────────────────── */
-// px rows from renderVals(): coin (gold) + coinW (white/on-pill).
 const COIN_GOLD: [number, number, number, number, string][] = [
   [2, 1, 4, 1, '#A97D10'],
   [1, 2, 6, 4, '#E8B830'],
@@ -115,15 +90,10 @@ export function ChevronRight({ size = 20, color = '#C7B48A' }: { size?: number; 
 }
 
 /* ─────────────────────── item art gradient tile ────────────────── */
-/**
- * Neutral gradient box + emoji + optional rarity frame. `diagonal` uses the 135°
- * linear ramp (history/inventory tiles); otherwise a top→bottom ramp approximating
- * the design's radial(50% 28%) hero fill (RN has no radial gradient).
- */
 export function ItemTile({
-  c1,
-  c2,
-  emoji,
+  c1 = '#4CAF50',
+  c2 = '#2E7D32',
+  emoji = '🛡️',
   size = 64,
   radius = 10,
   emojiSize = 26,
@@ -131,10 +101,11 @@ export function ItemTile({
   epic = false,
   diagonal = false,
   shine = false,
+  imageUrl,
 }: {
-  c1: string;
-  c2: string;
-  emoji: string;
+  c1?: string;
+  c2?: string;
+  emoji?: string;
   size?: number;
   radius?: number;
   emojiSize?: number;
@@ -142,7 +113,36 @@ export function ItemTile({
   epic?: boolean;
   diagonal?: boolean;
   shine?: boolean;
+  imageUrl?: string;
 }) {
+  // =========================================================================
+  // [수정] DB 정적 테두리 이미지(imageUrl)가 전달되면 해당 테두리 자산을 렌더링
+  // =========================================================================
+  const fullUrl = getFullImageUrl(imageUrl);
+
+  if (fullUrl) {
+    return (
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          overflow: 'hidden',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#F5F7F6',
+        }}
+      >
+        <Image
+          source={{ uri: fullUrl }}
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="contain"
+        />
+      </View>
+    );
+  }
+
+  // 기존 렌더링 구조 100% 유지를 위한 Fallback
   return (
     <View
       style={{
@@ -210,7 +210,6 @@ function EpicGlow({ radius }: { radius: number }) {
 }
 
 /* ─────────────────────── glowing points pouch ──────────────────── */
-/** Gold coin pouch pill (보유 포인트) with a soft breathing glow — sp-coinglow. */
 export function PointsPouch({ points = POINTS_LABEL }: { points?: string }) {
   const g = useSharedValue(0);
   useEffect(() => {
