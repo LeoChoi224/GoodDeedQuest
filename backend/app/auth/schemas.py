@@ -156,6 +156,11 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
     user_id: int
+
+    point_balance: int = 0
+    current_level: int = 1
+    current_xp: int = 0
+
     created_at: datetime
 
 class TokenData(BaseModel):
