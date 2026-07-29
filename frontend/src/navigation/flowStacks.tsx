@@ -25,14 +25,15 @@ import ItemDetailScreen from '../screens/shop/ItemDetailScreen';
 import PurchaseHistoryScreen from '../screens/shop/PurchaseHistoryScreen';
 import InventoryScreen from '../screens/shop/InventoryScreen';
 // map (05)
-import MapScreen from '../screens/map/MapScreen';
-import RankingScreen from '../screens/map/RankingScreen';
-import NearbyScreen from '../screens/map/NearbyScreen';
+import MainMapScreen from '../screens/map/MainMapScreen';
+import SiDoMapScreen from '../screens/map/SiDoMapScreen';
+import RegionDetailsScreen from '../screens/map/RegionDetailsScreen';
+import VolSearchScreen from '../screens/map/VolSearchScreen';
 import VolunteerDetailScreen from '../screens/map/VolunteerDetailScreen';
 // mypage (06)
 import MyPageScreen from '../screens/mypage/MyPageScreen';
-import LevelScreen from '../screens/mypage/LevelScreen';
-import RankScreen from '../screens/mypage/RankScreen';
+import MyLevelScreen from '../screens/mypage/MyLevelScreen';
+import RankingScreen from '../screens/mypage/RankingScreen';
 import ItemListScreen from '../screens/mypage/ItemListScreen';
 // team (07)
 import TeamHomeScreen from '../screens/team/TeamHomeScreen';
@@ -91,9 +92,10 @@ export function ShopStack() {
 export function MapStack() {
   return (
     <S.Navigator screenOptions={opts}>
-      <S.Screen name="Map" component={MapScreen} />
-      <S.Screen name="Ranking" component={RankingScreen} />
-      <S.Screen name="Nearby" component={NearbyScreen} />
+      <S.Screen name="MainMap" component={MainMapScreen} />
+      <S.Screen name="SiDoMap" component={SiDoMapScreen} />
+      <S.Screen name="RegionDetails" component={RegionDetailsScreen} />
+      <S.Screen name="VolSearch" component={VolSearchScreen} />
       <S.Screen name="VolunteerDetail" component={VolunteerDetailScreen} />
     </S.Navigator>
   );
@@ -103,8 +105,8 @@ export function MyStack() {
   return (
     <S.Navigator screenOptions={opts}>
       <S.Screen name="MyPage" component={MyPageScreen} />
-      <S.Screen name="Level" component={LevelScreen} />
-      <S.Screen name="Rank" component={RankScreen} />
+      <S.Screen name="MyLevel" component={MyLevelScreen} />
+      <S.Screen name="Ranking" component={RankingScreen} />
       <S.Screen name="ItemList" component={ItemListScreen} />
     </S.Navigator>
   );

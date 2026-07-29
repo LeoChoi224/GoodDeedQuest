@@ -3,6 +3,10 @@
  * korea_map_drilldown.html 에서 추출한 실제 SGIS 경계 데이터(assets/maps/korea_drilldown.json)를
  * react-native-svg 로 렌더한다. 전국(시/도) → 시/도 탭 → 시군구 지도로 드릴다운, 뒤로가기.
  * 선행퀘스트 컨셉(양피지·틸·골드)으로 채색하고, 우리 팀 지역은 골드로 강조.
+ * 탭 동작: 첫 탭은 선택(하이라이트)만, 같은 지역을 한 번 더 탭해야 실제로 진입(드릴다운/이동)한다.
+ * viewBox는 각 지역의 지배적 랜드마스만 기준으로 잡아 원거리 부속섬(백령도·울릉도 등)이
+ * 지도를 축소시키지 않게 한다 (제주도 본섬은 그대로 유지).
+ * 타이틀 자리는 눌리거나 선택된 지역이 있을 때만 그 이름을 보여주고, 평소엔 비워둔다.
  */
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
@@ -92,16 +96,18 @@ export default function KoreaMapDrilldown({
     initialProvince ? provinceKey(initialProvince) : null
   );
   const [pressed, setPressed] = useState<string | null>(null);
+  // 1차 탭으로 선택된(아직 진입은 안 한) 지역명. 같은 이름을 한 번 더 탭하면 진입.
+  const [selected, setSelected] = useState<string | null>(null);
   // 실제 컨테이너 너비를 onLayout으로 측정 — 카드 패딩/보더 안쪽에 정확히 맞춰
   // 우측 지역이 잘리지 않게 한다. (측정 전엔 화면 기반 추정치 사용)
   const [measuredW, setMeasuredW] = useState(0);
 
   const map = province && DRILL.provinces[province] ? DRILL.provinces[province] : DRILL.national;
 
-  // 시/도 뷰: 각 path의 지배적 랜드마스 bbox 합집합으로 viewBox를 재구성.
-  // 제주처럼 원거리 섬(추자·마라도)이 캔버스를 늘려 본토가 작게 나오는 문제를 해결한다.
+  // 전국/시군구 공통: 각 path의 지배적 랜드마스 bbox 합집합으로 viewBox를 재구성.
+  // 백령도·울릉도·마라도 같은 원거리 부속섬이 캔버스를 늘려 본토가 작게 나오는 문제를 해결.
+  // (제주도처럼 그 자체가 본섬인 경우는 지배적 랜드마스로 그대로 포함됨)
   const vb = useMemo(() => {
-    if (!province) return vbSize(map.viewBox);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of map.paths) {
       const b = dominantBox(p.d);
@@ -134,6 +140,12 @@ export default function KoreaMapDrilldown({
   }
 
   const onLandPress = (name: string) => {
+    if (selected !== name) {
+      // 1차 탭 — 선택(호버)만, 진입하지 않음
+      setSelected(name);
+      return;
+    }
+    // 2차 탭(같은 지역 재탭) — 실제 진입
     if (province) {
       onSigungu?.(name, province);
     } else {
@@ -141,6 +153,7 @@ export default function KoreaMapDrilldown({
       onRegion?.(name);
       if (key && drillOnRegionTap) setProvince(key);
     }
+    setSelected(null);
   };
 
   // Reliable tap targets: transparent Pressable per region (bounding box of its path),
@@ -169,12 +182,20 @@ export default function KoreaMapDrilldown({
     }[];
   }, [map, boxW, vb]);
 
+  // 타이틀 자리 — 눌리거나(pressed) 선택된(selected) 지역이 있으면 그 이름만 표시,
+  // 아니면 현재 province(시군구 뷰) 이름, 그마저 없으면 완전히 비워둔다.
+  const titleText = pressed || selected || province || '';
+
   return (
     <View onLayout={(e) => setMeasuredW(Math.floor(e.nativeEvent.layout.width))}>
       {/* toolbar: back / title */}
       <View style={styles.bar}>
         {province && allowNational ? (
-          <Pressable style={styles.backBtn} onPress={() => setProvince(null)} hitSlop={8}>
+          <Pressable
+            style={styles.backBtn}
+            onPress={() => { setProvince(null); setSelected(null); }}
+            hitSlop={8}
+          >
             <Text style={styles.backText}>← 전국</Text>
           </Pressable>
         ) : (
@@ -183,7 +204,7 @@ export default function KoreaMapDrilldown({
             <Text style={styles.tagText}>우리 팀 · {teamRegion}</Text>
           </View>
         )}
-        <Text style={styles.title}>{province ?? '대한민국 행정구역'}</Text>
+        <Text style={styles.title}>{titleText}</Text>
       </View>
 
       {/* map — SVG는 시각용, 탭은 위의 투명 Pressable 오버레이가 처리(터치 신뢰성) */}
@@ -195,7 +216,8 @@ export default function KoreaMapDrilldown({
                 ? p.name.startsWith(teamSigungu.slice(0, 2))
                 : p.name === teamRegion || p.name.startsWith(teamRegion.slice(0, 2));
               const isPressed = pressed === p.name;
-              const fill = isPressed
+              const isSelected = selected === p.name;
+              const fill = isPressed || isSelected
                 ? MAP_COLORS.selected
                 : isTeam
                 ? province
@@ -211,7 +233,7 @@ export default function KoreaMapDrilldown({
                   d={p.d}
                   fill={fill}
                   stroke={isTeam ? MAP_COLORS.teamStroke : stroke}
-                  strokeWidth={isTeam ? 1.4 : 0.8}
+                  strokeWidth={isTeam || isSelected ? 1.4 : 0.8}
                 />
               );
             })}
@@ -230,9 +252,7 @@ export default function KoreaMapDrilldown({
         </View>
       </Animated.View>
 
-      <Text style={styles.hint}>
-        {province ? '시군구를 눌러 상세 랭킹을 확인하세요' : '시 · 도를 눌러 지역을 확대하세요'}
-      </Text>
+
     </View>
   );
 }

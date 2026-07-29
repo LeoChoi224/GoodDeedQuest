@@ -44,7 +44,7 @@ export default function MyPageScreen({ navigation }: any) {
         showsVerticalScrollIndicator={false}
       >
         {/* profile card → Level (아바타 탭 = 프로필 이미지 변경, 카메라 배지는 ConicAvatar deco) */}
-        <SpringButton style={styles.profileCard} onPress={() => navigation.navigate('Level')} pressScale={0.985}>
+        <SpringButton style={styles.profileCard} onPress={() => navigation.navigate('MyLevel')} pressScale={0.985}>
           <Pressable onPress={() => toast.show('프로필 이미지 변경')}>
             <ConicAvatar size={64} deco />
           </Pressable>

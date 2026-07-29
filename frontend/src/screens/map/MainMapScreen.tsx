@@ -1,8 +1,8 @@
 /**
- * SCREEN 05·1+2 · 지도메인 + 대항전 전국지도 — 지도 탭 ROOT.
+ * SCREEN 05·1+2 · 지도메인 + 대항전 전국지도 — 지도 탭 ROOT (전국 뷰 전용).
  * 내 위치 배너 + 전국(시/도) 스타일라이즈드 SVG 지도(우리 팀=경기도 골드, pulse/pin) +
- * 팀 변경하기(팀 선택 모달) + 내 주변 둘러보기 + 🏆 시도별 랭킹 리스트.
- * 시/도 탭 → Ranking, 내 주변 둘러보기 → Nearby.
+ * 팀 변경하기(팀 선택 모달, 지도 우측 하단 오버레이) + 내 주변 둘러보기.
+ * 시/도를 2탭으로 확정 선택하면 SiDoMap 화면으로 이동(드릴다운은 이 화면 안에서 안 함).
  */
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
@@ -13,26 +13,16 @@ import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import BottomSheet from '../../components/BottomSheet';
-import { PinDot, RankRow, TeamSelectPopup } from './_parts';
+import { PinDot, TeamSelectPopup } from './_parts';
 import KoreaMapDrilldown from '../../components/KoreaMapDrilldown';
 
-const SIDO_RANK = [
-  { name: '강원도', score: '1,000', v: 1000 },
-  { name: '서울특별시', score: '800', v: 800 },
-  { name: '경기도', score: '500', v: 500 },
-  { name: '부산광역시', score: '420', v: 420 },
-  { name: '전라남도', score: '360', v: 360 },
-];
-
-export default function MapScreen({ navigation, route }: any) {
+export default function MainMapScreen({ navigation, route }: any) {
   const [teamSet, setTeamSet] = useState(true);
   const [pickOpen, setPickOpen] = useState(false);
   const [myRegion, setMyRegion] = useState('경기도 안양시');
   const [regionPickOpen, setRegionPickOpen] = useState(false);
   const [teamRegion, setTeamRegion] = useState('경기도');
   const [teamSigungu, setTeamSigungu] = useState('안양시');
-
-  const openRanking = (region: string) => navigation.navigate('Ranking', { region });
 
   return (
     <View style={styles.root}>
@@ -50,13 +40,14 @@ export default function MapScreen({ navigation, route }: any) {
           </Pressable>
         </Animated.View>
 
-        {/* 지도 카드 — korea_map_drilldown 지도 (시/도 탭 → 시군구 랭킹으로 이동) */}
+        {/* 지도 카드 — 전국 지도, 시/도를 2탭으로 확정하면 SiDoMap 화면으로 이동 */}
         <View style={styles.mapCard}>
           <KoreaMapDrilldown
             teamRegion={teamRegion}
             teamSigungu={teamSigungu}
-            height={480}
-            onSigungu={(sg, prov) => navigation.navigate('Ranking', { region: prov, sigungu: sg })}
+            height={560}
+            drillOnRegionTap={false}
+            onRegion={(name) => navigation.navigate('SiDoMap', { province: name, teamRegion, teamSigungu })}
           />
           {teamSet ? (
             <Pressable style={styles.teamChangeBtn} onPress={() => setPickOpen(true)}>
@@ -73,24 +64,9 @@ export default function MapScreen({ navigation, route }: any) {
         </View>
 
         {/* 내 주변 둘러보기 */}
-        <SpringButton style={styles.nearbyBtn} onPress={() => navigation.navigate('Nearby')}>
+        <SpringButton style={styles.nearbyBtn} onPress={() => navigation.navigate('VolSearch')}>
           <Text style={styles.nearbyText}>내 주변 둘러보기</Text>
         </SpringButton>
-
-        {/* 🏆 시도별 랭킹 */}
-        <Text style={styles.sectionTitle}>🏆 시도별 랭킹</Text>
-        <View style={styles.listCard}>
-          {SIDO_RANK.map((r, i) => (
-            <RankRow
-              key={r.name}
-              index={i}
-              name={r.name}
-              score={r.score}
-              pct={r.v / SIDO_RANK[0].v}
-              onPress={() => openRanking(r.name)}
-            />
-          ))}
-        </View>
       </ScrollView>
 
       <TeamSelectPopup
@@ -148,8 +124,9 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   teamChangeBtn: {
-    alignSelf: 'center',
-    marginTop: 10,
+    position: 'absolute',
+    right: 20,
+    bottom: 20,
     backgroundColor: colors.pixelBorder,
     borderRadius: 24,
     paddingHorizontal: 16,
@@ -174,7 +151,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 22,
   },
-  overlayBtnText: { fontFamily: fonts.pixel, fontSize: 15, color: colors.primaryDark },
+  overlayBtnText: { fontFamily: fonts.pixel, fontSize: 15, color: colors.parchment },
   nearbyBtn: {
     height: 52,
     borderRadius: 8,
@@ -185,19 +162,4 @@ const styles = StyleSheet.create({
     ...shadow.button,
   },
   nearbyText: { fontFamily: fonts.pixel, fontSize: 18, color: colors.parchment },
-  sectionTitle: {
-    fontFamily: fonts.pixel,
-    fontSize: 16,
-    color: colors.primaryDark,
-    marginBottom: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 2,
-    borderBottomColor: '#E6D9B8',
-  },
-  listCard: {
-    backgroundColor: colors.white,
-    borderRadius: radii.chip,
-    overflow: 'hidden',
-    ...shadow.card,
-  },
 });
