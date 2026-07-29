@@ -103,3 +103,32 @@ export async function getBackgroundMusicList(
   });
   return response.data;
 }
+
+export type ShortFormStatusResult = {
+  shorts_id: number;
+  status: ShortFormStatus;
+  video_url: string | null;
+  error_message: string | null;
+};
+
+/**
+ * [영상 생성하기] 버튼 클릭 시 호출. 202 응답(고정 메시지)만 오고 실제 렌더링은
+ * Celery 워커가 백그라운드로 처리하므로, 이후 진행 상태는 getShortformStatus로 폴링해야 한다.
+ * captions는 router.py의 ShortFormGenerateRequest 스키마대로 CaptionItem 객체 배열을 그대로 전달.
+ */
+export async function generateVideo(
+  shortsId: number,
+  mediaKeys: string[],
+  captions: CaptionItem[],
+): Promise<void> {
+  await api.post(`/shortforms/${shortsId}/generate`, {
+    media_keys: mediaKeys,
+    captions,
+  });
+}
+
+/** 영상 생성 진행 상태 폴링. COMPLETED면 video_url, FAILED면 error_message가 채워진다. */
+export async function getShortformStatus(shortsId: number): Promise<ShortFormStatusResult> {
+  const response = await api.get<ShortFormStatusResult>(`/shortforms/${shortsId}/status`);
+  return response.data;
+}
