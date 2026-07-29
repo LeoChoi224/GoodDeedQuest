@@ -28,6 +28,8 @@ app.include_router(quest_verification_router)
 app.include_router(vol_category_router)
 # 커스텀 퀘스트 심사 API (선행 여부 + 난이도 판정)
 app.include_router(quest_create_router)
+# 숏폼 생성 API (Vision/RAG/LLM Story/Validation/FFmpeg Render 5-Agent 파이프라인)
+app.include_router(short_form_router)
 
 # 숏폼 생성 API (Vision/RAG/LLM Story/Validation/FFmpeg Render 5-Agent 파이프라인)
 app.include_router(short_form_router)

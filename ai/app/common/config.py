@@ -24,6 +24,11 @@ class AISettings(BaseSettings):
     # Validation configs
     MAX_CAPTION_LENGTH: int = int(os.getenv("MAX_CAPTION_LENGTH", "30"))
 
+    # ⭐ 신규: FFmpeg Render Agent 자막 폰트 경로 (OS별로 다름)
+    # 기본값은 로컬 Windows 개발 환경 경로. Docker(Linux) 배포 시에는 환경변수로
+    # /usr/share/fonts/truetype/nanum/NanumGothic.ttf를 주입한다 (ai/Dockerfile에 fonts-nanum 설치됨).
+    FONT_PATH: str = os.getenv("FONT_PATH", r"C:\Windows\Fonts\malgun.ttf")
+
     # AWS / S3 (backend와 동일한 루트 .env를 공유)
     AWS_REGION: str = os.getenv("AWS_REGION", "")
     AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID", "")
