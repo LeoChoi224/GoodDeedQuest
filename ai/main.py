@@ -6,6 +6,7 @@ from ai.app.quest_verification.router import router as quest_verification_router
 from ai.app.vol_category.router import router as vol_category_router
 from ai.app.quest_create.router import router as quest_create_router
 from ai.app.short_form.router import router as short_form_router
+from ai.app.user.router import router as user_router
 
 app = FastAPI(
     title="Good Deed Quest AI Model Server",
@@ -29,6 +30,7 @@ app.include_router(vol_category_router)
 app.include_router(quest_create_router)
 # 숏폼 생성 API (Vision/RAG/LLM Story/Validation/FFmpeg Render 5-Agent 파이프라인)
 app.include_router(short_form_router)
+app.include_router(user_router)
 
 @app.get("/")
 def home():
