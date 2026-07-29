@@ -260,7 +260,9 @@ export function UserRankRow({
   return (
     <Animated.View entering={FadeInDown.delay(50 + index * 70).duration(420)}>
       <Pressable style={({ pressed }) => [styles.userRow, pressed && styles.rowPressed]} onPress={onPress}>
-        <Text style={styles.userRank}>{rank}</Text>
+        <Text style={[styles.userRank, { color: rankColor(index), fontSize: index < 3 ? 15 : 13 }]}>
+          {index === 0 ? '🏆 ' : ''}{rank}
+        </Text>
         <Text style={styles.userName}>{name}</Text>
         <Text style={styles.userXp}>{xp} XP</Text>
       </Pressable>
