@@ -274,7 +274,9 @@ def get_daily_access_counts(
     query = (
         select(
             UserActivityLog.access_date,
-            func.count(UserActivityLog.user_id).label("user_count"),
+            func.count(
+                func.distinct(UserActivityLog.user_id)
+            ).label("user_count"),
         )
         .where(
             UserActivityLog.access_date >= start_date,
