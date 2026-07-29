@@ -36,6 +36,20 @@ def route_after_validation(state: ShortFormState) -> str:
     return "end"           # 검증 실패 -> END로 이동 (파이프라인 종료)
 
 
+# ⭐ 신규: vision 다음에 rag를 실행할지 스킵할지 정하는 라우팅 함수 (이슈: BGM 재매칭 덮어쓰기 버그 수정)
+def route_after_vision(state: ShortFormState) -> str:
+    """
+    router.py가 호출 전에 이미 bgm_match를 채워서 넘겼으면(=backend가 이미 확정한 BGM이
+    있으면) rag_agent를 건너뛰고 그 값을 그대로 쓴다. bgm_match가 비어있으면(자동 생성
+    경로 등) 기존처럼 rag_agent가 vision 결과로 자동 매칭하게 둔다.
+
+    rag_agent 자체는 수정하지 않고, 그래프 흐름(엣지)만 조건부로 바꾼다.
+    """
+    if state.get("bgm_match"):
+        return "skip_rag"
+    return "run_rag"
+
+
 def build_shortform_graph():
     """그래프를 조립하고 실행 가능한 형태로 컴파일해서 리턴하는 함수"""
 
@@ -56,7 +70,13 @@ def build_shortform_graph():
     # 파이프라인이 시작될 때 제일 먼저 실행될 노드를 지정. (Vision Agent부터 시작)
 
     # ── 단순 순차 연결 (조건 없이 무조건 다음 노드로) ────────────
-    graph.add_edge("vision", "rag")           # vision 끝나면 -> rag 실행
+    # ⭐ 수정: vision -> rag 고정 엣지를 조건부 엣지로 교체 (BGM 재매칭 덮어쓰기 버그 수정)
+    # bgm_match가 이미 채워져 들어오면(backend가 확정한 BGM) rag를 건너뛰고 곧장 llm_story로.
+    graph.add_conditional_edges(
+        "vision",
+        route_after_vision,
+        {"run_rag": "rag", "skip_rag": "llm_story"},
+    )
     graph.add_edge("rag", "llm_story")        # rag 끝나면 -> llm_story 실행
     graph.add_edge("llm_story", "validation") # llm_story 끝나면 -> validation 실행
 
