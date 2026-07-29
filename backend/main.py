@@ -1,7 +1,11 @@
+
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.app.common.config import get_setting
+from fastapi.staticfiles import StaticFiles
 
+from backend.app.common.config import get_setting
 # 라우터 임포트
 from backend.app.auth.router import router as auth_router
 from backend.app.quest.router import router as quest_router
@@ -35,6 +39,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+static_dir = os.path.join(os.path.dirname(__file__), "app", "static")
+os.makedirs(static_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # API v1 라우터 등록
 api_prefix = get_setting().API_V1_STR
