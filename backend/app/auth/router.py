@@ -7,7 +7,7 @@ from backend.app.auth.models import User
 from backend.app.common.deps import get_repository
 from backend.app.common.repository import DatabaseRepository    
 from backend.app.common.auth import create_access_token, get_password_hash, verify_password, verify_token, oauth2_scheme
-from backend.app.auth.service import trigger_embedding_if_needed, verify_google_id_token, find_or_create_social_user
+from backend.app.auth.service import trigger_embedding_if_needed, verify_google_id_token, find_or_create_social_user, record_daily_user_activity
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -33,7 +33,7 @@ def login(req: LoginRequest, repository: UserRepository, background_tasks: Backg
     user = repository.get_by(email = req.email)
     if not user or not verify_password(req.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+    record_daily_user_activity(repository=repository,user_id=user.user_id,)
     trigger_embedding_if_needed(user, background_tasks)
     
     token = create_access_token(data={
@@ -59,7 +59,7 @@ def social_login(req: SocialLoginRequest, repository: UserRepository, background
     nickname = idinfo.get("name") or email.split("@")[0]
     
     user, is_new_user = find_or_create_social_user(repository, "google", provider_user_id, email, nickname)
-    
+    record_daily_user_activity(repository=repository,user_id=user.user_id,)
     trigger_embedding_if_needed(user, background_tasks)
     
     token = create_access_token(data={

@@ -1,14 +1,43 @@
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 import httpx
 import secrets
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
+from sqlalchemy.dialects.postgresql import insert
 from backend.app.common.auth import get_password_hash
 from fastapi import BackgroundTasks
 from backend.app.auth.models import User
+from backend.app.community.models import UserActivityLog
 from backend.app.common.config import get_setting
 from backend.app.common.database import SessionLocal
 from backend.app.common.repository import DatabaseRepository
+
+#--------------------민재 추가 코드 (관리자페이지 7일 접속 추이)---------------------
+KST = ZoneInfo("Asia/Seoul")
+
+
+def record_daily_user_activity(
+    repository: DatabaseRepository[User],
+    user_id: int,
+) -> None:
+    """같은 사용자의 접속 기록을 한국 날짜 기준 하루 한 번 저장합니다."""
+
+    access_date = datetime.now(KST).date()
+
+    statement = (
+        insert(UserActivityLog)
+        .values(
+            user_id=user_id,
+            access_date=access_date,
+        )
+        .on_conflict_do_nothing(
+            constraint="uq_user_activity_log_user_date",
+        )
+    )
+
+    repository.session.execute(statement)
+#--------------------민재 추가 코드 (관리자페이지 7일 접속 추이)---------------------
 
 def calculate_age(birthday: date) -> int:
     today = date.today()
