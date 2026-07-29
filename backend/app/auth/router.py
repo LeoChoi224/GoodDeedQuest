@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import create_access_token, get_password_hash, verify_password
-from backend.app.auth.shcemas import UserResponse, UserCreate, LoginResponse, LoginRequest, SocialLoginRequest, ProfileCompleteRequest
+from backend.app.auth.schemas import UserResponse, UserCreate, LoginResponse, LoginRequest, SocialLoginRequest, ProfileCompleteRequest
 from typing import Annotated
 from backend.app.auth.models import User
 from backend.app.common.deps import get_repository

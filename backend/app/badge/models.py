@@ -4,7 +4,7 @@ badge 도메인 - Badge, UserBadge 모델
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, String, Boolean, TIMESTAMP, ForeignKey, func
+from sqlalchemy import BigInteger, Integer, String, Boolean, TIMESTAMP, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.common.database import Base
@@ -19,6 +19,9 @@ class Badge(Base):
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     icon_url: Mapped[str] = mapped_column(String(500), nullable=False)
     badge_category: Mapped[str] = mapped_column(String(30), nullable=False)
+    # ⭐ 수정: 카테고리 기반 자동 지급 조건 (Category.code 값과 매핑, 완료 횟수)
+    condition_category: Mapped[str] = mapped_column(String(30), nullable=False)
+    condition_count: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()

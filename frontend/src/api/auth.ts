@@ -48,3 +48,8 @@ export async function completeProfile(payload: ProfileCompletePayload) {
   const response = await api.patch('/auth/me', payload);
   return response.data;
 }
+
+export async function getMyProfile() {
+  const response = await api.get('/auth/me');
+    return response.data?.data || response.data;
+}

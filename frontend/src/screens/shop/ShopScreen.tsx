@@ -3,8 +3,8 @@
  * 그리드(리스트) + 골드 코인 파우치(보유 포인트). 아이템 탭 → 상세, 구매 목록 → 구매 내역,
  * 보유 아이템 → 아이템 목록. 카드 스태거 등장 + 스프링 프레스.
  */
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import HazeBackground from '../../components/HazeBackground';
@@ -12,22 +12,80 @@ import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import { colors, fonts, shadow } from '../../theme';
 import { SHOP_ITEMS, ShopItem, ItemTile, PixelCoin, ChevronRight, PointsPouch } from './_parts';
+import { getShopItems, getPurchaseHistory } from '../../api/shop';
+import { getMyProfile } from '../../api/auth';
 
 export default function ShopScreen({ navigation }: any) {
+  
+  const [items, setItems] = useState<ShopItem[]>([]);
+  const [userPoints, setUserPoints] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+
+  const loadItems = useCallback(async () => {
+      try {
+        setLoading(true);
+
+        const [allProducts, profile, history] = await Promise.all([
+        getShopItems(),
+        getMyProfile().catch(() => null),
+        getPurchaseHistory().catch(() => []),
+      ]);
+
+      // 1. 실시간 포인트 바인딩 (res.point_balance 예외 가드)
+      if (profile && profile.point_balance !== undefined) {
+        console.log(profile.point_balance)
+        setUserPoints(profile.point_balance);
+      }
+
+      // 2. 이미 구매한 아이템 ID 추출 후 상점 목록에서 제외 (미구매 상품만 노출)
+      const purchasedIds = new Set((history || []).map((h: any) => h.item_id));
+      const unownedItems = (allProducts || []).filter((it) => !purchasedIds.has(it.item_id));
+
+      setItems(unownedItems);
+      } catch (error: any) {
+        console.error('상점 목록 로딩 오류:', error);
+        Alert.alert('알림', '상점 상품 목록을 불러오지 못했습니다.');
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }, []);
+
+    useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadItems();
+    });
+    loadItems();
+    return unsubscribe;
+  }, [navigation, loadItems]);
+  
+    const onRefresh = () => {
+      setRefreshing(true);
+      loadItems();
+    };
+
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
       <MainHeader />
 
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primaryDark]} />
+        }
+      >
         {/* title + points pouch */}
         <View style={styles.topRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.h1}>상점 페이지</Text>
             <Text style={styles.sub}>포인트를 모아 아이템을 구매하세요</Text>
           </View>
-          <PointsPouch />
+          <PointsPouch points={`${userPoints.toLocaleString()} P`} />
         </View>
 
         {/* actions — 보유 아이템 / 구매 목록 */}
@@ -41,32 +99,66 @@ export default function ShopScreen({ navigation }: any) {
         </View>
 
         {/* item list */}
-        <View style={{ gap: 10 }}>
-          {SHOP_ITEMS.map((it, i) => (
-            <ShopRow key={it.id} item={it} index={i} onPress={() => navigation.navigate('ItemDetail', { item: it })} />
-          ))}
-        </View>
+        {loading && !refreshing ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={colors.primaryDark} />
+            <Text style={styles.loadingText}>상품 목록을 불러오는 중...</Text>
+          </View>
+        ) : (
+          <View style={{ gap: 10 }}>
+            {items.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>모든 아이템을 구매하여 보유 중입니다!</Text>
+              </View>
+            ) : (
+              items.map((it, i) => (
+                <ShopRow
+                  key={it.item_id || i}
+                  item={it}
+                  index={i}
+                  onPress={() => navigation.navigate('ItemDetail', { item: it, itemId: it.item_id })}
+                />
+              ))
+            )}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
 }
 
 function ShopRow({ item, index, onPress }: { item: ShopItem; index: number; onPress: () => void }) {
+  // 백엔드 데이터 기본값 가드 매핑
+  const rareColor = (item as any).rare || colors.primaryDark;
+  const rareLabel = (item as any).rareLabel || '테두리';
+
   return (
     <Animated.View entering={FadeInDown.delay(50 + index * 70).duration(360)}>
       <SpringButton style={[styles.card, { borderLeftColor: item.rare }]} pressScale={0.985} onPress={onPress}>
-        <ItemTile c1={item.c1} c2={item.c2} emoji={item.emoji} size={66} radius={12} emojiSize={30} frame={item.rare} epic={item.epic} shine />
+        <ItemTile
+          c1={(item as any).c1 || '#4A90E2'}
+          c2={(item as any).c2 || '#50E3C2'}
+          emoji={(item as any).emoji || '🖼️'}
+          size={66}
+          radius={12}
+          emojiSize={30}
+          frame={rareColor}
+          epic={(item as any).epic}
+          shine
+        />
         <View style={styles.cardInfo}>
           <View style={styles.nameRow}>
             <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-            <View style={[styles.rareBadge, { backgroundColor: item.rare }]}>
-              <Text style={styles.rareBadgeText}>{item.rareLabel}</Text>
+            <View style={[styles.rareBadge, { backgroundColor: rareColor }]}>
+              <Text style={styles.rareBadgeText}>{rareLabel}</Text>
             </View>
           </View>
-          <Text style={styles.desc} numberOfLines={1}>{item.desc}</Text>
+          <Text style={styles.desc} numberOfLines={1}>
+            {item.description}
+          </Text>
           <View style={styles.priceChip}>
             <PixelCoin size={13} />
-            <Text style={styles.priceChipText}>{item.price} P</Text>
+            <Text style={styles.priceChipText}>{item.price_point.toLocaleString()} P</Text>
           </View>
         </View>
         <ChevronRight />

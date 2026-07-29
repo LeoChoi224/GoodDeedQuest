@@ -17,6 +17,7 @@ import SpringButton from '../../components/SpringButton';
 import Shimmer from '../../components/Shimmer';
 import Shake from '../../components/Shake';
 import { useToast } from '../../components/Toast';
+import { previewQuest, createQuest, difficultyLabel, type QuestJudgement } from '../../api/quest';
 import { AiIcon, SpinnerRing, CoinW, StarW } from './_parts';
 
 type Stage = 'idle' | 'loading' | 'done';
@@ -27,27 +28,58 @@ export default function QuestRegisterScreen({ navigation }: any) {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [cats, setCats] = useState<Record<string, boolean>>({ environment: true });
+  // DB의 quest.category_id가 단일 FK라 카테고리도 하나만 고른다
+  const [category, setCategory] = useState('environment');
   const [stage, setStage] = useState<Stage>('idle');
+  const [preview, setPreview] = useState<QuestJudgement | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [shake, setShake] = useState(0);
 
   const over = content.length > 200;
-  const anyCat = Object.values(cats).some(Boolean);
-  const ready = title.trim().length > 0 && content.trim().length > 0 && anyCat;
+  const ready = title.trim().length > 0 && content.trim().length > 0 && !over;
 
-  const runAI = () => {
+  const runAI = async () => {
     if (stage === 'loading') return;
-    setStage('loading');
-    setTimeout(() => setStage('done'), 1100);
-  };
-
-  const onRegister = () => {
     if (!ready) {
       setShake((v) => v + 1);
       return;
     }
-    toast.show('퀘스트가 등록되었어요');
-    navigation.navigate('QuestHome');
+    setStage('loading');
+    try {
+      const result = await previewQuest(title.trim(), content.trim(), category);
+      setPreview(result);
+      setStage('done');
+      if (!result.accepted) toast.show(result.reason, 5000);
+    } catch (err: any) {
+      setStage('idle');
+      toast.show('AI 심사에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  const onRegister = async () => {
+    if (!ready) {
+      setShake((v) => v + 1);
+      return;
+    }
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      // 미리보기 값이 아니라 서버가 다시 판정한 결과로 등록된다
+      const result = await createQuest(title.trim(), content.trim(), category);
+      if (!result.accepted) {
+        setPreview(result);
+        setStage('done');
+        toast.show(result.reason, 5000);
+        return;
+      }
+      toast.show(`퀘스트가 등록되었어요 (${result.reward_point}P / ${result.reward_exp} EXP)`, 4000);
+      navigation.navigate('QuestHome');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      toast.show(typeof detail === 'string' ? detail : '등록에 실패했어요. 다시 시도해 주세요.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -79,11 +111,11 @@ export default function QuestRegisterScreen({ navigation }: any) {
           <Text style={styles.section}>카테고리</Text>
           <View style={styles.grid}>
             {CATEGORY_DEFS.map((c, i) => {
-              const on = !!cats[c.key];
+              const on = category === c.key;
               return (
                 <Animated.View key={c.key} entering={FadeInDown.delay(i * 55).duration(400)} style={styles.gridCell}>
                   <Pressable
-                    onPress={() => setCats((s) => ({ ...s, [c.key]: !s[c.key] }))}
+                    onPress={() => setCategory(c.key)}
                     style={[styles.catCell, on ? styles.cellOn : styles.cellOff]}
                   >
                     <Image source={CATEGORY_ICONS[c.key]} style={styles.catIcon} />
@@ -95,7 +127,7 @@ export default function QuestRegisterScreen({ navigation }: any) {
           </View>
 
           {/* AI reward box */}
-          <Pressable onPress={runAI} style={[styles.aiBox, aiBoxStyle(stage)]}>
+          <Pressable onPress={runAI} style={[styles.aiBox, aiBoxStyle(stage, preview?.accepted)]}>
             {stage === 'loading' ? (
               <View style={styles.aiLoadingRow}>
                 <SpinnerRing size={20} />
@@ -104,20 +136,30 @@ export default function QuestRegisterScreen({ navigation }: any) {
                 </View>
                 <Text style={styles.aiLoadingText}>분석중</Text>
               </View>
-            ) : stage === 'done' ? (
-              <View>
-                <Text style={styles.aiDoneTitle}>AI 예상 보상</Text>
-                <View style={styles.aiPills}>
-                  <View style={[styles.aiPill, { backgroundColor: colors.xpGreen }]}>
-                    <StarW />
-                    <Text style={styles.aiPillText}>150 EXP</Text>
+            ) : stage === 'done' && preview ? (
+              preview.accepted ? (
+                <View>
+                  <Text style={styles.aiDoneTitle}>
+                    AI 예상 보상 · 난이도 {difficultyLabel(preview.difficulty!)}
+                  </Text>
+                  <View style={styles.aiPills}>
+                    <View style={[styles.aiPill, { backgroundColor: colors.xpGreen }]}>
+                      <StarW />
+                      <Text style={styles.aiPillText}>{preview.reward_exp} EXP</Text>
+                    </View>
+                    <View style={[styles.aiPill, { backgroundColor: colors.gold }]}>
+                      <CoinW />
+                      <Text style={styles.aiPillText}>{preview.reward_point} P</Text>
+                    </View>
                   </View>
-                  <View style={[styles.aiPill, { backgroundColor: colors.gold }]}>
-                    <CoinW />
-                    <Text style={styles.aiPillText}>300 P</Text>
-                  </View>
+                  <Text style={styles.aiNote}>등록할 때 다시 판정되어 값이 조금 달라질 수 있어요</Text>
                 </View>
-              </View>
+              ) : (
+                <View>
+                  <Text style={styles.aiRejectTitle}>등록할 수 없는 퀘스트예요</Text>
+                  <Text style={styles.aiRejectText}>{preview.reason}</Text>
+                </View>
+              )
             ) : (
               <View style={styles.aiIdleRow}>
                 <AiIcon />
@@ -148,9 +190,14 @@ export default function QuestRegisterScreen({ navigation }: any) {
   );
 }
 
-function aiBoxStyle(stage: Stage) {
+function aiBoxStyle(stage: Stage, accepted?: boolean) {
   if (stage === 'loading') return { backgroundColor: '#F3F7F4', borderWidth: 1, borderColor: '#D6E7DC' };
-  if (stage === 'done') return { backgroundColor: '#F0FFF4', borderWidth: 1.5, borderColor: colors.xpGreen };
+  if (stage === 'done') {
+    // 거절이면 초록 대신 경고색으로 — 통과한 것처럼 보이면 안 된다
+    return accepted
+      ? { backgroundColor: '#F0FFF4', borderWidth: 1.5, borderColor: colors.xpGreen }
+      : { backgroundColor: '#FFF5F5', borderWidth: 1.5, borderColor: colors.danger };
+  }
   return { backgroundColor: colors.screenBg, borderWidth: 1, borderColor: '#D6E7DC' };
 }
 
@@ -192,6 +239,9 @@ const styles = StyleSheet.create({
   aiLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   aiLoadingText: { fontSize: 12, color: colors.textSecondary, fontFamily: fonts.bodyR },
   aiDoneTitle: { fontSize: 12, fontWeight: '700', color: '#2E7D32', marginBottom: 6, fontFamily: fonts.bodyB },
+  aiNote: { fontSize: 11, color: colors.textMuted, marginTop: 8, fontFamily: fonts.bodyR },
+  aiRejectTitle: { fontSize: 13, fontWeight: '700', color: colors.danger, marginBottom: 6, fontFamily: fonts.bodyB },
+  aiRejectText: { fontSize: 12, lineHeight: 18, color: colors.textSecondary, fontFamily: fonts.bodyR },
   aiPills: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   aiPill: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
   aiPillText: { color: colors.white, fontWeight: '700', fontSize: 13, fontFamily: fonts.bodyB },
