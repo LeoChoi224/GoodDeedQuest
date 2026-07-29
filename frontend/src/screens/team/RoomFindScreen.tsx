@@ -93,10 +93,22 @@ export default function RoomFindScreen({ navigation }: any) {
       <HazeBackground />
       <MainHeader showBack title="방 찾기" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <View style={styles.searchRow}>
-          <GdqInput value={search} onChangeText={setSearch} placeholder="방 이름 검색" style={{ flex: 1 }} />
-          <SpringButton style={styles.searchBtn} onPress={() => void load()}><Text style={styles.searchText}>검색</Text></SpringButton>
+      <View style={styles.searchRow}>
+        <View style={styles.searchInputWrap}>
+          <GdqInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="방 이름 검색"
+          />
         </View>
+
+        <SpringButton
+          style={styles.searchBtn}
+          onPress={() => void load()}
+        >
+          <Text style={styles.searchText}>검색</Text>
+        </SpringButton>
+      </View>
         <SpringButton style={styles.sortBtn} onPress={() => setSortBy((v) => v === 'latest' ? 'name' : 'latest')}>
           <Text style={styles.sortText}>{sortBy === 'latest' ? '최신순' : '이름순'}</Text>
         </SpringButton>
@@ -143,8 +155,21 @@ export default function RoomFindScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.screenBg },
   body: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 130 },
-  searchRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  searchBtn: { backgroundColor: colors.primaryDark, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' },
+  searchRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  searchInputWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  searchBtn: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
   searchText: { color: colors.white, fontFamily: fonts.pixel },
   sortBtn: { alignSelf: 'flex-end', paddingVertical: 8, paddingHorizontal: 12, marginBottom: 12 },
   sortText: { color: colors.primaryDark, fontFamily: fonts.bodyB, fontSize: 12 },
