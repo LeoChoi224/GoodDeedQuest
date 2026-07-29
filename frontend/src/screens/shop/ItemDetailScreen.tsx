@@ -4,8 +4,8 @@
  * "구매 하시겠습니까?" → 예: 처리(픽셀 스피너) → Toast "구매 완료 🎉" + 구매 내역 이동.
  * 상태: 포인트 부족 / 이미 구매 시 버튼 비활성.
  */
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -24,17 +24,55 @@ import SpringButton from '../../components/SpringButton';
 import GamePopup, { PopupButtons } from '../../components/GamePopup';
 import { useToast } from '../../components/Toast';
 import { colors, fonts, shadow, spring, gamePopup } from '../../theme';
-import { SHOP_ITEMS, ShopItem, PixelCoin, POINTS_NUM } from './_parts';
+import { ShopItem, PixelCoin, POINTS_NUM } from './_parts';
+import { purchaseShopItem, getItemDetail } from '../../api/shop';
 
 export default function ItemDetailScreen({ navigation, route }: any) {
   const toast = useToast();
-  const item: ShopItem = route?.params?.item ?? SHOP_ITEMS[0];
-  const owned: boolean = route?.params?.owned ?? false;
+  
+  // 전달받은 라우트 파라미터 파싱
+  const routeItem: ShopItem = route?.params?.item;
+  const routeItemId: number = route?.params?.itemId ?? routeItem?.item_id ?? 1;
 
+  const [item, setItem] = useState<ShopItem>(
+    routeItem || {
+      item_id: routeItemId,
+      name: '프로필 테두리',
+      description: '상세 설명을 불러오는 중입니다.',
+      price_point: 1000,
+      image_url: '',
+      is_active: true,
+      is_equipped: false,
+      created_at: '',
+      updated_at: '',
+      c1: '#4A90E2',
+      c2: '#50E3C2',
+      emoji: '🖼️',
+      price: '1,000',
+      priceNum: 1000,
+      desc: '선행을 실천하여 획득할 수 있는 프로필 테두리입니다.',
+    }
+  );
+
+  const owned: boolean = route?.params?.owned ?? item?.is_equipped ?? false;
   const [confirm, setConfirm] = useState(false);
   const [processing, setProcessing] = useState(false);
 
-  const affordable = item.priceNum <= POINTS_NUM;
+  // 백엔드 데이터 상세 동기화
+  useEffect(() => {
+    if (routeItemId) {
+      getItemDetail(routeItemId)
+        .then((data) => {
+          setItem((prev) => ({ ...prev, ...data }));
+        })
+        .catch((err) => {
+          console.log('단일 상세 조회  fallback:', err);
+        });
+    }
+  }, [routeItemId]);
+
+  const priceNum = item.price_point ?? (item as any).priceNum ?? 1000;
+  const affordable = priceNum <= POINTS_NUM;
   const canBuy = affordable && !owned;
   const buyLabel = owned ? '이미 구매한 아이템이에요' : !affordable ? '포인트가 부족해요' : '아이템 구매';
 
@@ -67,16 +105,35 @@ export default function ItemDetailScreen({ navigation, route }: any) {
     ],
   }));
 
-  const onConfirmYes = () => {
+  // 백엔드 구매 API (`POST /api/v1/shop/purchase`) 연동 핸들러
+  const onConfirmYes = async () => {
     if (processing) return;
     setProcessing(true);
-    setTimeout(() => {
+
+    try {
+      await purchaseShopItem(item.item_id || routeItemId);
       setProcessing(false);
       setConfirm(false);
       toast.show('구매 완료 🎉');
       navigation.navigate('PurchaseHistory');
-    }, 650);
+    } catch (error: any) {
+      setProcessing(false);
+      setConfirm(false);
+
+      // 백엔드 예외 처리 (중복 구매 방지 400 Bad Request / 포인트 잔액 부족 400 Bad Request)
+      const detailMsg =
+        error.response?.data?.detail || error.message || '구매 도중 오류가 발생했습니다.';
+
+      toast.show(`구매 실패: ${detailMsg}`);
+      Alert.alert('구매 불가', detailMsg);
+    }
   };
+
+  const itemC1 = (item as any).c1 || '#4A90E2';
+  const itemC2 = (item as any).c2 || '#50E3C2';
+  const itemEmoji = (item as any).emoji || '🖼️';
+  const itemDesc = item.description || (item as any).desc || '';
+  const itemPriceFormatted = (item.price_point || (item as any).priceNum || 1000).toLocaleString();
 
   return (
     <View style={styles.root}>
@@ -92,8 +149,8 @@ export default function ItemDetailScreen({ navigation, route }: any) {
               onLayout={(e) => (w.value = e.nativeEvent.layout.width)}
               style={[styles.hero, tiltStyle]}
             >
-              <LinearGradient colors={[item.c1, item.c2]} start={{ x: 0.5, y: 0.05 }} end={{ x: 0.5, y: 1 }} style={StyleSheet.absoluteFill} />
-              <Text style={styles.heroEmoji}>{item.emoji}</Text>
+              <LinearGradient colors={[itemC1, itemC2]} start={{ x: 0.5, y: 0.05 }} end={{ x: 0.5, y: 1 }} style={StyleSheet.absoluteFill} />
+              <Text style={styles.heroEmoji}>{itemEmoji}</Text>
             </Animated.View>
           </GestureDetector>
         </View>
@@ -101,10 +158,10 @@ export default function ItemDetailScreen({ navigation, route }: any) {
         {/* info card */}
         <Animated.View entering={FadeInDown.delay(80).duration(420)} style={styles.infoCard}>
           <Text style={styles.name}>{item.name}</Text>
-          <Text style={styles.desc}>{item.desc}</Text>
+          <Text style={styles.desc}>{itemDesc}</Text>
           <View style={styles.priceRow}>
             <PixelCoin size={16} />
-            <Text style={styles.priceText}>가격 : {item.price} P</Text>
+            <Text style={styles.priceText}>가격 : {itemPriceFormatted} P</Text>
           </View>
         </Animated.View>
       </ScrollView>
@@ -130,7 +187,7 @@ export default function ItemDetailScreen({ navigation, route }: any) {
       >
         <View style={styles.popPrice}>
           <PixelCoin size={14} />
-          <Text style={styles.popPriceText}>가격 : {item.price} P</Text>
+          <Text style={styles.popPriceText}>가격 : {itemPriceFormatted} P</Text>
         </View>
 
         {processing ? (
