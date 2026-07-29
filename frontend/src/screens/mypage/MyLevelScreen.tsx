@@ -1,7 +1,7 @@
 /**
- * SCREEN 06-4 · 레벨 페이지 (route Level, back) — 내 정보 카드 · 경험치 바(PixelProgress,
+ * SCREEN 06-4 · 레벨 페이지 (route MyLevel, back) — 내 정보 카드 · 경험치 바(PixelProgress,
  * 마운트 시 채워짐 + XP count-up) · 주간 경험치 추이 라인차트(react-native-svg, 그려지는 애니메이션:
- * 이번 주 초록 실선 / 지난 주 골드 점선) · 랭킹 보러가기 → Rank.
+ * 이번 주 초록 실선 / 지난 주 골드 점선) · 랭킹 보러가기 → Ranking.
  * Matches 06_mypage_flow.dc.html screen 4.
  */
 import React, { useEffect } from 'react';
@@ -105,7 +105,7 @@ const WeeklyChart = React.memo(function WeeklyChart() {
   );
 });
 
-export default function LevelScreen({ navigation }: any) {
+export default function MyLevelScreen({ navigation }: any) {
   const xp = useCountUp(XP_CUR);
 
   return (
@@ -158,7 +158,7 @@ export default function LevelScreen({ navigation }: any) {
         </View>
 
         {/* → Rank */}
-        <SpringButton style={styles.rankBtn} onPress={() => navigation.navigate('Rank')}>
+        <SpringButton style={styles.rankBtn} onPress={() => navigation.navigate('Ranking')}>
           <Text style={styles.rankBtnText}>랭킹 보러가기</Text>
         </SpringButton>
       </ScrollView>
