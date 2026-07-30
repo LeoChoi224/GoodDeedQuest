@@ -7,8 +7,9 @@
  *
  * 사진 그리드는 새로 촬영/업로드하는 사진이 아니라, 이미 승인된 "퀘스트 인증 사진"
  * 중에서 골라 숏폼 소재로 쓴다 (short_form.schemas.ScriptGenerateRequest 문서 기준).
- * short_form 도메인엔 별도 조회 API가 없어 community 도메인의
- * GET /community/quest-submissions/recent(getRecentQuestSubmissions)를 재사용한다.
+ * GET /shortforms/eligible-media(getEligibleMedia)로 조회 — 썸네일 표시용
+ * media_url(presigned URL)과 숏폼 생성 요청용 media_s3_key(원본 S3 key)가
+ * 분리되어 내려온다.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -32,14 +33,15 @@ import { CheckMark } from '../../components/PixelIcons';
 import { useToast } from '../../components/Toast';
 import { colors, fonts } from '../../theme';
 import { AiScriptPopup, MusicSheet } from './_parts';
-import { getRecentQuestSubmissions, RecentQuestSubmission } from '../../api/community';
 import { getQuest } from '../../api/quest';
 import {
   createShortform,
   generateScript,
   getBackgroundMusicList,
+  getEligibleMedia,
   CaptionItem,
   BackgroundMusic,
+  EligibleMedia,
 } from '../../api/shortform';
 
 const PERIODS = ['전체', '이번주', '1주전', '2주전', '3주전'];
@@ -52,7 +54,7 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
   const toast = useToast();
 
   const [period, setPeriod] = useState(0);
-  const [submissions, setSubmissions] = useState<RecentQuestSubmission[]>([]);
+  const [submissions, setSubmissions] = useState<EligibleMedia[]>([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(true);
   const [submissionsError, setSubmissionsError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -80,12 +82,15 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
       try {
         setLoadingSubmissions(true);
         setSubmissionsError(null);
-        const result = await getRecentQuestSubmissions(0, 100);
+        const result = await getEligibleMedia(0, 100);
         if (!mounted) return;
         setSubmissions(
           result.filter(
-            (item): item is RecentQuestSubmission & { media_url: string } =>
-              typeof item.media_url === 'string' && item.media_url.trim().length > 0,
+            (item): item is EligibleMedia & { media_url: string; media_s3_key: string } =>
+              typeof item.media_url === 'string' &&
+              item.media_url.trim().length > 0 &&
+              typeof item.media_s3_key === 'string' &&
+              item.media_s3_key.trim().length > 0,
           ),
         );
       } catch (error) {
@@ -117,7 +122,7 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
     [submissions, selectedIds],
   );
   const mediaKeys = useMemo(
-    () => selectedSubmissions.map((s) => s.media_url as string),
+    () => selectedSubmissions.map((s) => s.media_s3_key as string),
     [selectedSubmissions],
   );
 

@@ -44,6 +44,29 @@ export type BackgroundMusicList = {
   total: number;
 };
 
+export type EligibleMedia = {
+  submission_id: number;
+  quest_id: number;
+  media_url: string | null;
+  media_s3_key: string | null;
+  submitted_at: string;
+};
+
+/**
+ * 사진 선택 화면(그리드)에서 숏폼 소재로 고를 수 있는, 최근 30일 내 승인된
+ * 퀘스트 인증 이미지 목록을 조회한다. media_url은 썸네일 표시용 presigned URL,
+ * media_s3_key는 숏폼 생성 요청(createShortform 등)에 그대로 넘길 원본 S3 key.
+ */
+export async function getEligibleMedia(
+  skip = 0,
+  limit = 100,
+): Promise<EligibleMedia[]> {
+  const response = await api.get<EligibleMedia[]>('/shortforms/eligible-media', {
+    params: { skip, limit },
+  });
+  return response.data;
+}
+
 /**
  * 숏폼 생성 시작. shorts_id는 autoincrement PK라 생성 응답으로만 알 수 있고,
  * 이후 대본 생성(/script)·최종 생성(/generate) 호출에 필요하다.
