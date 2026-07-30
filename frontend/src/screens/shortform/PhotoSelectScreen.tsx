@@ -2,7 +2,7 @@
  * SCREEN 08-1 · 사진 선택 및 상세설정 (route: PhotoSelect — Shortform stack ROOT,
  * reached from the drawer). MainHeader (no back, hamburger) + haze bg.
  * 기간 필터 칩 · 인증 사진 3열 그리드(다중 선택, 골드 체크 배지) · N장 선택됨.
- * Footer: AI 대본 / 음악 → 각 오버레이, 생성하기 → Generating.
+ * Footer: AI 대본 / 음악 → 각 오버레이, 생성하기·자동생성 → Generating.
  * Motion: grid cells stagger-pop (ZoomIn.delay), chips/buttons spring press.
  *
  * 사진 그리드는 새로 촬영/업로드하는 사진이 아니라, 이미 승인된 "퀘스트 인증 사진"
@@ -387,13 +387,22 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
             </SpringButton>
           </View>
         </View>
-        <SpringButton onPress={handleGenerate} disabled={generating} style={styles.primaryBtn}>
-          {generating ? (
+        <View style={[styles.footerRow, { marginBottom: 0 }]}>
+          <View style={styles.footerHalf}>
+            <SpringButton onPress={handleGenerate} disabled={generating} style={styles.primaryBtn}>
+              {generating ? (
             <ActivityIndicator color={colors.primaryDark} />
           ) : (
             <Text style={styles.primaryText}>생성하기</Text>
-          )}
+              )}
         </SpringButton>
+          </View>
+          <View style={styles.footerHalf}>
+            <SpringButton onPress={() => navigation.navigate('Generating')} style={styles.autoBtn}>
+              <Text style={styles.autoText}>자동생성</Text>
+            </SpringButton>
+          </View>
+        </View>
       </LinearGradient>
 
       <AiScriptPopup
@@ -477,4 +486,17 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   primaryText: { fontFamily: fonts.pixel, fontSize: 18, color: colors.primaryDark },
+  autoBtn: {
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: colors.xpGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.xpGreen,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    elevation: 5,
+  },
+  autoText: { fontFamily: fonts.pixel, fontSize: 18, color: colors.white },
 });

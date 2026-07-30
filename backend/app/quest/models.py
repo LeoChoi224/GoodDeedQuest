@@ -1,4 +1,7 @@
-from sqlalchemy import Integer, BigInteger, String, Text, TIMESTAMP, ForeignKey, JSON, Boolean, Enum as SQLEnum, func
+from sqlalchemy import (
+    Integer, BigInteger, String, Text, TIMESTAMP, ForeignKey, JSON, Boolean,
+    Identity, UniqueConstraint, Enum as SQLEnum, func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from typing import Optional, List
@@ -75,6 +78,7 @@ class Quest(Base):
     quest_status: Mapped[QuestStatus] = mapped_column(
         SQLEnum(QuestStatus, name="quest_status_enum"), nullable=False, default=QuestStatus.NOT_STARTED, comment="진행 상태"
     )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false", comment="시용자가 삭제처리한 퀘스트")
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), comment="생성 일시"
     )
@@ -99,3 +103,25 @@ class Quest(Base):
     
     def __repr__(self):
         return f"<Quest quest_id={self.quest_id} title={self.title} source={self.source}>"
+    
+class QuestHiddenPreference(Base):
+    __tablename__ = "quest_hidden_preference"
+    __table_args__ = (
+        UniqueConstraint("user_id", "quest_id", name="uq_quest_hidden_preference_user_quest"),
+    )
+    hidden_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.user_id", ondelete="CASCADE"),
+        nullable=False, index=True, comment="치운 사람",
+    )
+    quest_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("quest.quest_id", ondelete="CASCADE"),
+        nullable=False, index=True, comment="치워진 퀘스트",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), nullable=False, comment="치운 일시"
+    )
+    def __repr__(self):
+        return f"<QuestHiddenPreference user_id={self.user_id} quest_id={self.quest_id}>"
