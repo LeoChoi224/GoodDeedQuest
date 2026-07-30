@@ -973,6 +973,7 @@ class ChallengeRecommendationService:
         *,
         team_id: int,
         current_user: User,
+        excluded_user_ids: set[int] | None = None,
     ) -> dict[str, Any]:
         """AI 팀원 추천에 사용할 후보 사용자 데이터를 조회.
 
@@ -1058,6 +1059,14 @@ class ChallengeRecommendationService:
                 rejected_since=rejected_since,
             )
         )
+
+        # 재추천 요청이면 직전 결과에 포함된 사용자를 이번 후보에서 제외.
+        if excluded_user_ids:
+            candidates = [
+                candidate_row
+                for candidate_row in candidates
+                if candidate_row[0].user_id not in excluded_user_ids
+            ]
 
         # 후보가 없으면 AI Server를 호출하지 않도록 빈 후보 목록을 반환.
         if not candidates:
@@ -1213,16 +1222,33 @@ class ChallengeRecommendationService:
         team_id: int,
         current_user: User,
         top_k: int = 5,
+        excluded_user_ids: list[int] | None = None,
         ai_client: ChallengeRecommendationAIClient | None = None,
     ) -> TeamRecommendationResponse:
         """후보 데이터를 준비하고 AI 서버의 최종 추천 결과를 검증."""
 
         # Router 외부에서 호출해도 추천 수 범위를 보장.
-        if not 1 <= top_k <= 20:
+        if not 1 <= top_k <= 5:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="추천 인원은 1명 이상 20명 이하여야 합니다.",
+                detail="추천 인원은 1명 이상 5명 이하여야 합니다.",
             )
+
+        excluded_user_ids = excluded_user_ids or []
+
+        if len(excluded_user_ids) > 5:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="직전 추천 제외 사용자는 최대 5명까지 전달할 수 있습니다.",
+            )
+
+        if any(user_id <= 0 for user_id in excluded_user_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="제외할 사용자 ID는 1 이상의 정수여야 합니다.",
+            )
+
+        normalized_excluded_user_ids = set(excluded_user_ids)
 
         # 기존 후보 조회 로직을 재사용해 권한·팀 상태·제외 조건을 검증.
         payload = (
@@ -1231,6 +1257,7 @@ class ChallengeRecommendationService:
                 session,
                 team_id=team_id,
                 current_user=current_user,
+                excluded_user_ids=normalized_excluded_user_ids,
             )
         )
 

@@ -84,6 +84,7 @@ export type RecommendedUser = {
   daily_streak: number;
   score: RecommendationScore;
   recommendation_reason: string;
+  reason_source: 'LLM' | 'FALLBACK';
   rank: number;
 };
 
@@ -112,7 +113,8 @@ export function getChallengeErrorMessage(error: unknown): string {
     return detail.map((item) => item?.msg).filter(Boolean).join('\n') || '입력값을 확인해주세요.';
   }
   if (typeof message === 'string') return message;
-  if (!error.response) return '서버에 연결할 수 없습니다. Backend 실행 상태를 확인해주세요.';
+  if (error.code == 'ECONNABORTED') {return 'AI 추천 분석 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.';}
+  if (!error.response) {return '서버에 연결할 수 없습니다. Backend 실행 상태를 확인해주세요.';}
   return '요청을 처리하지 못했습니다.';
 }
 
@@ -160,11 +162,27 @@ export async function leaveTeam(teamId: number): Promise<void> {
   await api.delete(`/challenges/teams/${teamId}/leave`);
 }
 
-export async function getTeamRecommendations(teamId: number, topK = 5): Promise<TeamRecommendationResult> {
-  const response = await api.get<TeamRecommendationResult | APIEnvelope<TeamRecommendationResult>>(
+export async function getTeamRecommendations(
+  teamId: number,
+  topK = 5,
+  excludedUserIds: number[] = [],
+): Promise<TeamRecommendationResult> {
+  const response = await api.get<
+    TeamRecommendationResult | APIEnvelope<TeamRecommendationResult>
+  >(
     `/challenges/teams/${teamId}/recommendations`,
-    { params: { top_k: topK } },
+    {
+      params: {
+        top_k: topK,
+        excluded_user_ids:
+          excludedUserIds.length > 0
+            ? excludedUserIds.join(',')
+            : undefined,
+      },
+      timeout: 60000,
+    },
   );
+
   return unwrap(response.data);
 }
 

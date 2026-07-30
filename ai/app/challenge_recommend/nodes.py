@@ -213,6 +213,7 @@ def build_rule_based_reason(
         user_id=candidate.user_id,
         recommendation_reason=reason_text,
         highlights=highlights,
+        reason_source="FALLBACK",
     )
 
 
@@ -366,7 +367,9 @@ def _validate_generated_reasons(
             )
             continue
 
-        valid_reason_by_user_id[user_id] = reason
+        valid_reason_by_user_id[user_id] = reason.model_copy(
+            update={"reason_source": "LLM"}
+        )
 
     normalized_reasons: list[CandidateRecommendationReason] = []
     fallback_count = 0
@@ -563,6 +566,7 @@ def build_recommendations_node(
                     "recommendation_reason": (
                         reason.recommendation_reason
                     ),
+                    "reason_source": reason.reason_source,
                     "rank": rank,
                 }
             )

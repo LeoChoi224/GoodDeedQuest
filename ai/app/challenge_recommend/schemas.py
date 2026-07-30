@@ -33,7 +33,7 @@ from __future__ import annotations
 #    - 현재 requirements.txt의 Pydantic v2 문법을 기준으로 작성했습니다.
 # =========================================================
 
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -401,7 +401,7 @@ class TeamRecommendationRequest(RecommendationSchema):
     top_k: int = Field(
         default=5,
         ge=1,
-        le=20,
+        le=5,
         description="최종 추천 결과 수",
     )
 
@@ -543,7 +543,12 @@ class CandidateRecommendationReason(RecommendationSchema):
         ...,
         min_length=1,
         max_length=500,
-        description="LLM이 생성한 추천 이유",
+        description="후보 사용자 추천 이유",
+    )
+
+    reason_source: Literal["LLM", "FALLBACK"] = Field(
+        default="LLM",
+        description="추천 이유 생성 출처",
     )
 
     # 선택적으로 화면에 표시하거나 로그에서 활용할 핵심 근거입니다.
@@ -587,6 +592,11 @@ class RecommendationResult(ScoredRecommendationCandidate):
         description="후보 사용자 추천 이유",
     )
 
+    reason_source: Literal["LLM", "FALLBACK"] = Field(
+        default="FALLBACK",
+        description="최종 추천 이유 생성 출처",
+    )
+
     # 추천 목록에서의 순위입니다.
     rank: int = Field(
         ...,
@@ -622,7 +632,7 @@ class TeamRecommendationResponse(RecommendationSchema):
     requested_top_k: int = Field(
         ...,
         ge=1,
-        le=20,
+        le=5,
         description="요청된 추천 결과 수",
     )
 

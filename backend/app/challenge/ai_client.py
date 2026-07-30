@@ -41,7 +41,7 @@ CHALLENGE_RECOMMENDATION_PATH = "/ai/challenge/recommend"
 # AI 추천 호출에 사용할 세부 Timeout 설정입니다.
 CHALLENGE_RECOMMENDATION_TIMEOUT = httpx.Timeout(
     connect=3.0,
-    read=30.0,
+    read=45.0,
     write=10.0,
     pool=5.0,
 )
