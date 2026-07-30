@@ -76,3 +76,25 @@ export async function getRegionRanking(regionId: number): Promise<RegionRankingR
   }
   return response.data.data;
 }
+
+export type VolunteerCenter = {
+  center_id: number;
+  region_id: number;
+  vol_name: string | null;
+  vol_address: string | null;
+  vol_title: string | null;
+  target: string | null;
+  vms_url: string | null;
+  vol_qual: string | null;
+  vol_act: string | null;
+  vol_date: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  updated_at: string;
+};
+
+/** 내 주변 봉사센터 조회 (VolSearchScreen). VMS 크롤링 데이터라 "봉사" 전용, "선행" 데이터 소스는 아직 없음. */
+export async function getNearbyVolunteerCenters(lat: number, lng: number, radiusKm = 3): Promise<VolunteerCenter[]> {
+  const response = await api.get('/map/volunteer-centers', { params: { lat, lng, radius_km: radiusKm } });
+  return response.data.data ?? [];
+}

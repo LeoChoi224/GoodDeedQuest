@@ -35,6 +35,7 @@ class VolunteerCenterResponse(BaseModel):
     region_id: int
     vol_name: Optional[str]
     vol_address: Optional[str]
+    vol_title: Optional[str]
     target: Optional[str]
     vms_url: Optional[str]
     vol_qual: Optional[str]
@@ -203,4 +204,3 @@ class CompetitionContributionResponse(BaseModel):
         return fmt_datetime(dt)
  
     model_config = ConfigDict(from_attributes=True)
- 
