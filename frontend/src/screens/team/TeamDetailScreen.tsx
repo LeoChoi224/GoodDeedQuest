@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, View, Text, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -56,7 +56,51 @@ export default function TeamDetailScreen({ navigation, route }: any) {
   const [joining, setJoining] = useState(false);
   const [reloading, setReloading] = useState(false);
 
+  const [recommendationLoadingText, setRecommendationLoadingText] = useState(
+    '추천 후보 데이터를 분석하고 있어요...',
+  );
+
+  const recommendationLoadingTimers = useRef<
+    Array<ReturnType<typeof setTimeout>>
+  >([]);
+
   const popupW = Math.min(360, width - 48);
+
+  const clearRecommendationLoadingTimers = useCallback(() => {
+    recommendationLoadingTimers.current.forEach((timer) => {
+      clearTimeout(timer);
+    });
+
+    recommendationLoadingTimers.current = [];
+  }, []);
+
+  const startRecommendationLoading = useCallback(() => {
+    clearRecommendationLoadingTimers();
+
+    setRecommendationLoadingText(
+      '추천 후보 데이터를 분석하고 있어요...',
+    );
+
+    recommendationLoadingTimers.current = [
+      setTimeout(() => {
+        setRecommendationLoadingText(
+          '적합도와 추천 순위를 계산하고 있어요...',
+        );
+      }, 2500),
+
+      setTimeout(() => {
+        setRecommendationLoadingText(
+          '후보별 추천 이유를 생성하고 있어요...',
+        );
+      }, 7000),
+    ];
+  }, [clearRecommendationLoadingTimers]);
+
+  useEffect(() => {
+    return () => {
+      clearRecommendationLoadingTimers();
+    };
+  }, [clearRecommendationLoadingTimers]);
 
   const load = useCallback(async () => {
     if (!Number.isInteger(teamId) || teamId <= 0) {
@@ -87,6 +131,28 @@ export default function TeamDetailScreen({ navigation, route }: any) {
   const leader = useMemo(() => members.find((member) => member.role_in_team === 'LEADER'), [members]);
   const normalMembers = useMemo(() => members.filter((member) => member.role_in_team !== 'LEADER'), [members]);
 
+  const recommendationSourceSummary = useMemo(() => {
+    if (recommendations.length === 0) {
+      return '규칙 기반 점수와 추천 이유를 함께 확인할 수 있습니다.';
+    }
+
+    const llmReasonCount = recommendations.filter(
+      (user) => user.reason_source === 'LLM',
+    ).length;
+
+    if (llmReasonCount === recommendations.length) {
+      return 'LLM이 후보별 추천 이유를 생성했습니다.';
+    }
+
+    if (llmReasonCount === 0) {
+      return 'LLM을 사용할 수 없어 규칙 기반 추천 이유로 대체했습니다.';
+    }
+
+    const fallbackCount = recommendations.length - llmReasonCount;
+
+    return `${fallbackCount}개의 추천 이유가 규칙 기반으로 대체되었습니다.`;
+  }, [recommendations]);
+
   const onJoin = async () => {
     setJoining(true);
     try {
@@ -112,15 +178,37 @@ export default function TeamDetailScreen({ navigation, route }: any) {
   };
 
   const loadRecommendations = async () => {
+    if (reloading) return;
+
+    const previousRecommendedUserIds = recommendations
+      .map((user) => user.user_id)
+      .slice(0, 5);
+
+    startRecommendationLoading();
     setReloading(true);
+
     try {
-      const result = await getTeamRecommendations(teamId, 10);
+      const result = await getTeamRecommendations(
+        teamId,
+        5,
+        previousRecommendedUserIds,
+      );
+
       setRecommendations(result.recommendations);
       setView('recommend');
-      if (result.warnings.length) toast.show(result.warnings[0]);
+
+      if (result.warnings?.length) {
+        toast.show(result.warnings[0]);
+      }
     } catch (error) {
       toast.show(getChallengeErrorMessage(error));
     } finally {
+      clearRecommendationLoadingTimers();
+
+      setRecommendationLoadingText(
+        '추천 후보 데이터를 분석하고 있어요...',
+      );
+
       setReloading(false);
     }
   };
@@ -147,6 +235,24 @@ export default function TeamDetailScreen({ navigation, route }: any) {
       <HazeBackground />
       <MainHeader showBack title={view === 'detail' ? '팀 상세' : 'AI 유저 추천'} onBack={() => view === 'recommend' ? setView('detail') : navigation.goBack()} />
 
+      {reloading ? (
+        <View style={styles.aiLoadingCard}>
+          <ActivityIndicator
+            size="small"
+            color={colors.primaryDark}
+          />
+
+          <View style={styles.aiLoadingContent}>
+            <Text style={styles.aiLoadingTitle}>
+              AI 추천 분석 중
+            </Text>
+
+            <Text style={styles.aiLoadingText}>
+              {recommendationLoadingText}
+            </Text>
+          </View>
+        </View>
+      ) : null}
       {view === 'detail' ? <>
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           {team ? <>
@@ -182,7 +288,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
           {!isMember ? <SpringButton disabled={joining} style={[styles.footBtn, styles.joinBtn]} onPress={() => void onJoin()}>
             <Text style={[styles.footText, { color: colors.white }]}>{joining ? '참가 중...' : '팀 참가하기'}</Text>
           </SpringButton> : <>
-            <SpringButton style={[styles.footBtn, styles.inviteBtn]} onPress={() => void loadRecommendations()}>
+            <SpringButton disabled={reloading} style={[styles.footBtn, styles.inviteBtn]} onPress={() => void loadRecommendations()}>
               <Text style={[styles.footText, { color: colors.white }]}>{reloading ? '분석 중...' : 'AI 유저 추천'}</Text>
             </SpringButton>
             <SpringButton style={[styles.footBtn, styles.leaveBtn]} onPress={() => setConfirmLeave(true)}>
@@ -193,7 +299,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
       </> : <>
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           <PixelTitle size={18}>챌린지팀 유저 추천 리스트</PixelTitle>
-          <Text style={styles.recSub}>규칙 기반 점수와 AI 추천 이유를 함께 확인할 수 있습니다.</Text>
+          <Text style={styles.recSub}>{recommendationSourceSummary}</Text>
           <SearchSortBar placeholder="추천 결과" sortLabel="점수순" />
           {recommendations.length === 0 ? <EmptyState icon="🤖" message="추천 가능한 사용자가 없어요" /> : <View style={{ gap: 10 }}>
             {recommendations.map((user, i) => (
@@ -202,6 +308,10 @@ export default function TeamDetailScreen({ navigation, route }: any) {
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.userName}>#{user.rank} {user.nickname ?? `사용자 ${user.user_id}`}</Text>
                   <Text style={styles.score}>{user.score.total_score.toFixed(1)}점 · LV.{user.current_level}</Text>
+                  <View style={[styles.reasonBadge, user.reason_source === 'LLM'? styles.llmReasonBadge: styles.fallbackReasonBadge]}>
+                    <Text style={[styles.reasonBadgeText, user.reason_source === 'LLM'? styles.llmReasonBadgeText: styles.fallbackReasonBadgeText]}>
+                      {user.reason_source === 'LLM'? 'LLM 생성 이유': '규칙 기반 대체'}</Text>
+                  </View>
                   <Text style={styles.userInfo}>{user.recommendation_reason}</Text>
                 </View>
                 <SpringButton style={styles.userInviteBtn} onPress={() => setConfirmUser(user)}><Text style={styles.userInviteText}>초대</Text></SpringButton>
@@ -231,6 +341,10 @@ export default function TeamDetailScreen({ navigation, route }: any) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.screenBg },
   loading: { textAlign: 'center', marginTop: 80, color: colors.textMuted, fontFamily: fonts.bodyR },
+  aiLoadingCard: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginTop: 12, padding: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 12 },
+  aiLoadingContent: { flex: 1 },
+  aiLoadingTitle: { fontSize: 13, color: colors.primaryDark, fontFamily: fonts.bodyB },
+  aiLoadingText: { marginTop: 2, fontSize: 12, color: colors.textSecondary, fontFamily: fonts.bodyR },
   body: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 140 },
   notice: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.parchment, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 8, padding: 12, marginBottom: 14 },
   noticeText: { flex: 1, fontSize: 13, color: colors.primaryDark, fontFamily: fonts.bodyR },
@@ -255,6 +369,12 @@ const styles = StyleSheet.create({
   userCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 12, padding: 12 },
   userName: { fontSize: 15, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
   score: { fontSize: 12, color: colors.gold, fontFamily: fonts.bodyB, marginTop: 2 },
+  reasonBadge: { alignSelf: 'flex-start', marginTop: 5, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderRadius: 999 },
+  llmReasonBadge: { backgroundColor: colors.primaryDark, borderColor: colors.primaryDark },
+  fallbackReasonBadge: { backgroundColor: colors.parchment, borderColor: colors.gold },
+  reasonBadgeText: { fontSize: 10, fontFamily: fonts.bodyB },
+  llmReasonBadgeText: { color: colors.white },
+  fallbackReasonBadgeText: { color: colors.primaryDark },
   userInfo: { fontSize: 12, color: INFO, fontFamily: fonts.bodyR, marginTop: 3 },
   userInviteBtn: { backgroundColor: colors.xpGreen, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   userInviteText: { fontFamily: fonts.pixel, fontSize: 12, color: colors.white },

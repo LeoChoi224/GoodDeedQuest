@@ -511,6 +511,11 @@ class TeamRecommendedUserResponse(BaseModel):
         description="사용자 추천 이유",
     )
 
+    reason_source: Literal["LLM", "FALLBACK"] = Field(
+        default="FALLBACK",
+        description="추천 이유 생성 출처",
+    )
+
     rank: int = Field(
         ...,
         ge=1,
@@ -545,7 +550,7 @@ class TeamRecommendationResponse(BaseModel):
     requested_top_k: int = Field(
         ...,
         ge=1,
-        le=20,
+        le=5,
         description="요청한 최대 추천 사용자 수",
     )
 
