@@ -296,7 +296,7 @@ def queue_shortform_generation(
 # stateless이며 DB에 쓰기 작업을 하지 않는다 (조회는 필요 시에만 수행).
 # ---------------------------------------------------------------------------
 
-AI_SCRIPT_GENERATE_TIMEOUT_SECONDS = 30.0
+AI_SCRIPT_GENERATE_TIMEOUT_SECONDS = 60.0  # ⭐ 수정: Gemini 할당량 초과 시 OpenAI 폴백까지 걸리는 시간을 감안해 30 → 60초로 상향
 MAX_CAPTION_COUNT = 20          # 30초 영상 기준 상한 (자막이 너무 많으면 화면이 복잡해짐 방지)
 MAX_CAPTION_TEXT_LENGTH = 40    # 9:16 세로 화면에서 한 줄로 표시 가능한 대략적인 글자 수 상한
 
