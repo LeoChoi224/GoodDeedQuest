@@ -23,6 +23,8 @@ import Animated, {
   cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEvent } from 'expo';
 import { colors, fonts } from '../../theme';
 import GamePopup from '../../components/GamePopup';
 import BottomSheet from '../../components/BottomSheet';
@@ -293,33 +295,52 @@ const ai = StyleSheet.create({
 });
 
 /* ------------------------------------------------ 음악 preview inline bar */
-// TODO: 실제 오디오 미리듣기 미구현 - BackgroundMusic.preview_url로 재생 붙이기 (현재는 애니메이션만).
-function PreviewBar({ name, initPlaying = true }: { name: string; initPlaying?: boolean }) {
-  const [playing, setPlaying] = useState(initPlaying);
-  const p = useSharedValue(0.12);
+// BackgroundMusic.preview_url(presigned URL)을 expo-video 플레이어로 재생한다.
+// VideoView는 렌더링하지 않고(오디오만 필요) player 인스턴스만 붙여서 소리를 낸다.
+function PreviewBar({ name, previewUrl }: { name: string; previewUrl: string | null }) {
+  // player 정지는 별도 effect로 직접 호출하지 않는다 - useVideoPlayer가 컴포넌트
+  // unmount 시 내부적으로 이미 player를 release하는데, 여기서 또 pause()를 부르면
+  // "shared object that was already released" 네이티브 크래시로 이어진다.
+  // PreviewBar는 트랙 전환/시트 닫힘 시 조건부 렌더링으로 unmount되므로, 그 자체로 정지된다.
+  const player = useVideoPlayer(previewUrl, (p) => {
+    p.loop = true;
+    p.timeUpdateEventInterval = 0.25;
+    if (previewUrl) p.play();
+  });
 
-  useEffect(() => {
-    if (playing) {
-      p.value = 0.12;
-      p.value = withRepeat(withTiming(0.72, { duration: 3000, easing: Easing.linear }), -1, false);
-    } else {
-      cancelAnimation(p);
-    }
-    return () => cancelAnimation(p);
-  }, [playing]);
+  const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
+  const { currentTime } = useEvent(player, 'timeUpdate', {
+    currentTime: player.currentTime,
+    currentLiveTimestamp: null,
+    currentOffsetFromLive: null,
+    bufferedPosition: 0,
+  });
 
-  const fill = useAnimatedStyle(() => ({ width: `${p.value * 100}%` }));
+  const duration = player.duration || 0;
+  const progress = duration > 0 ? Math.min(currentTime / duration, 1) : 0;
+
+  if (!previewUrl) {
+    return (
+      <View style={ms.preview}>
+        <Text style={ms.previewName}>이 트랙은 미리듣기를 지원하지 않습니다.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={ms.preview}>
       <View style={{ flex: 1 }}>
         <Text style={ms.previewName}>{name}</Text>
         <View style={ms.progTrack}>
-          <Animated.View style={[ms.progFill, fill]} />
+          <View style={[ms.progFill, { width: `${progress * 100}%` }]} />
         </View>
       </View>
-      <SpringButton onPress={() => setPlaying((v) => !v)} style={ms.playBtn} pressScale={0.9}>
-        {playing ? <PauseBars /> : <PlayTri />}
+      <SpringButton
+        onPress={() => (isPlaying ? player.pause() : player.play())}
+        style={ms.playBtn}
+        pressScale={0.9}
+      >
+        {isPlaying ? <PauseBars /> : <PlayTri />}
       </SpringButton>
     </View>
   );
@@ -349,7 +370,12 @@ export function MusicSheet({
   // 시트를 열 때마다 전체 목록을 다시 받아와 트랙 + mood_tag 카테고리 칩을 구성한다.
   // (이전에 특정 카테고리로 필터링한 채 닫았어도 다음에 열면 '전체'로 리셋)
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      // 시트를 닫아도 BottomSheet의 Modal은 visible prop만 바뀔 뿐 자식은 계속 마운트돼
+      // 있으므로, 재생 중이던 미리듣기가 있으면 여기서 명시적으로 정지시켜야 한다.
+      setOpen(null);
+      return;
+    }
     skipFirstFetch.current = true;
     setCat(0);
     let mounted = true;
@@ -474,7 +500,7 @@ export function MusicSheet({
                       </View>
                     ) : null}
                   </Pressable>
-                  {open === i ? <PreviewBar name={t.title} /> : null}
+                  {open === i ? <PreviewBar name={t.title} previewUrl={t.preview_url} /> : null}
                 </View>
               );
             })}

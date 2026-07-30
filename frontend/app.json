@@ -32,7 +32,14 @@
       "expo-secure-store",
       "@react-native-community/datetimepicker",
       "expo-web-browser",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "생성한 숏폼 영상을 사진 앱에 저장하기 위해 접근 권한이 필요합니다.",
+          "savePhotosPermission": "생성한 숏폼 영상을 사진 앱에 저장하기 위해 접근 권한이 필요합니다."
+        }
+      ]
     ],
     "extra": {
       "eas": {
