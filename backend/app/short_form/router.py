@@ -5,7 +5,7 @@ backend/app/short_form/router.py
 service.py 함수들을 실제 엔드포인트로 노출한다.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import NoResultFound  # service.py의 .one() 조회 실패 시 발생 -> 여기서 404로 변환
 
@@ -21,6 +21,7 @@ from backend.app.short_form.schemas import (
     ScriptGenerateResponse,
     ScriptUpdateRequest,
     ShortFormStatusRead,
+    EligibleMediaItem,
 )
 from backend.app.short_form.service import (
     create_shortform,
@@ -28,11 +29,29 @@ from backend.app.short_form.service import (
     validate_edited_captions,
     queue_shortform_generation,
     get_shortform_status,
+    get_eligible_media,
 )
 
 # prefix="/shortforms" -> 아래 모든 엔드포인트 경로 앞에 자동으로 붙음 (예: POST /shortforms)
 # tags=["ShortForm"] -> Swagger(/docs) 문서에서 그룹으로 묶여서 표시됨
 router = APIRouter(prefix="/shortforms", tags=["ShortForm"])
+
+
+@router.get("/eligible-media", response_model=list[EligibleMediaItem])
+def get_eligible_media_endpoint(
+    skip: int = Query(default=0, ge=0, description="건너뛸 인증 이미지 수"),
+    limit: int = Query(default=20, ge=1, le=100, description="조회할 인증 이미지 수"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+):
+    """
+    사진 선택 화면(그리드)에서 숏폼 소재로 고를 수 있는 인증 이미지 목록 조회.
+
+    최근 30일 내 승인(ACCEPTED)된 QuestSubmission만 반환한다. media_url은
+    썸네일 표시용 presigned URL, media_s3_key는 이후 /shortforms 생성 요청에
+    그대로 넘길 원본 S3 key다.
+    """
+    return get_eligible_media(db, current_user.user_id, skip=skip, limit=limit)
 
 
 @router.post("", response_model=ShortFormRead, status_code=status.HTTP_201_CREATED)
