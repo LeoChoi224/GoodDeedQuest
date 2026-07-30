@@ -24,8 +24,7 @@ import boto3
 from langchain_core.messages import HumanMessage
 
 from ..state import ShortFormState, VisionAnalysisResult
-from ...common.config import settings
-from ...common.llm import get_gemini_model
+from ...common.vision_fallback import invoke_vision_with_fallback  # ⭐ 수정
 
 # TODO: ai/app/common 에 S3 client가 추가되면 그걸 재사용하도록 교체
 S3_BUCKET = os.getenv("S3_BUCKET_NAME")
@@ -101,26 +100,7 @@ def _call_gemini_vision(local_path: str, media_key: str):
         ]
     )
 
-    model = get_gemini_model(model_name=settings.DEFAULT_VISION_MODEL)
-    response = model.invoke([message])
-    return response
-
-
-def _extract_text_from_content(content) -> str:
-    """response.content가 str이거나, [{'type': 'text', 'text': '...'}] 형태의 리스트일 수 있음.
-    두 경우 모두 처리해서 순수 텍스트만 반환."""
-    if isinstance(content, str):
-        return content
-
-    if isinstance(content, list):
-        texts = [
-            block.get("text", "")
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
-        ]
-        return "\n".join(texts)
-
-    return str(content)
+    return invoke_vision_with_fallback(message.content)  # ⭐ 수정: Gemini 할당량 초과 시 OpenAI로 폴백, 정규화된 텍스트 반환
 
 
 def _parse_vision_response(raw_content: str, media_key: str) -> VisionAnalysisResult | None:
@@ -175,12 +155,11 @@ def vision_agent(state: ShortFormState) -> ShortFormState:
         local_path = None
         try:
             local_path = _download_media_from_s3(media_key)
-            response = _call_gemini_vision(local_path, media_key)
+            response_text = _call_gemini_vision(local_path, media_key)  # ⭐ 수정: 이미 정규화된 텍스트 반환
 
-            if response is not None:
-                print(f"[VisionAgent] raw response for {media_key}:\n{response.content}")
-                response_text = _extract_text_from_content(response.content)
-                parsed_result = _parse_vision_response(response_text, media_key)
+            if response_text is not None:
+                print(f"[VisionAgent] raw response for {media_key}:\n{response_text}")  # ⭐ 수정
+                parsed_result = _parse_vision_response(response_text, media_key)  # ⭐ 수정: _extract_text_from_content 제거(정규화가 헬퍼 내부로 이동)
                 if parsed_result is not None:
                     vision_results.append(parsed_result)
 
