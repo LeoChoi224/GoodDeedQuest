@@ -47,6 +47,24 @@ class BackgroundMusicList(BaseModel):
 
 
 # ─────────────────────────────────────────────
+# 사진 선택 화면 - 숏폼 소재로 쓸 수 있는 인증 이미지 스키마
+# ─────────────────────────────────────────────
+class EligibleMediaItem(BaseModel):
+    """숏폼 사진 선택 화면(그리드)에서 사용하는 승인된 퀘스트 인증 이미지 응답 항목"""
+    submission_id: int
+    quest_id: int
+    media_url: Optional[str] = Field(
+        default=None,
+        description="썸네일 표시용 presigned URL (조회마다 새로 발급)",
+    )
+    media_s3_key: Optional[str] = Field(
+        default=None,
+        description="숏폼 생성 요청(selected_media_s3_keys 등)에 그대로 사용할 원본 S3 key",
+    )
+    submitted_at: datetime
+
+
+# ─────────────────────────────────────────────
 # AI 대본(캡션) 생성 팝업 관련 스키마 (이슈 #6 핵심)
 # ─────────────────────────────────────────────
 class CaptionItem(BaseModel):

@@ -24,7 +24,7 @@ from __future__ import annotations
 #      세부 권한과 팀 상태는 ChallengeRecommendationService가 검증합니다.
 #
 # 3. AI 추천 API
-#    - top_k는 1명 이상 20명 이하로 제한합니다.
+#    - top_k는 1명 이상 5명 이하로 제한합니다.
 #    - AI 추천 결과는 TeamRecommendationResponse로 검증해 반환합니다.
 #    - 추천 결과의 user_id는 기존 POST /challenges/invites 요청에 사용합니다.
 #
@@ -376,9 +376,20 @@ def get_team_member_recommendations(
     top_k: int = Query(
         default=5,
         ge=1,
-        le=20,
+        le=5,
         description="반환할 최대 추천 사용자 수",
     ),
+
+    # 직전 추천 결과에서 제외할 사용자 ID를 쉼표로 구분해 전달.
+    excluded_user_ids: str | None = Query(
+        default=None,
+        pattern=r"^[1-9]\d*(,[1-9]\d*){0,4}$",
+        description=(
+            "직전 추천 결과에서 제외할 사용자 ID. "
+            "쉼표로 구분하며 최대 5명까지 전달합니다."
+        ),
+    ),
+
 
     session: Session = Depends(get_db),
 
@@ -389,6 +400,16 @@ def get_team_member_recommendations(
 ) -> APIResponse[TeamRecommendationResponse]:
     """팀장이 현재 팀에 적합한 사용자 추천 목록을 조회합니다."""
 
+    # "3,7,12" 형식의 Query 값을 정수 ID 목록으로 변환.
+    parsed_excluded_user_ids = (
+        [
+            int(user_id)
+            for user_id in excluded_user_ids.split(",")
+        ]
+        if excluded_user_ids
+        else []
+    )
+
     # 후보 조회부터 AI 서버 호출까지의 추천 흐름을 Service에 요청.
     recommendations = (
         ChallengeRecommendationService
@@ -397,6 +418,7 @@ def get_team_member_recommendations(
             team_id=team_id,
             current_user=current_user,
             top_k=top_k,
+            excluded_user_ids=parsed_excluded_user_ids,
         )
     )
 

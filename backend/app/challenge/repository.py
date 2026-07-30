@@ -806,9 +806,9 @@ class ChallengeRecommendationRepository:
                 Team.team_id == team_id,
             )
             .group_by(
-                Team,
-                Quest,
-                Category,
+                Team.team_id,
+                Quest.quest_id,
+                Category.category_id,
             )
         )
 

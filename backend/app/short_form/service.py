@@ -14,7 +14,7 @@ backend/app/short_form/service.py
 - AI 대본 생성 팝업 플로우: 대본 생성 / 수정 검증
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -29,6 +29,7 @@ from backend.app.short_form.schemas import (
     ScriptUpdateRequest,
     ShortFormStatusRead,
     CaptionItem,
+    EligibleMediaItem,
 )
 
 from backend.app.common.config import get_setting  # DATABASE_URL, AI_SERVICE_URL 등 환경설정 (.env 기반)
@@ -37,6 +38,12 @@ from backend.app.common.s3_client import (
     generate_download_presigned_url,
 )  # S3 presigned URL 발급 함수 (공용 모듈로 분리됨 - 다른 도메인도 재사용)
 
+# 사진 선택 화면용 인증 이미지 조회 대상 테이블. community 도메인과 조회 대상은
+# 같지만 용도(숏폼 소재 선택)가 달라 쿼리 로직은 이 도메인 안에서 독립적으로 작성한다
+# (community.repository의 함수를 import해서 재사용하지 않음).
+from backend.app.quest_verification.enums import SubmissionStatus
+from backend.app.quest_verification.models import QuestSubmission
+
 from backend.app.short_form.tasks import render_shortform_task  # Celery task, tasks.py에 정의 가정
 
 # ⭐ 수정: uuid import 제거 (shorts_id는 autoincrement라 더 이상 수동 생성 안 함)
@@ -44,6 +51,66 @@ from backend.app.short_form.tasks import render_shortform_task  # Celery task, t
 # ⭐ 수정: settings 미정의(NameError) 수정 - get_setting()만 import하고 settings.AI_SERVICE_URL로
 # 참조하던 버그. 모듈 레벨에서 한 번 호출해서 settings로 바인딩.
 settings = get_setting()
+
+# ---------------------------------------------------------------------------
+# 사진 선택 화면 - 숏폼 소재로 쓸 수 있는 인증 이미지 조회
+#
+# community 도메인의 GET /community/quest-submissions/recent와 조회 대상
+# 테이블(QuestSubmission)은 같지만, 커뮤니티 게시글 작성용과 숏폼 소재 선택용은
+# 목적이 다르고 향후 응답 형태가 갈라질 수 있어 독립적인 쿼리로 분리해둔다.
+# ---------------------------------------------------------------------------
+
+ELIGIBLE_MEDIA_MAX_DAYS = 30  # ScriptGenerateRequest.selected_media_s3_keys 문서상 "최대 30일치"와 동일한 기준
+
+
+def get_eligible_media(
+    db: Session,
+    user_id: int,
+    skip: int = 0,
+    limit: int = 20,
+) -> list[EligibleMediaItem]:
+    """
+    사진 선택 화면(그리드)에서 숏폼 소재로 고를 수 있는, 최근 30일 내
+    승인된 퀘스트 인증 이미지 목록을 반환한다.
+
+    media_url은 썸네일 표시용으로 매 조회마다 즉석에서 발급하는 presigned URL,
+    media_s3_key는 이후 /shortforms 생성 요청(selected_media_s3_keys)에
+    그대로 넘길 원본 S3 key다.
+    """
+    submitted_after = datetime.now(timezone.utc) - timedelta(days=ELIGIBLE_MEDIA_MAX_DAYS)
+
+    submissions = (
+        db.query(QuestSubmission)
+        .filter(
+            QuestSubmission.user_id == user_id,
+            QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
+            QuestSubmission.submitted_at >= submitted_after,
+        )
+        .order_by(
+            QuestSubmission.submitted_at.desc(),
+            QuestSubmission.submission_id.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        EligibleMediaItem(
+            submission_id=submission.submission_id,
+            quest_id=submission.quest_id,
+            media_url=(
+                generate_download_presigned_url(submission.media_url)
+                if submission.media_url
+                else None
+            ),
+            media_s3_key=submission.media_url,
+            submitted_at=submission.submitted_at,
+        )
+        for submission in submissions
+    ]
+
+
 # ---------------------------------------------------------------------------
 # BGM 자동 매칭 (RAG) - 자동 생성 경로 전용
 # ---------------------------------------------------------------------------
@@ -229,7 +296,7 @@ def queue_shortform_generation(
 # stateless이며 DB에 쓰기 작업을 하지 않는다 (조회는 필요 시에만 수행).
 # ---------------------------------------------------------------------------
 
-AI_SCRIPT_GENERATE_TIMEOUT_SECONDS = 30.0
+AI_SCRIPT_GENERATE_TIMEOUT_SECONDS = 60.0  # ⭐ 수정: Gemini 할당량 초과 시 OpenAI 폴백까지 걸리는 시간을 감안해 30 → 60초로 상향
 MAX_CAPTION_COUNT = 20          # 30초 영상 기준 상한 (자막이 너무 많으면 화면이 복잡해짐 방지)
 MAX_CAPTION_TEXT_LENGTH = 40    # 9:16 세로 화면에서 한 줄로 표시 가능한 대략적인 글자 수 상한
 

@@ -23,11 +23,22 @@ import Animated, {
   cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEvent } from 'expo';
 import { colors, fonts } from '../../theme';
 import GamePopup from '../../components/GamePopup';
 import BottomSheet from '../../components/BottomSheet';
 import SpringButton from '../../components/SpringButton';
 import Shimmer from '../../components/Shimmer';
+import { useToast } from '../../components/Toast';
+import {
+  generateScript,
+  updateScript,
+  getBackgroundMusicList,
+  CaptionItem,
+  ScriptGenerateResult,
+  BackgroundMusic,
+} from '../../api/shortform';
 
 /* ----------------------------------------------------------------- palette */
 // Dark music-sheet surface (design linear-gradient #0C4249→#052024, approximated solid).
@@ -88,41 +99,114 @@ const spStyles = StyleSheet.create({
 });
 
 /* ----------------------------------------------------- AI 대본 popup (dark) */
-const SCRIPT_DEFAULT =
-  '오늘도 우리 동네 골목을 깨끗하게 만들었어요.\n작은 손길이 모여 큰 변화를 만듭니다.\n당신의 선행이 세상을 바꿉니다. 🌱';
-const SCRIPT_GENERATED =
-  '작은 실천이 모여 우리 동네가 환해졌어요.\n오늘의 선행이 내일의 희망이 됩니다.\n함께라서 더 빛나는 하루였어요. 🌱';
-const SCRIPT_OPTIMAL =
-  '매일의 작은 선행이 세상을 바꿉니다.\n오늘도 따뜻한 마음을 나눴어요.\n당신의 하루가 누군가에겐 큰 힘이 됩니다. ✨';
+// captions(항목별 자막 배열) <-> 편집용 단일 textarea 사이 변환.
+// 줄 수가 안 맞아도 원본 CaptionItem의 media_s3_key/order는 그대로 유지하고 caption 텍스트만 갈아끼운다.
+function captionsToText(captions: CaptionItem[]): string {
+  return captions
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((c) => c.caption)
+    .join('\n');
+}
+function textToCaptions(text: string, original: CaptionItem[]): CaptionItem[] {
+  const lines = text.split('\n');
+  return original.map((c, i) => ({ ...c, caption: (lines[i] ?? c.caption).slice(0, 200) }));
+}
 
-export function AiScriptPopup({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+export function AiScriptPopup({
+  visible,
+  onClose,
+  shortsId,
+  mediaKeys,
+  questTitleResolver,
+  onConfirmed,
+  onAutoGenerate,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  shortsId: number | null;
+  mediaKeys: string[];
+  questTitleResolver: () => Promise<string>;
+  onConfirmed: (result: ScriptGenerateResult) => void;
+  /** "자동 생성" - 대본 생성뿐 아니라 음악 자동 매칭 + 숏폼 생성 화면 이동까지 부모가 전부 처리한다. */
+  onAutoGenerate: () => Promise<void>;
+}) {
   const { width } = useWindowDimensions();
-  const [text, setText] = useState(SCRIPT_DEFAULT);
+  const toast = useToast();
+  const [text, setText] = useState('');
+  const [title, setTitle] = useState('');
+  const [captions, setCaptions] = useState<CaptionItem[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [closing, setClosing] = useState(false);
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-
-  const close = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setLoading(false);
-    onClose();
+  const runGenerate = async (): Promise<ScriptGenerateResult | null> => {
+    if (shortsId == null || mediaKeys.length === 0) {
+      toast.show('사진을 먼저 선택해주세요.');
+      return null;
+    }
+    setLoading(true);
+    try {
+      const questTitle = await questTitleResolver();
+      const result = await generateScript(shortsId, mediaKeys, questTitle);
+      setCaptions(result.captions);
+      setTitle(result.title);
+      setText(captionsToText(result.captions));
+      return result;
+    } catch (error) {
+      console.error('AI 대본 생성 실패:', error);
+      toast.show('AI 대본 생성에 실패했습니다.');
+      return null;
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onGenerate = () => {
-    // LLM Story Agent 호출 → 로딩(shimmer) 후 표시
-    setLoading(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      setText(SCRIPT_GENERATED);
-      setLoading(false);
-    }, 1200);
+    runGenerate();
   };
 
-  const onAuto = () => {
-    // 최적 대본 자동 삽입 후 닫힘
-    setText(SCRIPT_OPTIMAL);
-    close();
+  // 대본을 팝업에서 보여주지 않고, 대본+음악 자동 매칭+숏폼 생성까지 부모가 한 번에 처리한다.
+  const onAuto = async () => {
+    if (mediaKeys.length === 0) {
+      toast.show('사진을 먼저 선택해주세요.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await onAutoGenerate();
+    } catch (error) {
+      console.error('자동 생성 실패:', error);
+      toast.show('자동 생성에 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 사용자가 캡션을 수정했으면 닫히기 전에 검증(stateless)부터 통과시킨다 - 실패하면 닫지 않는다.
+  const close = async () => {
+    if (!captions) {
+      onClose();
+      return;
+    }
+    const edited = textToCaptions(text, captions);
+    const changed = edited.some((c, i) => c.caption !== captions[i].caption);
+    if (!changed) {
+      onConfirmed({ shorts_id: shortsId as number, status: 'PENDING', title, captions });
+      onClose();
+      return;
+    }
+    try {
+      setClosing(true);
+      const validated = await updateScript(shortsId as number, title, edited);
+      setCaptions(validated.captions);
+      onConfirmed(validated);
+      onClose();
+    } catch (error: any) {
+      const message = error?.response?.data?.detail ?? '수정한 대본 검증에 실패했습니다.';
+      toast.show(message);
+    } finally {
+      setClosing(false);
+    }
   };
 
   return (
@@ -148,20 +232,23 @@ export function AiScriptPopup({ visible, onClose }: { visible: boolean; onClose:
             onChangeText={setText}
             multiline
             textAlignVertical="top"
+            placeholder="'생성하기'를 눌러 AI 대본을 만들어보세요"
+            placeholderTextColor={sf.trackSub}
             style={ai.scriptInput}
             selectionColor={colors.gold}
+            editable={!!captions}
           />
         )}
       </View>
 
       <View style={ai.btnRow}>
         <View style={ai.btnHalf}>
-          <SpringButton onPress={onGenerate} style={[ai.btn, ai.btnGenerate]}>
+          <SpringButton onPress={onGenerate} disabled={loading || closing} style={[ai.btn, ai.btnGenerate]}>
             <Text style={ai.btnGenerateText}>생성하기</Text>
           </SpringButton>
         </View>
         <View style={ai.btnHalf}>
-          <SpringButton onPress={onAuto} style={[ai.btn, ai.btnAuto]}>
+          <SpringButton onPress={onAuto} disabled={loading || closing} style={[ai.btn, ai.btnAuto]}>
             <Text style={ai.btnAutoText}>자동 생성</Text>
           </SpringButton>
         </View>
@@ -208,51 +295,140 @@ const ai = StyleSheet.create({
 });
 
 /* ------------------------------------------------ 음악 preview inline bar */
-function PreviewBar({ name, initPlaying = true }: { name: string; initPlaying?: boolean }) {
-  const [playing, setPlaying] = useState(initPlaying);
-  const p = useSharedValue(0.12);
+// BackgroundMusic.preview_url(presigned URL)을 expo-video 플레이어로 재생한다.
+// VideoView는 렌더링하지 않고(오디오만 필요) player 인스턴스만 붙여서 소리를 낸다.
+function PreviewBar({ name, previewUrl }: { name: string; previewUrl: string | null }) {
+  // player 정지는 별도 effect로 직접 호출하지 않는다 - useVideoPlayer가 컴포넌트
+  // unmount 시 내부적으로 이미 player를 release하는데, 여기서 또 pause()를 부르면
+  // "shared object that was already released" 네이티브 크래시로 이어진다.
+  // PreviewBar는 트랙 전환/시트 닫힘 시 조건부 렌더링으로 unmount되므로, 그 자체로 정지된다.
+  const player = useVideoPlayer(previewUrl, (p) => {
+    p.loop = true;
+    p.timeUpdateEventInterval = 0.25;
+    if (previewUrl) p.play();
+  });
 
-  useEffect(() => {
-    if (playing) {
-      p.value = 0.12;
-      p.value = withRepeat(withTiming(0.72, { duration: 3000, easing: Easing.linear }), -1, false);
-    } else {
-      cancelAnimation(p);
-    }
-    return () => cancelAnimation(p);
-  }, [playing]);
+  const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
+  const { currentTime } = useEvent(player, 'timeUpdate', {
+    currentTime: player.currentTime,
+    currentLiveTimestamp: null,
+    currentOffsetFromLive: null,
+    bufferedPosition: 0,
+  });
 
-  const fill = useAnimatedStyle(() => ({ width: `${p.value * 100}%` }));
+  const duration = player.duration || 0;
+  const progress = duration > 0 ? Math.min(currentTime / duration, 1) : 0;
+
+  if (!previewUrl) {
+    return (
+      <View style={ms.preview}>
+        <Text style={ms.previewName}>이 트랙은 미리듣기를 지원하지 않습니다.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={ms.preview}>
       <View style={{ flex: 1 }}>
         <Text style={ms.previewName}>{name}</Text>
         <View style={ms.progTrack}>
-          <Animated.View style={[ms.progFill, fill]} />
+          <View style={[ms.progFill, { width: `${progress * 100}%` }]} />
         </View>
       </View>
-      <SpringButton onPress={() => setPlaying((v) => !v)} style={ms.playBtn} pressScale={0.9}>
-        {playing ? <PauseBars /> : <PlayTri />}
+      <SpringButton
+        onPress={() => (isPlaying ? player.pause() : player.play())}
+        style={ms.playBtn}
+        pressScale={0.9}
+      >
+        {isPlaying ? <PauseBars /> : <PlayTri />}
       </SpringButton>
     </View>
   );
 }
 
 /* ---------------------------------------------------- 음악 선택 bottom sheet */
-const MUSIC_CATS = ['신나는 노래', '슬픈 노래', '잔잔한', '시끄러운'];
-const TRACKS = [
-  { name: '따스한 봄날', cat: '잔잔한 · 어쿠스틱' },
-  { name: '희망의 아침', cat: '신나는 · 팝' },
-  { name: '조용한 위로', cat: '슬픈 · 피아노' },
-  { name: '도전의 순간', cat: '시끄러운 · 록' },
-  { name: '평화로운 오후', cat: '잔잔한 · 로파이' },
-];
-
-export function MusicSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+export function MusicSheet({
+  visible,
+  onClose,
+  selectedBgmId,
+  onSelect,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  selectedBgmId: number | null;
+  onSelect: (bgm: BackgroundMusic) => void;
+}) {
   const { height } = useWindowDimensions();
   const [cat, setCat] = useState(0);
-  const [open, setOpen] = useState(0); // index of expanded/previewing track
+  const [categories, setCategories] = useState<string[]>(['전체']);
+  const [tracks, setTracks] = useState<BackgroundMusic[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState<number | null>(null); // index of expanded/previewing track
+  const skipFirstFetch = useRef(true);
+
+  // 시트를 열 때마다 전체 목록을 다시 받아와 트랙 + mood_tag 카테고리 칩을 구성한다.
+  // (이전에 특정 카테고리로 필터링한 채 닫았어도 다음에 열면 '전체'로 리셋)
+  useEffect(() => {
+    if (!visible) {
+      // 시트를 닫아도 BottomSheet의 Modal은 visible prop만 바뀔 뿐 자식은 계속 마운트돼
+      // 있으므로, 재생 중이던 미리듣기가 있으면 여기서 명시적으로 정지시켜야 한다.
+      setOpen(null);
+      return;
+    }
+    skipFirstFetch.current = true;
+    setCat(0);
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const result = await getBackgroundMusicList();
+        if (!mounted) return;
+        const moodTags = Array.from(
+          new Set(result.items.map((t) => t.mood_tag).filter((t): t is string => !!t)),
+        );
+        setCategories(['전체', ...moodTags]);
+        setTracks(result.items);
+      } catch (e) {
+        console.error('배경음악 목록 조회 실패:', e);
+        if (mounted) setError('음악 목록을 불러오지 못했습니다.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  // 카테고리 칩 선택 시 해당 mood_tag로 다시 조회한다 (최초 전체 조회 직후 1회는 건너뜀).
+  useEffect(() => {
+    if (skipFirstFetch.current) {
+      skipFirstFetch.current = false;
+      return;
+    }
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const moodTag = cat === 0 ? undefined : categories[cat];
+        const result = await getBackgroundMusicList(moodTag);
+        if (mounted) setTracks(result.items);
+      } catch (e) {
+        console.error('배경음악 목록 조회 실패:', e);
+        if (mounted) setError('음악 목록을 불러오지 못했습니다.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cat]);
 
   return (
     <BottomSheet
@@ -274,7 +450,7 @@ export function MusicSheet({ visible, onClose }: { visible: boolean; onClose: ()
           style={ms.chipsScroll}
           contentContainerStyle={ms.chipsRow}
         >
-          {MUSIC_CATS.map((label, i) => {
+          {categories.map((label, i) => {
             const active = i === cat;
             return (
               <Pressable
@@ -288,23 +464,48 @@ export function MusicSheet({ visible, onClose }: { visible: boolean; onClose: ()
           })}
         </ScrollView>
 
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={ms.listPad} showsVerticalScrollIndicator={false}>
-          {TRACKS.map((t, i) => (
-            <View key={t.name}>
-              <Pressable
-                style={ms.trackRow}
-                onPress={() => setOpen((cur) => (cur === i ? -1 : i))}
-              >
-                <MusicNoteIcon />
-                <View style={{ flex: 1 }}>
-                  <Text style={ms.trackName}>{t.name}</Text>
-                  <Text style={ms.trackCat}>{t.cat}</Text>
+        {loading ? (
+          <View style={ms.stateWrap}>
+            <Text style={ms.stateText}>음악 목록을 불러오는 중입니다</Text>
+          </View>
+        ) : error ? (
+          <View style={ms.stateWrap}>
+            <Text style={ms.stateText}>{error}</Text>
+          </View>
+        ) : tracks.length === 0 ? (
+          <View style={ms.stateWrap}>
+            <Text style={ms.stateText}>이 분위기의 음악이 아직 없습니다</Text>
+          </View>
+        ) : (
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={ms.listPad} showsVerticalScrollIndicator={false}>
+            {tracks.map((t, i) => {
+              const selected = t.bgm_id === selectedBgmId;
+              return (
+                <View key={t.bgm_id}>
+                  <Pressable
+                    style={ms.trackRow}
+                    onPress={() => {
+                      setOpen((cur) => (cur === i ? null : i));
+                      onSelect(t);
+                    }}
+                  >
+                    <MusicNoteIcon />
+                    <View style={{ flex: 1 }}>
+                      <Text style={ms.trackName}>{t.title}</Text>
+                      <Text style={ms.trackCat}>{t.mood_tag ?? ''}</Text>
+                    </View>
+                    {selected ? (
+                      <View style={ms.selectedBadge}>
+                        <Text style={ms.selectedBadgeText}>✓</Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                  {open === i ? <PreviewBar name={t.title} previewUrl={t.preview_url} /> : null}
                 </View>
-              </Pressable>
-              {open === i ? <PreviewBar name={t.name} /> : null}
-            </View>
-          ))}
-        </ScrollView>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
     </BottomSheet>
   );
@@ -345,6 +546,17 @@ const ms = StyleSheet.create({
   },
   trackName: { fontSize: 15, fontWeight: '600', color: sf.cream, fontFamily: fonts.bodyM },
   trackCat: { fontSize: 13, color: sf.trackSub, fontFamily: fonts.bodyR, marginTop: 2 },
+  selectedBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedBadgeText: { color: colors.primaryDark, fontSize: 13, fontWeight: '800' },
+  stateWrap: { paddingVertical: 40, alignItems: 'center', justifyContent: 'center' },
+  stateText: { fontSize: 13, color: sf.trackSub, fontFamily: fonts.bodyR },
   preview: {
     backgroundColor: sf.greenTint,
     borderWidth: 1,

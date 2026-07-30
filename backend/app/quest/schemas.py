@@ -53,3 +53,7 @@ class QuestSchema(BaseModel):
             location=quest.location,
             estimated_duration=quest.estimated_duration,
         )
+
+class DeleteQuestResponse(BaseModel):
+    
+    deleted: bool

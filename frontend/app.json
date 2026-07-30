@@ -38,6 +38,13 @@
         {
           "locationWhenInUsePermission": "내 주변 봉사 시설을 찾기 위해 위치 정보를 사용합니다."
         }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "생성한 숏폼 영상을 사진 앱에 저장하기 위해 접근 권한이 필요합니다.",
+          "savePhotosPermission": "생성한 숏폼 영상을 사진 앱에 저장하기 위해 접근 권한이 필요합니다."
+        }
       ]
     ],
     "extra": {

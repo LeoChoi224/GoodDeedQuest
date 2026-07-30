@@ -85,8 +85,14 @@ async def embed_user_profile_task(user_id: int):
             response = await client.post(
               f"{get_setting().AI_SERVICE_URL}/ai/user/embed",
               json={
-                "category": user.category,
-                "active_time": user.active_time,
+                "category": [
+                    str(value)
+                    for value in (user.category or [])
+                ],
+                "active_time": [
+                    str(value)
+                    for value in (user.active_time or [])
+                ],
                 "preferred_difficulty": user.preferred_difficulty.value if user.preferred_difficulty else None,
                 "age": calculate_age(user.birthday) if user.birthday else None
               },
