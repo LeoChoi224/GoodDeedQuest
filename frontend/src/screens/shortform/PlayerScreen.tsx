@@ -1,22 +1,18 @@
 /**
  * SCREEN 08-5 · 생성 완료 & 재생 (route: Player — back).
- * ✓ 생성 완료 · 영상 플레이어(placeholder 그라데이션 + ▶/⏸ 토글 + progress) ·
+ * ✓ 생성 완료 · 영상 플레이어(video_url 실재생 + ▶/⏸ 토글 + progress) ·
  * 다운로드 → useToast('다운로드 완료') + "영상이 저장되었습니다!" 성공 칩 · 공유.
  * Video aspect follows the design source (08_shortform_flow.dc.html) 16:9 player.
  */
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Share, Platform, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  ZoomIn,
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  cancelAnimation,
-  Easing,
-} from 'react-native-reanimated';
+import Animated, { ZoomIn } from 'react-native-reanimated';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEvent } from 'expo';
+import { File, Paths } from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
@@ -28,25 +24,63 @@ import { PlayTri, PauseBars } from './_parts';
 export default function PlayerScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
   const toast = useToast();
-  const [playing, setPlaying] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const videoUrl: string | null = route?.params?.videoUrl ?? null;
 
-  const p = useSharedValue(0.35);
-  useEffect(() => {
-    if (playing) {
-      p.value = withTiming(1, { duration: 8000, easing: Easing.linear });
-    } else {
-      cancelAnimation(p);
+  const player = useVideoPlayer(videoUrl, (p) => {
+    p.loop = true;
+    p.timeUpdateEventInterval = 0.25;
+  });
+
+  const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
+  const { currentTime } = useEvent(player, 'timeUpdate', {
+    currentTime: player.currentTime,
+    currentLiveTimestamp: null,
+    currentOffsetFromLive: null,
+    bufferedPosition: 0,
+  });
+  const duration = player.duration || 0;
+  const progress = duration > 0 ? Math.min(currentTime / duration, 1) : 0;
+
+  const togglePlay = () => (isPlaying ? player.pause() : player.play());
+
+  const onDownload = async () => {
+    if (!videoUrl) {
+      toast.show('영상을 찾을 수 없습니다.');
+      return;
     }
-    return () => cancelAnimation(p);
-  }, [playing]);
-  const fill = useAnimatedStyle(() => ({ width: `${p.value * 100}%` }));
-
-  const onDownload = () => {
-    setSaved(true);
-    toast.show('다운로드 완료');
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync();
+      if (!permission.granted) {
+        toast.show('사진 접근 권한을 허용해 주세요.');
+        return;
+      }
+      const file = await File.downloadFileAsync(videoUrl, Paths.cache);
+      await MediaLibrary.saveToLibraryAsync(file.uri);
+      setSaved(true);
+      toast.show('다운로드 완료');
+    } catch (error) {
+      console.error('영상 다운로드 실패:', error);
+      toast.show('다운로드에 실패했습니다.');
+    } finally {
+      setDownloading(false);
+    }
   };
-  const onShare = () => toast.show('공유 링크가 복사되었습니다');
+
+  const onShare = async () => {
+    if (!videoUrl) {
+      toast.show('영상을 찾을 수 없습니다.');
+      return;
+    }
+    try {
+      await Share.share(Platform.OS === 'ios' ? { url: videoUrl } : { message: videoUrl });
+    } catch (error) {
+      console.error('공유 실패:', error);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -57,28 +91,32 @@ export default function PlayerScreen({ navigation, route }: any) {
       <View style={[styles.body, { paddingBottom: insets.bottom + 16 }]}>
         <Text style={styles.done}>✓ 생성 완료</Text>
 
-        {/* 세로형 숏폼 결과 · 영상 플레이어 (placeholder gradient) */}
+        {/* 세로형 숏폼 결과 · 영상 플레이어 */}
         <View style={styles.player}>
-          <LinearGradient
-            colors={['#1a3a2e', '#0a1f18']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+          <VideoView
+            player={player}
             style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            nativeControls={false}
           />
-          <SpringButton onPress={() => setPlaying((v) => !v)} style={styles.playBtn} pressScale={0.9}>
-            {playing ? (
+          <SpringButton onPress={togglePlay} style={styles.playBtn} pressScale={0.9}>
+            {isPlaying ? (
               <PauseBars size={26} color={colors.primaryDark} />
             ) : (
               <PlayTri size={26} color={colors.primaryDark} />
             )}
           </SpringButton>
           <View style={styles.progTrack}>
-            <Animated.View style={[styles.progFill, fill]} />
+            <View style={[styles.progFill, { width: `${progress * 100}%` }]} />
           </View>
         </View>
 
-        <SpringButton onPress={onDownload} style={styles.downloadBtn}>
-          <Text style={styles.downloadText}>다운로드</Text>
+        <SpringButton onPress={onDownload} disabled={downloading} style={styles.downloadBtn}>
+          {downloading ? (
+            <ActivityIndicator color={colors.parchment} />
+          ) : (
+            <Text style={styles.downloadText}>다운로드</Text>
+          )}
         </SpringButton>
 
         {saved ? (

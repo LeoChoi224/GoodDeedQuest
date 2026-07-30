@@ -128,14 +128,14 @@ export default function ShopScreen({ navigation }: any) {
 }
 
 function ShopRow({ item, index, onPress }: { item: ShopItem; index: number; onPress: () => void }) {
-  // 백엔드 데이터 기본값 가드 매핑
   const rareColor = (item as any).rare || colors.primaryDark;
   const rareLabel = (item as any).rareLabel || '테두리';
-
+  
   return (
     <Animated.View entering={FadeInDown.delay(50 + index * 70).duration(360)}>
-      <SpringButton style={[styles.card, { borderLeftColor: item.rare }]} pressScale={0.985} onPress={onPress}>
+      <SpringButton style={[styles.card, { borderLeftColor: (item as any).rare || colors.primaryDark }]} pressScale={0.985} onPress={onPress}>
         <ItemTile
+          imageUrl={(item as any).image_url} // ========================================== [추가] 백엔드 테두리 이미지 바인딩
           c1={(item as any).c1 || '#4A90E2'}
           c2={(item as any).c2 || '#50E3C2'}
           emoji={(item as any).emoji || '🖼️'}
@@ -154,11 +154,11 @@ function ShopRow({ item, index, onPress }: { item: ShopItem; index: number; onPr
             </View>
           </View>
           <Text style={styles.desc} numberOfLines={1}>
-            {item.description}
+            {(item as any).description || item.desc}
           </Text>
           <View style={styles.priceChip}>
             <PixelCoin size={13} />
-            <Text style={styles.priceChipText}>{item.price_point.toLocaleString()} P</Text>
+            <Text style={styles.priceChipText}>{((item as any).price_point || item.priceNum || 0).toLocaleString()} P</Text>
           </View>
         </View>
         <ChevronRight />

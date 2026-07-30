@@ -1,31 +1,69 @@
 /**
  * SCREEN 05 · 시/도 드릴다운 — 전국 지도에서 특정 시/도를 확정 선택(2탭)했을 때 진입.
- * 해당 시/도의 시군구 지도(KoreaMapDrilldown, initialProvince 고정) + 시군구별 랭킹 리스트.
+ * 해당 시/도의 시군구 지도(KoreaMapDrilldown, initialProvince 고정) + 시군구별 랭킹 리스트
+ * (/map/city-ranking/{city_id} 실API 연결).
  * "내 주변 둘러보기" · "팀 변경하기"는 이 화면엔 아예 없음(전국 화면 전용 기능).
- * 시군구 탭(2회) → RegionDetails로 이동. 뒤로가기는 네비게이션 스택(헤더 back/스와이프) 사용.
+ * 시군구 탭(2회) → RegionDetails로 이동. 이미 불러온 랭킹 목록에서 이름 매칭으로 region_id를 찾아 같이 넘김.
+ * 뒤로가기는 네비게이션 스택(헤더 back/스와이프) 사용.
  */
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { colors, fonts, radii, shadow } from '../../theme';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import { RankRow } from './_parts';
 import KoreaMapDrilldown from '../../components/KoreaMapDrilldown';
-
-// TODO: /map/city-ranking?city=<province> API로 교체 예정. 지금은 레이아웃 확인용 더미.
-const CITY_RANK_MOCK = [
-  { name: '안양시', score: '1,000', v: 1000 },
-  { name: '수원시', score: '860', v: 860 },
-  { name: '성남시', score: '740', v: 740 },
-  { name: '고양시', score: '520', v: 520 },
-  { name: '용인시', score: '410', v: 410 },
-];
+import { resolveCityId } from './provinceCityIds';
+import { getCityRanking, CityRankingEntry } from '../../api/map';
 
 export default function SiDoMapScreen({ navigation, route }: any) {
   const province: string = route.params?.province ?? '';
   const teamRegion: string = route.params?.teamRegion ?? '경기도';
   const teamSigungu: string = route.params?.teamSigungu ?? '안양시';
+
+  const [ranking, setRanking] = useState<CityRankingEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cityId = resolveCityId(province);
+
+    if (cityId === null) {
+      setError(`"${province}"에 해당하는 city_id를 찾을 수 없습니다.`);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    getCityRanking(cityId)
+      .then((data) => {
+        if (!cancelled) setRanking(data.ranking);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message ?? '랭킹을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [province]);
+
+  const maxScore = ranking.length > 0 ? Math.max(ranking[0].score, 1) : 1;
+
+  const goToRegionDetails = (sigunguName: string, provinceName: string) => {
+    const match = ranking.find((r) => r.region_name === sigunguName);
+    navigation.navigate('RegionDetails', {
+      region: provinceName,
+      sigungu: sigunguName,
+      regionId: match?.region_id,
+    });
+  };
 
   return (
     <View style={styles.root}>
@@ -41,23 +79,44 @@ export default function SiDoMapScreen({ navigation, route }: any) {
             initialProvince={province}
             allowNational={false}
             height={520}
-            onSigungu={(sg, prov) => navigation.navigate('RegionDetails', { region: prov, sigungu: sg })}
+            onSigungu={(sg, prov) => goToRegionDetails(sg, prov)}
           />
         </View>
 
         <Text style={styles.sectionTitle}>🏆 {province} 시군구별 랭킹</Text>
-        <View style={styles.listCard}>
-          {CITY_RANK_MOCK.map((r, i) => (
-            <RankRow
-              key={r.name}
-              index={i}
-              name={r.name}
-              score={r.score}
-              pct={r.v / CITY_RANK_MOCK[0].v}
-              onPress={() => navigation.navigate('RegionDetails', { region: province, sigungu: r.name })}
-            />
-          ))}
-        </View>
+
+        {loading ? (
+          <View style={styles.centerBox}>
+            <ActivityIndicator color={colors.primaryDark} />
+          </View>
+        ) : error ? (
+          <View style={styles.centerBox}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : ranking.length === 0 ? (
+          <View style={styles.centerBox}>
+            <Text style={styles.errorText}>아직 랭킹 데이터가 없어요.</Text>
+          </View>
+        ) : (
+          <View style={styles.listCard}>
+            {ranking.map((r, i) => (
+              <RankRow
+                key={r.region_id}
+                index={i}
+                name={r.region_name}
+                score={r.score.toLocaleString()}
+                pct={r.score / maxScore}
+                onPress={() =>
+                  navigation.navigate('RegionDetails', {
+                    region: province,
+                    sigungu: r.region_name,
+                    regionId: r.region_id,
+                  })
+                }
+              />
+            ))}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -89,5 +148,14 @@ const styles = StyleSheet.create({
     borderRadius: radii.chip,
     overflow: 'hidden',
     ...shadow.card,
+  },
+  centerBox: {
+    paddingVertical: 32,
+    alignItems: 'center',
+  },
+  errorText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontFamily: fonts.bodyR,
   },
 });
