@@ -5,11 +5,11 @@
  *   Team region highlighted gold, tappable regions, press feedback.
  * - TeamPin / PulseRing / MapPinIcon: map markers with bob / ping motion.
  * - RankRow / UserRankRow: ranking rows with staggered entrance + animated bar.
- * - TeamSelectPopup: 참여 지역 선택 (대항전 팀 선택) — GamePopup based.
+ * - TeamSelectPopup: 참여 지역 선택 (대항전 팀 선택) — GamePopup based, /map/team-select 연결.
  * Motion = Reanimated, transform/opacity only.
  */
-import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
 import Animated, {
   useSharedValue,
@@ -23,6 +23,8 @@ import Animated, {
 import { colors, fonts, radii, gamePopup, CATEGORY_COLORS } from '../../theme';
 import GamePopup from '../../components/GamePopup';
 import PixelProgress from '../../components/PixelProgress';
+import { PROVINCE_NAME_TO_CITY_ID, resolveCityId } from './provinceCityIds';
+import { getRegionsByCity, RegionOption } from '../../api/map';
 
 /* ── palette (map washes — greens NOT present in theme.ts, defined locally) ── */
 export const MAP = {
@@ -272,16 +274,8 @@ export function UserRankRow({
 
 /* ═══════════════ 팀 선택 모달 ═══════════════ */
 
-const SIDO_LIST = [
-  '서울특별시', '경기도', '강원도', '충청북도', '충청남도',
-  '전라북도', '전라남도', '경상북도', '경상남도', '부산광역시',
-];
-const SIGUNGU_MAP: Record<string, string[]> = {
-  경기도: ['안양시', '수원시', '성남시', '고양시', '용인시', '안산시'],
-  서울특별시: ['강남구', '마포구', '종로구', '송파구', '서초구'],
-  부산광역시: ['해운대구', '남구', '동래구', '사상구'],
-};
-const DEFAULT_SIGUNGU = ['지역1', '지역2', '지역3'];
+// 지도 SVG(province param)와 동일한 표시명 소스 재사용 - 강원/전북 개명 이슈까지 이미 처리돼 있음
+const SIDO_LIST = Object.keys(PROVINCE_NAME_TO_CITY_ID);
 
 export function TeamSelectPopup({
   visible,
@@ -289,27 +283,60 @@ export function TeamSelectPopup({
   onConfirm,
   region = '경기도',
   city = '안양시',
+  submitting = false,
 }: {
   visible: boolean;
   onClose: () => void;
-  onConfirm: (region: string, city: string) => void;
+  onConfirm: (regionId: number, sido: string, sigunguName: string) => void;
   region?: string;
   city?: string;
+  /** 부모 화면이 selectTeamRegion() API 호출 중일 때 true - 확인 버튼 비활성화/로딩 표시 */
+  submitting?: boolean;
 }) {
   const [sido, setSido] = useState(region);
-  const [sigungu, setSigungu] = useState(city);
+  const [sigunguOptions, setSigunguOptions] = useState<RegionOption[]>([]);
+  const [selected, setSelected] = useState<RegionOption | null>(null);
   const [sidoOpen, setSidoOpen] = useState(false);
   const [sigunguOpen, setSigunguOpen] = useState(false);
+  const [loadingRegions, setLoadingRegions] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // 팝업이 열릴 때 현재 선택값으로 동기화
+  const loadRegions = useCallback(async (sidoName: string, preferName?: string) => {
+    const cityId = resolveCityId(sidoName);
+    if (cityId === null) {
+      setSigunguOptions([]);
+      setSelected(null);
+      return;
+    }
+    setLoadingRegions(true);
+    setError(null);
+    try {
+      const options = await getRegionsByCity(cityId);
+      setSigunguOptions(options);
+      const preferred = preferName ? options.find((o) => o.region_name === preferName) : undefined;
+      setSelected(preferred ?? options[0] ?? null);
+    } catch {
+      setSigunguOptions([]);
+      setSelected(null);
+      setError('지역 목록을 불러오지 못했어요.');
+    } finally {
+      setLoadingRegions(false);
+    }
+  }, []);
+
+  // 팝업이 열릴 때 현재 선택값으로 동기화 + 시군구 목록 실API 갱신
   useEffect(() => {
     if (visible) {
       setSido(region);
-      setSigungu(city);
+      setError(null);
+      loadRegions(region, city);
     }
-  }, [visible, region, city]);
+  }, [visible, region, city, loadRegions]);
 
-  const sigunguList = SIGUNGU_MAP[sido] ?? DEFAULT_SIGUNGU;
+  const handleConfirm = () => {
+    if (!selected || submitting) return;
+    onConfirm(selected.region_id, sido, selected.region_name);
+  };
 
   return (
     <GamePopup visible={visible} onClose={onClose} title="참여 지역 선택" width={320}>
@@ -334,8 +361,8 @@ export function TeamSelectPopup({
                   style={styles.dropItem}
                   onPress={() => {
                     setSido(s);
-                    setSigungu((SIGUNGU_MAP[s] ?? DEFAULT_SIGUNGU)[0]);
                     setSidoOpen(false);
+                    loadRegions(s);
                   }}
                 >
                   <Text style={[styles.dropText, s === sido && styles.dropActive]}>{s}</Text>
@@ -349,34 +376,51 @@ export function TeamSelectPopup({
         <Pressable
           style={styles.selRow}
           onPress={() => {
+            if (loadingRegions) return;
             setSigunguOpen((o) => !o);
             setSidoOpen(false);
           }}
         >
-          <Text style={styles.selText}>{sigungu}</Text>
+          {loadingRegions ? (
+            <ActivityIndicator size="small" color={gamePopup.cream} />
+          ) : (
+            <Text style={styles.selText}>{selected?.region_name ?? '선택 없음'}</Text>
+          )}
           <ChevronDown />
         </Pressable>
         {sigunguOpen ? (
           <View style={styles.dropdown}>
             <ScrollView style={{ maxHeight: 170 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              {sigunguList.map((sg) => (
+              {sigunguOptions.map((sg) => (
                 <Pressable
-                  key={sg}
+                  key={sg.region_id}
                   style={styles.dropItem}
                   onPress={() => {
-                    setSigungu(sg);
+                    setSelected(sg);
                     setSigunguOpen(false);
                   }}
                 >
-                  <Text style={[styles.dropText, sg === sigungu && styles.dropActive]}>{sg}</Text>
+                  <Text style={[styles.dropText, sg.region_id === selected?.region_id && styles.dropActive]}>
+                    {sg.region_name}
+                  </Text>
                 </Pressable>
               ))}
             </ScrollView>
           </View>
         ) : null}
 
-        <Pressable style={styles.confirmBtn} onPress={() => onConfirm(sido, sigungu)}>
-          <Text style={styles.confirmText}>확인</Text>
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        <Pressable
+          style={[styles.confirmBtn, (!selected || submitting) && styles.confirmBtnDisabled]}
+          onPress={handleConfirm}
+          disabled={!selected || submitting}
+        >
+          {submitting ? (
+            <ActivityIndicator size="small" color={colors.parchment} />
+          ) : (
+            <Text style={styles.confirmText}>확인</Text>
+          )}
         </Pressable>
       </View>
     </GamePopup>
@@ -443,6 +487,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 8,
   },
+  confirmBtnDisabled: { opacity: 0.5 },
   confirmText: { fontFamily: fonts.pixel, fontSize: 16, color: colors.parchment },
   /* 지역 인라인 드롭다운 (중첩 모달 대신) */
   dropdown: {
@@ -457,4 +502,5 @@ const styles = StyleSheet.create({
   dropItem: { paddingVertical: 11, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(92,61,30,0.12)' },
   dropText: { fontSize: 14, fontFamily: fonts.bodyR, color: colors.textPrimary },
   dropActive: { color: '#8A6A1E', fontFamily: fonts.bodyB },
+  errorText: { color: '#E08A8A', fontSize: 12, fontFamily: fonts.bodyR, marginBottom: 8, textAlign: 'center' },
 });
