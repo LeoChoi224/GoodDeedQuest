@@ -43,6 +43,19 @@ def generate_upload_presigned_url(s3_key: str, content_type: str) -> str:
     )
 
 
+def upload_bytes(s3_key: str, data: bytes, content_type: str) -> None:
+    """
+    서버가 직접 바이트를 S3에 업로드한다 (시드/데모 데이터용 - 평소 앱 흐름은
+    presigned PUT URL로 클라이언트가 직접 업로드하므로 이 함수를 쓰지 않는다).
+    """
+    _s3_client.put_object(
+        Bucket=get_setting().S3_BUCKET_NAME,
+        Key=s3_key,
+        Body=data,
+        ContentType=content_type,
+    )
+
+
 def generate_download_presigned_url(s3_key: str) -> str:
     """
     저장된 s3_key를 실제 조회 가능한 presigned GET URL로 변환.
