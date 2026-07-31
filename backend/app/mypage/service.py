@@ -27,6 +27,8 @@ from backend.app.quest_verification.enums import SubmissionStatus
 from backend.app.auth.models import User
 from backend.app.community.models import UserActivityLog
 from backend.app.badge.service import get_equipped_badge_name
+from backend.app.shop.models import Purchase, Item  # ⭐ 수정: 장착 중인 프로필 테두리 조회용
+from backend.app.shop.enums import PurchaseStatus
 from backend.app.common.s3_client import generate_upload_presigned_url, generate_download_presigned_url
 
 KST = ZoneInfo("Asia/Seoul")
@@ -96,6 +98,21 @@ def _compute_daily_streak(db: Session, user_id: int) -> int:
     return streak
 
 
+# ⭐ 수정: 현재 장착 중인 프로필 테두리 아이템의 이미지 URL (없으면 None)
+def _get_equipped_border_image_url(db: Session, user_id: int) -> Optional[str]:
+    row = (
+        db.query(Item.image_url)
+        .join(Purchase, Purchase.item_id == Item.item_id)
+        .filter(
+            Purchase.user_id == user_id,
+            Purchase.status == PurchaseStatus.COMPLETED,
+            Purchase.is_equipped == True,
+        )
+        .first()
+    )
+    return row[0] if row else None
+
+
 def get_my_profile(db: Session, user_id: int) -> MyProfileResponse:
     user = db.query(User).filter(User.user_id == user_id).first()
     if user is None:
@@ -113,6 +130,7 @@ def get_my_profile(db: Session, user_id: int) -> MyProfileResponse:
         title=get_equipped_badge_name(db, user_id),
         current_level=user.current_level,
         daily_streak=_compute_daily_streak(db, user_id),
+        equipped_border_image_url=_get_equipped_border_image_url(db, user_id),
         profile_image_url=display_image_url,
     )
 

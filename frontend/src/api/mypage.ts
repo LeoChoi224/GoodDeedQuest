@@ -23,6 +23,7 @@ export type MyProfile = {
   current_level: number;
   daily_streak: number;
   profile_image_url: string | null;
+  equipped_border_image_url: string | null; // ⭐ 수정: 상대경로(/static/...)로 오므로 getFullImageUrl()로 변환해서 써야 함
 };
 
 export async function getMyProfile(): Promise<MyProfile> {

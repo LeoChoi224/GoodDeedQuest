@@ -64,16 +64,27 @@ export function ConicAvatar({
   size = 64,
   deco = false,
   imageUri = null, // ⭐ 수정: 실제 프로필 이미지 URI (없으면 기본 앱 아이콘)
+  borderImageUrl = null, // ⭐ 수정: 장착한 프로필 테두리 아이템 이미지 — 있으면 기본 무지개/골드 링 대신 이걸 렌더링
 }: {
   size?: number;
   deco?: boolean;
   imageUri?: string | null;
+  borderImageUrl?: string | null;
 }) {
   const inset = size >= 60 ? 5 : 4;
   const pad = size >= 60 ? 3 : 2.5;
   const inner = size - pad * 2;
-  const img = inner - 4;
   const D = size + inset * 2;
+
+  // ⭐ 수정: 테두리 박스는 원래 크기(D) 그대로 두고, 사진 원 크기만 상점 테두리 PNG들의 구멍
+  // 비율 "중간값"으로 계산한다. 실측한 5개 자산의 구멍 비율(캔버스 대비)이 0.47~0.68로 자산마다
+  // 다르기 때문에 모든 자산에 픽셀 단위로 딱 맞출 수는 없다 — 대신 테두리 이미지를 사진보다
+  // 나중에(위에) 그려서, 자산별로 사진이 구멍보다 살짝 커도 테두리 링이 그 위를 덮어 항상
+  // 테두리가 온전히 보이도록 한다.
+  const BORDER_HOLE_RATIO_MEDIAN = 0.58;
+  const discSize = borderImageUrl ? D * BORDER_HOLE_RATIO_MEDIAN : inner;
+  const discOffset = (size - discSize) / 2;
+  const discImgSize = discSize - 4;
 
   const rot = useSharedValue(0);
   const glow = useSharedValue(0.15);
@@ -88,55 +99,74 @@ export function ConicAvatar({
   const spin = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }));
   const halo = useAnimatedStyle(() => ({ opacity: glow.value }));
 
+  // ⭐ 수정: 사진 원(disc) — 기본 링일 때와 테두리 아이템일 때 공용으로 사용
+  const disc = (
+    <View
+      style={{
+        position: 'absolute',
+        top: discOffset,
+        left: discOffset,
+        width: discSize,
+        height: discSize,
+        borderRadius: discSize / 2,
+        borderWidth: 2,
+        borderColor: colors.parchment,
+        overflow: 'hidden',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <LinearGradient
+        colors={['#4CAF50', '#2E7D32']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <Image source={imageUri ? { uri: imageUri } : brand.appIcon} style={{ width: discImgSize, height: discImgSize }} />
+    </View>
+  );
+
   return (
     <View style={{ width: size, height: size }}>
-      {/* soft gold glow halo (pulse) */}
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            top: -inset,
-            left: -inset,
-            width: D,
-            height: D,
-            borderRadius: D / 2,
-            backgroundColor: '#F5D874',
-          },
-          halo,
-        ]}
-      />
-      {/* rotating rainbow conic ring */}
-      <Animated.View style={[{ position: 'absolute', top: -inset, left: -inset }, spin]}>
-        <SegmentRing d={D} colorsArr={RAINBOW} width={inset + 3} />
-      </Animated.View>
-      {/* static gold ring */}
-      <View style={{ position: 'absolute', top: 0, left: 0 }}>
-        <SegmentRing d={size} colorsArr={GOLD} width={pad + 2} />
-      </View>
-      {/* green app-icon disc */}
-      <View
-        style={{
-          position: 'absolute',
-          top: pad,
-          left: pad,
-          width: inner,
-          height: inner,
-          borderRadius: inner / 2,
-          borderWidth: 2,
-          borderColor: colors.parchment,
-          overflow: 'hidden',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <LinearGradient
-          colors={['#4CAF50', '#2E7D32']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <Image source={imageUri ? { uri: imageUri } : brand.appIcon} style={{ width: img, height: img }} />
-      </View>
+      {borderImageUrl ? (
+        <>
+          {/* ⭐ 수정: 장착한 프로필 테두리 아이템 — 사진을 먼저 그리고 테두리를 그 위에(나중에)
+              그려서, 자산별 구멍 크기 오차가 있어도 테두리 링이 항상 온전히 보이게 한다 */}
+          {disc}
+          <Image
+            source={{ uri: borderImageUrl }}
+            style={{ position: 'absolute', top: -inset, left: -inset, width: D, height: D }}
+            resizeMode="contain"
+          />
+        </>
+      ) : (
+        <>
+          {/* soft gold glow halo (pulse) */}
+          <Animated.View
+            style={[
+              {
+                position: 'absolute',
+                top: -inset,
+                left: -inset,
+                width: D,
+                height: D,
+                borderRadius: D / 2,
+                backgroundColor: '#F5D874',
+              },
+              halo,
+            ]}
+          />
+          {/* rotating rainbow conic ring */}
+          <Animated.View style={[{ position: 'absolute', top: -inset, left: -inset }, spin]}>
+            <SegmentRing d={D} colorsArr={RAINBOW} width={inset + 3} />
+          </Animated.View>
+          {/* static gold ring */}
+          <View style={{ position: 'absolute', top: 0, left: 0 }}>
+            <SegmentRing d={size} colorsArr={GOLD} width={pad + 2} />
+          </View>
+          {disc}
+        </>
+      )}
 
       {deco && (
         <>

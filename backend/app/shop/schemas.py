@@ -34,6 +34,7 @@ class PurchaseResponse(BaseModel):
     user_id: int
     item_id: int
     status: PurchaseStatus
+    is_equipped: bool  # ⭐ 수정: 유저별 장착 여부 (Purchase 테이블 컬럼)
     purchased_at: datetime
     item: ItemResponse
 
