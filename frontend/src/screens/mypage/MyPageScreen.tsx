@@ -5,9 +5,10 @@
  * Matches 06_mypage_flow.dc.html screen 1 + popup 2.
  */
 // ⭐ 수정: useEffect, ActivityIndicator 추가
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, Image, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker'; // ⭐ 수정
+import { useFocusEffect } from '@react-navigation/native'; // ⭐ 수정: 아이템 목록에서 칭호 장착 후 돌아왔을 때 실시간 반영
 import { StatusBar } from 'expo-status-bar';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { colors, fonts, radii, CATEGORY_ICONS, brand } from '../../theme';
@@ -24,6 +25,7 @@ import {
   uploadProfileImage,
   type MyProfile,
 } from '../../api/mypage'; // ⭐ 수정
+import { getFullImageUrl } from '../shop/_parts'; // ⭐ 수정: 장착 테두리 image_url이 상대경로(/static/...)라 base URL을 붙여야 함
 
 // ⭐ 수정: completed_at(ISO)을 리스트용 짧은 날짜 / 팝업용 상세 시각 문자열로 변환
 function formatShortDate(iso: string): string {
@@ -72,21 +74,29 @@ export default function MyPageScreen({ navigation }: any) {
     load();
   }, []);
 
-  // ⭐ 수정: 마운트 시 프로필 헤더 조회
-  useEffect(() => {
-    const loadProfile = async () => {
-      setProfileLoading(true);
-      setProfileError(false);
-      try {
-        setProfile(await getMyProfile());
-      } catch (err: any) {
-        setProfileError(true);
-      } finally {
-        setProfileLoading(false);
-      }
-    };
-    loadProfile();
-  }, []);
+  // ⭐ 수정: 프로필 헤더 조회 — useFocusEffect로 변경 (마운트 + 아이템 목록에서 칭호 장착/해제하고
+  // 돌아올 때마다 재조회되어 화면의 칭호 표시가 실시간으로 갱신됨)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const loadProfile = async () => {
+        setProfileLoading(true);
+        setProfileError(false);
+        try {
+          const data = await getMyProfile();
+          if (!cancelled) setProfile(data);
+        } catch (err: any) {
+          if (!cancelled) setProfileError(true);
+        } finally {
+          if (!cancelled) setProfileLoading(false);
+        }
+      };
+      loadProfile();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
 
   // ⭐ 수정: 프로필 이미지 탭 → 갤러리 열기 → 업로드
   const pickAndUploadAvatar = async () => {
@@ -136,7 +146,12 @@ export default function MyPageScreen({ navigation }: any) {
         {/* ⭐ 수정: 더미 이름/칭호/레벨/연속접속일 → 실제 프로필 조회 + 아바타 탭 시 갤러리 업로드 */}
         <SpringButton style={styles.profileCard} onPress={() => navigation.navigate('MyLevel')} pressScale={0.985}>
           <Pressable onPress={pickAndUploadAvatar} disabled={uploadingImage}>
-            <ConicAvatar size={64} deco imageUri={profile?.profile_image_url ?? null} />
+            <ConicAvatar
+              size={64}
+              deco
+              imageUri={profile?.profile_image_url ?? null}
+              borderImageUrl={profile?.equipped_border_image_url ? getFullImageUrl(profile.equipped_border_image_url) : null}
+            />
             {uploadingImage && (
               <View style={styles.avatarUploadOverlay}>
                 <ActivityIndicator color={colors.parchment} size="small" />

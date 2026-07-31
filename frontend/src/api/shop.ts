@@ -17,6 +17,7 @@ export interface PurchaseRecord {
   user_id: number;
   item_id: number;
   status: string;
+  is_equipped: boolean; // ⭐ 수정: 유저별 장착 여부 (item.is_equipped는 카탈로그 전역 컬럼이라 신뢰 불가, 이 필드를 써야 함)
   purchased_at: string;
   item: ShopItem;
 }
@@ -50,5 +51,16 @@ export const purchaseShopItem = async (itemId: number): Promise<PurchaseRecord> 
  */
 export const getPurchaseHistory = async (): Promise<PurchaseRecord[]> => {
   const response = await api.get('/shop/purchases');
+  return response.data.data;
+};
+
+// ⭐ 수정: 보유 아이템 장착 / 해제 (GET /api/v1/shop/{item_id}/equip,unequip)
+export const equipShopItem = async (itemId: number): Promise<PurchaseRecord> => {
+  const response = await api.patch(`/shop/${itemId}/equip`);
+  return response.data.data;
+};
+
+export const unequipShopItem = async (itemId: number): Promise<PurchaseRecord> => {
+  const response = await api.patch(`/shop/${itemId}/unequip`);
   return response.data.data;
 };

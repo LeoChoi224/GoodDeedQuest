@@ -40,6 +40,7 @@ def get_my_quest_achievements_endpoint(
     db: Session = Depends(get_db),
 ):
     user_id = current_user.get("id") or current_user.get("user_id")
+    print(f"[mypage] /quests/achievements user_id={user_id} email={current_user.get('email')}")  # ⭐ 디버그용
     achievements = get_my_quest_achievements(db, user_id=user_id)
     return APIResponse.ok(data=achievements, message="달성 퀘스트 타임라인 조회 성공")
 

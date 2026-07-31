@@ -39,6 +39,9 @@ class MyProfileResponse(ORMBase):
     # DB 컬럼(User.daily_streak)이 아님 - user_activity_log 기준으로 매 요청마다 계산
     daily_streak: int
     profile_image_url: Optional[str]
+    # ⭐ 수정: 현재 장착 중인 프로필 테두리 아이템 이미지 - User 컬럼이 아니라 shop 도메인(Purchase)에서 조회.
+    # 상대경로(/static/...)로 내려가므로 프론트에서 getFullImageUrl()로 base URL을 붙여야 함
+    equipped_border_image_url: Optional[str] = None
 
 
 class ProfileImagePresignRequest(BaseModel):

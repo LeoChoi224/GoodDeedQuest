@@ -90,7 +90,12 @@ export default function ShopScreen({ navigation }: any) {
 
         {/* actions — 보유 아이템 / 구매 목록 */}
         <View style={styles.actions}>
-          <SpringButton style={[styles.actionBtn, styles.actionGhost]} pressScale={0.94} onPress={() => navigation.navigate('Inventory')}>
+          {/* ⭐ 수정: 자체 Inventory 화면(더미 데이터, 죽은 화면) 대신 마이페이지 아이템 목록의 "아이템" 탭으로 이동 */}
+          <SpringButton
+            style={[styles.actionBtn, styles.actionGhost]}
+            pressScale={0.94}
+            onPress={() => navigation.navigate('My', { screen: 'ItemList', params: { initialTab: 'item' } })}
+          >
             <Text style={styles.actionGhostText}>보유 아이템</Text>
           </SpringButton>
           <SpringButton style={[styles.actionBtn, styles.actionSolid]} pressScale={0.94} onPress={() => navigation.navigate('PurchaseHistory')}>
