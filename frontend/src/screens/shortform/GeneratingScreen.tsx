@@ -47,8 +47,14 @@ export default function GeneratingScreen({ navigation, route }: any) {
             stopPolling();
             setErrorMessage(result.error_message ?? '영상 생성에 실패했습니다.');
           }
-        } catch (error) {
-          console.error('숏폼 상태 조회 실패:', error);
+        } catch (error: any) {
+          // ⭐ 임시 진단 로깅 (이슈 #196) - 원인 파악되면 제거
+          console.error('숏폼 상태 조회 실패:', {
+            message: error?.message,
+            code: error?.code,
+            url: error?.config?.url,
+            baseURL: error?.config?.baseURL,
+          });
         }
       }, POLL_INTERVAL_MS);
     };

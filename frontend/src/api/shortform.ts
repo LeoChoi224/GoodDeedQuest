@@ -29,6 +29,8 @@ export type ScriptGenerateResult = {
   status: ShortFormStatus;
   title: string;
   captions: CaptionItem[];
+  /** AI 서버가 사진 분위기 기반으로 매칭한 BGM (자동생성 전용). 매칭 실패/미실행 시 없음. */
+  bgm_id?: number | null;
 };
 
 export type BackgroundMusic = {

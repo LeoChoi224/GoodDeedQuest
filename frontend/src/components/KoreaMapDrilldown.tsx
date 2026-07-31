@@ -7,6 +7,7 @@
  * viewBox는 각 지역의 지배적 랜드마스만 기준으로 잡아 원거리 부속섬(백령도·울릉도 등)이
  * 지도를 축소시키지 않게 한다 (제주도 본섬은 그대로 유지).
  * 타이틀 자리는 눌리거나 선택된 지역이 있을 때만 그 이름을 보여주고, 평소엔 비워둔다.
+ * teamRegion/teamSigungu가 빈 문자열(참여 지역 미설정)이면 "우리 팀" 태그·하이라이트를 아예 표시하지 않는다.
  */
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
@@ -198,11 +199,13 @@ export default function KoreaMapDrilldown({
           >
             <Text style={styles.backText}>← 전국</Text>
           </Pressable>
-        ) : (
+        ) : teamRegion ? (
           <View style={styles.tag}>
             <View style={styles.dot} />
             <Text style={styles.tagText}>우리 팀 · {teamRegion}</Text>
           </View>
+        ) : (
+          <View />
         )}
         <Text style={styles.title}>{titleText}</Text>
       </View>
@@ -213,8 +216,8 @@ export default function KoreaMapDrilldown({
           <Svg width={boxW} height={svgH} viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} style={StyleSheet.absoluteFill}>
             {map.paths.map((p) => {
               const isTeam = province
-                ? p.name.startsWith(teamSigungu.slice(0, 2))
-                : p.name === teamRegion || p.name.startsWith(teamRegion.slice(0, 2));
+                ? !!teamSigungu && p.name.startsWith(teamSigungu.slice(0, 2))
+                : !!teamRegion && (p.name === teamRegion || p.name.startsWith(teamRegion.slice(0, 2)));
               const isPressed = pressed === p.name;
               const isSelected = selected === p.name;
               const fill = isPressed || isSelected

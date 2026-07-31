@@ -53,3 +53,11 @@ export async function getMyProfile() {
   const response = await api.get('/auth/me');
     return response.data?.data || response.data;
 }
+
+export async function updateMyLocation(latitude: number, longitude: number) {
+  const response = await api.patch('/auth/me/location', {
+    current_latitude: latitude,
+    current_longitude: longitude,
+  });
+  return response.data?.data || response.data;
+}

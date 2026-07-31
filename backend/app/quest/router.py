@@ -8,12 +8,14 @@ from backend.app.common.config import get_setting
 from backend.app.common.deps import get_repository
 from backend.app.common.enums import Difficulty
 from backend.app.common.repository import DatabaseRepository
-from backend.app.quest.models import Quest, Category
-from backend.app.quest.enums import QuestType, QuestSource
+from backend.app.quest.models import Quest, Category, QuestHiddenPreference
+from backend.app.quest.enums import QuestType, QuestSource, QuestStatus
 from backend.app.quest.rewards import reward_from_intensity
-from backend.app.quest.schemas import QuestSchema, CreateQuestRequest, CreateQuestResponse
+from backend.app.quest.schemas import QuestSchema, CreateQuestRequest, CreateQuestResponse, DeleteQuestResponse
 from backend.app.auth.router import get_current_db_user
 from backend.app.auth.models import User
+from backend.app.quest_verification.models import QuestSubmission
+from backend.app.quest_verification.enums import SubmissionStatus
 
 # 하루에 만들 수 있는 커스텀 퀘스트 수.
 # 같은 활동을 여러 개 만드는 것 자체는 막지 않는다. 인증 단계에서 사진·영상
@@ -31,6 +33,16 @@ QuestRepository = Annotated[
 CategoryRepository = Annotated[
     DatabaseRepository[Category],
     Depends(get_repository(Category))
+]
+
+SubmissionRepository = Annotated[
+    DatabaseRepository[QuestSubmission],
+    Depends(get_repository(QuestSubmission))
+]
+
+HiddenRepository = Annotated[
+    DatabaseRepository[QuestHiddenPreference],
+    Depends(get_repository(QuestHiddenPreference))
 ]
 
 router = APIRouter(prefix="/quests", tags=["Quests"])
@@ -78,16 +90,20 @@ def _judge(req: CreateQuestRequest, category: Category) -> tuple[CreateQuestResp
         reward_exp=exp,
     )
     return response, {"difficulty": difficulty, "point": point, "exp": exp,
-                      "embedding": embedding}
+                            "embedding": embedding}
 
 
 @router.get("", response_model=APIResponse[List[QuestSchema]])
 def get_all_quests(
     quest_repository: QuestRepository,
-    user: dict = Depends(get_current_user),
+    submission_repository: SubmissionRepository,
+    hidden_repository: HiddenRepository,
+    current_user: User = Depends(get_current_db_user),
 ):
-    """전체 퀘스트 목록을 조회합니다."""
-    quests = quest_repository.filter()
+    """전체 퀘스트 목록을 조회합니다. 내가 이미 완료한 퀘스트는 제외한다."""
+    done_ids = _completed_quest_ids(submission_repository, current_user.user_id)
+    hidden_ids = _hidden_quest_ids(hidden_repository, current_user.user_id)
+    quests = [q for q in quest_repository.filter(Quest.is_deleted == False) if q.quest_id not in done_ids and q.quest_id not in hidden_ids]
     return APIResponse.ok(data=[QuestSchema.from_quest(q) for q in quests])
 
 
@@ -97,9 +113,12 @@ def get_quest_detail(
     quest_repository: QuestRepository,
     user: dict = Depends(get_current_user),
 ):
-    """특정 퀘스트의 상세 정보를 조회합니다."""
+    """특정 퀘스트의 상세 정보를 조회합니다.
+
+    완료한 퀘스트도 주소로 직접 열면 볼 수 있다. 목록에서 감추는 것과는 별개다.
+    """
     quest = quest_repository.get(quest_id)
-    if quest is None:
+    if quest is None or quest.is_deleted    :
         raise HTTPException(status_code=404, detail="Quest not found")
     return APIResponse.ok(data=QuestSchema.from_quest(quest))
 
@@ -113,6 +132,10 @@ def _load_category(category_repository: CategoryRepository, code: str) -> Catego
 
 def _created_today(quest_repository: QuestRepository, user_id: int) -> int:
     """오늘(한국 시간 기준) 내가 만든 커스텀 퀘스트 수."""
+    
+    """is_deleted 를 일부러 보지 않는다. 치운 퀘스트도 세야 한다 —
+    빼면 5개 만들고 지우고 또 만드는 식으로 상한을 무한히 우회할 수 있고,
+    이 상한은 애초에 Gemini 호출 비용을 막으려고 둔 것이다."""
     start_kst = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
     # created_at은 시간대 정보 없는 UTC로 저장되므로 같은 형태로 맞춰 비교한다
     start_utc = start_kst.astimezone(timezone.utc).replace(tzinfo=None)
@@ -121,6 +144,21 @@ def _created_today(quest_repository: QuestRepository, user_id: int) -> int:
         Quest.quest_source == QuestSource.USER,
         Quest.created_at >= start_utc,
     ))
+    
+def _completed_quest_ids(submission_repository, user_id: int) -> set[int]:
+    return {
+            s.quest_id
+        for s in submission_repository.filter(
+            QuestSubmission.user_id == user_id,
+            QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
+        )
+    }
+
+def _hidden_quest_ids(hidden_repository: HiddenRepository, user_id:int) -> set[int]:
+    return {
+        h.quest_id
+        for h in hidden_repository.filter(QuestHiddenPreference.user_id == user_id)
+    }
 
 
 @router.post("/preview", response_model=APIResponse[CreateQuestResponse])
@@ -166,6 +204,7 @@ def create_quest(
         # 개인 선행이므로 GOOD_DEED. VOLUNTEER는 VMS 확인서가 필요해 유저가 만들 수 없다.
         "quest_type": QuestType.GOOD_DEED,
         "quest_source": QuestSource.USER,
+        "quest_status": QuestStatus.IN_PROGRESS,
         "difficulty": material["difficulty"],
         "reward_point": material["point"],
         "reward_exp": material["exp"],
@@ -175,3 +214,44 @@ def create_quest(
 
     response.quest_id = quest.quest_id
     return APIResponse.ok(data=response)
+
+@router.delete("/{quest_id}", response_model=APIResponse[DeleteQuestResponse])
+def delete_quest(
+    quest_id: int,
+    quest_repository: QuestRepository,
+    hidden_repository: HiddenRepository,
+    current_user: User = Depends(get_current_db_user),
+):
+    
+    quest = quest_repository.get(quest_id)
+    if quest is None or quest.is_deleted:
+        raise HTTPException(status_code=404, detail="Quest not found")
+
+    is_mine = (
+        quest.quest_source == QuestSource.USER
+        and quest.creator_id == current_user.user_id
+    )
+
+    if is_mine:
+        quest.is_deleted = True
+        quest_repository.session.commit()
+        return APIResponse.ok(
+            data=DeleteQuestResponse(deleted=True),
+            message="퀘스트를 삭제했습니다.",
+        )
+
+    
+    already_hidden = hidden_repository.get_by(
+        user_id=current_user.user_id,
+        quest_id=quest_id,
+    )
+    if already_hidden is None:
+        hidden_repository.create({
+            "user_id": current_user.user_id,
+            "quest_id": quest_id,
+        })
+
+    return APIResponse.ok(
+        data=DeleteQuestResponse(deleted=False),
+        message="목록에서 치웠습니다.",
+    )

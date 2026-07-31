@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
+from fastapi import HTTPException  # ⭐ 수정: AI 서버 타임아웃/장애를 502/504로 명확히 응답하기 위해 추가
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import NoResultFound  # .one() 조회 시 결과가 없으면 발생하는 예외 (라우터에서 404로 변환 예정)
 
@@ -296,7 +297,7 @@ def queue_shortform_generation(
 # stateless이며 DB에 쓰기 작업을 하지 않는다 (조회는 필요 시에만 수행).
 # ---------------------------------------------------------------------------
 
-AI_SCRIPT_GENERATE_TIMEOUT_SECONDS = 30.0
+AI_SCRIPT_GENERATE_TIMEOUT_SECONDS = 60.0  # ⭐ 수정: Gemini 할당량 초과 시 OpenAI 폴백까지 걸리는 시간을 감안해 30 → 60초로 상향
 MAX_CAPTION_COUNT = 20          # 30초 영상 기준 상한 (자막이 너무 많으면 화면이 복잡해짐 방지)
 MAX_CAPTION_TEXT_LENGTH = 40    # 9:16 세로 화면에서 한 줄로 표시 가능한 대략적인 글자 수 상한
 
@@ -354,7 +355,19 @@ def generate_ai_script(
             ShortFormStatus.FAILED,
             error_message=f"AI 대본 생성 서버 호출 실패: {exc}",
         )
-        raise  # 라우터에서 적절한 HTTP 에러 응답으로 변환하도록 다시 던짐 (여기서 삼키지 않음)
+        # ⭐ 수정: bare raise였던 걸 HTTPException으로 교체.
+        # httpx 예외를 그대로 올리면 FastAPI가 처리 못 해 프론트가 detail 없는
+        # 순수 500(트레이스백)을 받는다 - 프론트는 error.response.data.detail을 읽으므로
+        # 타임아웃/그 외 장애를 구분해 명확한 상태 코드+detail로 응답한다.
+        if isinstance(exc, httpx.TimeoutException):
+            raise HTTPException(
+                status_code=504,
+                detail="AI 대본 생성이 시간 내에 끝나지 않았습니다. 잠시 후 다시 시도해주세요.",
+            ) from exc
+        raise HTTPException(
+            status_code=502,
+            detail="AI 대본 생성 서버 호출에 실패했습니다.",
+        ) from exc
 
     ai_result = response.json()
     # AI 서버 응답의 각 캡션 dict를 CaptionItem 객체로 변환 (타입 검증 겸함)
@@ -371,6 +384,7 @@ def generate_ai_script(
         status=shortform.status,
         title=ai_result.get("title", ""),
         captions=captions,
+        bgm_id=ai_result.get("bgm_id"),  # ⭐ 수정: AI 서버가 매칭한 분위기 기반 BGM (없으면 None)
     )
 
 

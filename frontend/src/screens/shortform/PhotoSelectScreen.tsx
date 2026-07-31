@@ -2,7 +2,7 @@
  * SCREEN 08-1 · 사진 선택 및 상세설정 (route: PhotoSelect — Shortform stack ROOT,
  * reached from the drawer). MainHeader (no back, hamburger) + haze bg.
  * 기간 필터 칩 · 인증 사진 3열 그리드(다중 선택, 골드 체크 배지) · N장 선택됨.
- * Footer: AI 대본 / 음악 → 각 오버레이, 생성하기 → Generating.
+ * Footer: AI 대본 / 음악 → 각 오버레이, 생성하기·자동생성 → Generating.
  * Motion: grid cells stagger-pop (ZoomIn.delay), chips/buttons spring press.
  *
  * 사진 그리드는 새로 촬영/업로드하는 사진이 아니라, 이미 승인된 "퀘스트 인증 사진"
@@ -63,6 +63,7 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
   const [musicOpen, setMusicOpen] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [autoGenerating, setAutoGenerating] = useState(false);
 
   // short_form 레코드는 생성 시점의 title/bgm_id가 그대로 굳어버려서(수정 API 없음),
   // 대본/음악 팝업 중 먼저 여는 쪽에서 shortsId를 미리 확보해 AI 대본 호출에 쓴다.
@@ -74,6 +75,9 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
   const [selectedBgm, setSelectedBgm] = useState<BackgroundMusic | null>(null);
   const [captions, setCaptions] = useState<CaptionItem[] | null>(null);
   const [scriptTitle, setScriptTitle] = useState<string | null>(null);
+  // ⭐ 수정: AI 서버가 사진 분위기 기반으로 매칭한 BGM ("자동생성" 전용). captions와
+  // 마찬가지로 사진 선택이 바뀌면 더 이상 유효하지 않으므로 함께 초기화된다.
+  const [autoBgmId, setAutoBgmId] = useState<number | null>(null);
   const questTitleCache = React.useRef<Map<number, string>>(new Map());
 
   useEffect(() => {
@@ -125,6 +129,24 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
     () => selectedSubmissions.map((s) => s.media_s3_key as string),
     [selectedSubmissions],
   );
+
+  // ⭐ 수정: 대본을 생성해둔 뒤 사진 선택을 바꾸면 그 대본은 이제 다른 사진 기준이라
+  // 더 이상 유효하지 않다 - 선택이 바뀔 때마다 저장된 대본/제목/자동매칭 BGM을 초기화해서
+  // "생성하기"/"자동생성"이 무조건 새로 생성하게 만든다. (아직 대본을 만든 적 없으면
+  // captions가 이미 null이라 조용히 스킵됨)
+  const mediaKeysKey = mediaKeys.join(',');
+  const prevMediaKeysKey = React.useRef(mediaKeysKey);
+  useEffect(() => {
+    if (prevMediaKeysKey.current === mediaKeysKey) return;
+    prevMediaKeysKey.current = mediaKeysKey;
+    if (captions != null) {
+      setCaptions(null);
+      setScriptTitle(null);
+      setAutoBgmId(null);
+      toast.show('사진 선택이 바뀌어 이전에 생성한 대본을 초기화했습니다.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaKeysKey]);
 
   const toggle = (submissionId: number) =>
     setSelectedIds((cur) =>
@@ -230,29 +252,49 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
   };
 
   /**
-   * "자동 생성" 버튼 - 대본 팝업을 열지 않고, AI가 선택된 사진/영상을 분석해
-   * 대본과 음악(RAG 자동 매칭)을 전부 자동으로 정한 뒤 바로 숏폼 생성 화면으로 이동한다.
-   * 이미 만들어둔 draft(있다면)와 무관하게 항상 새로 만든다 - 자동 경로는 사용자가
-   * 수동으로 골라둔 음악(selectedBgm)도 무시하고 RAG 매칭 결과를 그대로 쓴다.
+   * "자동생성" 버튼(사진 선택 화면 하단) - AI가 선택된 사진을 분석해 대본과
+   * 분위기에 맞는 음악(BGM)을 전부 자동으로 정한 뒤 바로 숏폼 생성 화면으로 이동한다.
+   * BGM은 항상 AI 서버의 RAG 매칭 결과를 쓴다 - 자동 경로는 사용자가 수동으로 골라둔
+   * 음악(selectedBgm)을 무시한다.
+   *
+   * ⭐ 수정: 대본 생성(/generate-script)이 이제 vision_agent 분석 결과로 RAG 매칭까지
+   * 함께 실행해 bgm_id를 응답에 실어준다(ai/app/short_form/router.py). 예전엔 ShortForm
+   * 생성 시점(사진 분석 전!)에 "가장 최근 등록된 BGM"을 그냥 집어오는 더미 로직이라
+   * 사진 내용과 무관했는데, 이제 대본 생성 응답의 bgm_id로 다시 만들어서 실제 분위기
+   * 매칭 결과가 반영되게 한다. AI가 매칭에 실패하면(bgm_id=None) 기존처럼 backend
+   * 자체 fallback(_resolve_bgm_id_for_auto_mode)에 맡긴다.
+   *
+   * AI 대본 팝업의 "적용하기"로 이미 대본(captions/scriptTitle/autoBgmId)을 저장해둔
+   * 상태라면 그 값을 그대로 쓰고 generateScript를 다시 호출하지 않는다(같은 사진을
+   * 두 번 분석하는 낭비 방지). 사진 선택이 바뀌면 그 값들은 이미 초기화되어 있으므로
+   * 안전하게 재사용할 수 있다.
    */
   const runAutoGenerate = async (): Promise<void> => {
     if (selectedSubmissions.length === 0) {
       throw new Error('사진을 먼저 선택해주세요.');
     }
-    const placeholderTitle = await resolveQuestTitle();
-    const draft = await createShortform(placeholderTitle, mediaKeys, undefined);
-    const scriptResult = await generateScript(draft.shorts_id, mediaKeys, placeholderTitle);
+    const placeholderTitle = scriptTitle ?? (await resolveQuestTitle());
 
-    let finalShortsId = draft.shorts_id;
-    let finalBgmId = draft.bgm_id;
-    const finalTitle = scriptResult.title || placeholderTitle;
+    let finalCaptions = captions;
+    let matchedBgmId = autoBgmId;
+    let finalTitle = placeholderTitle;
 
-    // title은 생성 이후 고칠 API가 없어서, AI가 만든 제목을 실제로 반영하려면 다시 생성해야 한다.
-    if (finalTitle !== placeholderTitle) {
-      const recreated = await createShortform(finalTitle, mediaKeys, finalBgmId);
-      finalShortsId = recreated.shorts_id;
-      finalBgmId = recreated.bgm_id;
+    if (!finalCaptions) {
+      // 저장된 대본이 없으면(또는 사진이 바뀌어 초기화됐으면) 새로 생성 - bgm_id는 아직
+      // 모르니 임시 shorts_id 확보용으로만 undefined로 만들고, 아래서 실제 매칭값으로 다시 만든다.
+      const draft = await createShortform(placeholderTitle, mediaKeys, undefined);
+      const scriptResult = await generateScript(draft.shorts_id, mediaKeys, placeholderTitle);
+      finalCaptions = scriptResult.captions;
+      finalTitle = scriptResult.title || placeholderTitle;
+      matchedBgmId = scriptResult.bgm_id ?? null;
+      setAutoBgmId(matchedBgmId);
     }
+
+    // 최종 제목/BGM으로 다시 생성한다 - draft는 임시값(제목 placeholder, bgm 더미)이라
+    // 실제 반영하려면 다시 만들어야 함(ShortForm에 title/bgm_id 수정 API가 없음).
+    const finalForm = await createShortform(finalTitle, mediaKeys, matchedBgmId ?? undefined);
+    const finalShortsId = finalForm.shorts_id;
+    const finalBgmId = finalForm.bgm_id;
 
     let bgm: BackgroundMusic | null = null;
     try {
@@ -266,17 +308,36 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
     setShortsIdBgmId(finalBgmId);
     setShortsIdTitle(finalTitle);
     setSelectedBgm(bgm);
-    setCaptions(scriptResult.captions);
+    setCaptions(finalCaptions);
     setScriptTitle(finalTitle);
     setScriptOpen(false);
 
     navigation.navigate('Generating', {
       shortsId: finalShortsId,
       mediaKeys,
-      captions: scriptResult.captions,
+      captions: finalCaptions,
       title: finalTitle,
       bgmId: finalBgmId,
     });
+  };
+
+  // ⭐ 수정: 사진 선택 화면 하단 "자동생성" 버튼 핸들러. 기존엔 파라미터 없이 그냥
+  // navigation.navigate('Generating')만 호출해서 GeneratingScreen이 shortsId/captions를
+  // 못 받아 곧바로 에러가 나던 버그였다 - runAutoGenerate()로 교체.
+  const handleAutoGenerate = async () => {
+    if (selectedSubmissions.length === 0) {
+      toast.show('사진을 먼저 선택해주세요.');
+      return;
+    }
+    try {
+      setAutoGenerating(true);
+      await runAutoGenerate();
+    } catch (error) {
+      console.error('자동 생성 실패:', error);
+      toast.show('자동 생성에 실패했습니다.');
+    } finally {
+      setAutoGenerating(false);
+    }
   };
 
   const GAP = 4;
@@ -387,13 +448,26 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
             </SpringButton>
           </View>
         </View>
-        <SpringButton onPress={handleGenerate} disabled={generating} style={styles.primaryBtn}>
-          {generating ? (
+        <View style={[styles.footerRow, { marginBottom: 0 }]}>
+          <View style={styles.footerHalf}>
+            <SpringButton onPress={handleGenerate} disabled={generating} style={styles.primaryBtn}>
+              {generating ? (
             <ActivityIndicator color={colors.primaryDark} />
           ) : (
             <Text style={styles.primaryText}>생성하기</Text>
-          )}
+              )}
         </SpringButton>
+          </View>
+          <View style={styles.footerHalf}>
+            <SpringButton onPress={handleAutoGenerate} disabled={autoGenerating} style={styles.autoBtn}>
+              {autoGenerating ? (
+                <ActivityIndicator color={colors.white} />
+              ) : (
+                <Text style={styles.autoText}>자동생성</Text>
+              )}
+            </SpringButton>
+          </View>
+        </View>
       </LinearGradient>
 
       <AiScriptPopup
@@ -402,11 +476,16 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
         shortsId={shortsId}
         mediaKeys={mediaKeys}
         questTitleResolver={resolveQuestTitle}
+        savedCaptions={captions}
+        savedTitle={scriptTitle}
         onConfirmed={(result) => {
           setCaptions(result.captions);
           setScriptTitle(result.title);
+          // ⭐ 수정: "적용하기"로 저장된 대본과 함께 AI가 매칭한 BGM도 같이 기억해뒀다가
+          // 바로 뒤에 "자동생성"을 누르면 재사용한다 (없으면 null - 이후 자동생성이
+          // 자체적으로 새로 매칭한다).
+          setAutoBgmId(result.bgm_id ?? null);
         }}
-        onAutoGenerate={runAutoGenerate}
       />
       <MusicSheet
         visible={musicOpen}
@@ -477,4 +556,17 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   primaryText: { fontFamily: fonts.pixel, fontSize: 18, color: colors.primaryDark },
+  autoBtn: {
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: colors.xpGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.xpGreen,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    elevation: 5,
+  },
+  autoText: { fontFamily: fonts.pixel, fontSize: 18, color: colors.white },
 });

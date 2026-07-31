@@ -15,7 +15,7 @@ from backend.app.badge.models import Badge, UserBadge
 from backend.app.challenge.models import TeamInvite, TeamMember, Team
 from backend.app.community.models import UserActivityLog, FeedHiddenPreference, Comment, PostLike, CommunityPost
 from backend.app.map.models import VolunteerCenter, Region, City, Competition, CompetitionParticipant, CompetitionContribution
-from backend.app.quest.models import Category, Quest
+from backend.app.quest.models import Category, Quest, QuestHiddenPreference
 from backend.app.quest_recommend.models import AiRecommendationLog, AiRecommendation
 from backend.app.quest_verification.models import QuestSubmission
 from backend.app.shop.models import Item, Purchase
