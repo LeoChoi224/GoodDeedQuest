@@ -4,10 +4,11 @@ from __future__ import annotations
 # [확인 및 검토할 사항]
 #
 # 1. 최종 추천 점수는 총 100점입니다.
-#    - 관심 카테고리 일치: 40점
+#    - 관심 카테고리 일치: 35점
 #    - 지역 일치: 15점
-#    - 게시글 최신성: 25점
-#    - 좋아요·댓글 반응도: 20점
+#    - 게시글 최신성: 20점
+#    - 좋아요·댓글 반응도: 15점
+#    - 게시글 작성자 신뢰도: 15점
 #
 # 2. 사용자 관심 카테고리는 User.category에 저장된 카테고리 ID 목록을 사용합니다.
 #    게시글 카테고리는 CommunityPost → QuestSubmission → Quest → Category.category_id
@@ -31,16 +32,19 @@ from typing import Iterable
 
 
 # 관심 카테고리 일치 시 부여할 최대 점수.
-CATEGORY_MAX_SCORE = 40
+CATEGORY_MAX_SCORE = 35
 
 # 사용자 지역과 퀘스트 장소가 일치할 때 부여할 최대 점수.
 REGION_MAX_SCORE = 15
 
 # 게시글 최신성에 부여할 최대 점수.
-FRESHNESS_MAX_SCORE = 25
+FRESHNESS_MAX_SCORE = 20
 
 # 게시글 좋아요·댓글 반응도에 부여할 최대 점수.
-ENGAGEMENT_MAX_SCORE = 20
+ENGAGEMENT_MAX_SCORE = 15
+
+# 게시글 작성자 신뢰도에 부여할 최대 점수.
+TRUST_MAX_SCORE = 15
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +55,7 @@ class CommunityRecommendationScore:
     region_score: int
     freshness_score: int
     engagement_score: int
+    trust_score: int
 
     @property
     def final_score(self) -> int:
@@ -61,6 +66,7 @@ class CommunityRecommendationScore:
             + self.region_score
             + self.freshness_score
             + self.engagement_score
+            + self.trust_score
         )
 
 
@@ -77,7 +83,7 @@ def calculate_category_score(
     user_category_ids: Iterable[int | str] | None,
     quest_category_id: int | None,
 ) -> int:
-    """사용자의 관심 카테고리에 퀘스트 카테고리가 포함되면 40점을 반환합니다."""
+    """사용자의 관심 카테고리에 퀘스트 카테고리가 포함되면 35점을 반환합니다."""
 
     # 게시글가 연결된 퀘스트 정보를 확인할 수 없으면 카테고리 점수를 부여하지 않습니다.
     if quest_category_id is None:
@@ -144,7 +150,7 @@ def calculate_freshness_score(
     created_at: datetime,
     reference_time: datetime | None = None,
 ) -> int:
-    """게시글 생성 시각과 기준 시각의 차이에 따라 최대 25점을 반환."""
+    """게시글 생성 시각과 기준 시각의 차이에 따라 최대 20점을 반환."""
 
     current_time = _as_utc_datetime(
         reference_time or datetime.now(timezone.utc)
@@ -162,19 +168,19 @@ def calculate_freshness_score(
     elapsed_days = elapsed_seconds / 86_400
 
     if elapsed_days <= 1:
-        return 25
-
-    if elapsed_days <= 3:
         return 20
 
+    if elapsed_days <= 3:
+        return 16
+
     if elapsed_days <= 7:
-        return 15
+        return 12
 
     if elapsed_days <= 14:
-        return 10
+        return 8
 
     if elapsed_days <= 30:
-        return 5
+        return 4
 
     return 0
 
@@ -184,7 +190,7 @@ def calculate_engagement_score(
     like_count: int,
     comment_count: int,
 ) -> int:
-    """좋아요와 댓글 반응값에 따라 최대 20점을 반환."""
+    """좋아요와 댓글 반응값에 따라 최대 15점을 반환."""
 
     # 비정상적인 음수 집계값은 0으로 보정.
     safe_like_count = max(like_count, 0)
@@ -194,16 +200,16 @@ def calculate_engagement_score(
     engagement_value = safe_like_count + safe_comment_count * 2
 
     if engagement_value >= 20:
-        return 20
-
-    if engagement_value >= 10:
         return 15
 
+    if engagement_value >= 10:
+        return 12
+
     if engagement_value >= 5:
-        return 10
+        return 8
 
     if engagement_value >= 1:
-        return 5
+        return 4
 
     return 0
 
@@ -216,6 +222,7 @@ def calculate_community_recommendation_score(
     created_at: datetime,
     like_count: int,
     comment_count: int,
+    author_trust_score: int | None,
     reference_time: datetime | None = None,
 ) -> CommunityRecommendationScore:
     """커뮤니티 게시글의 항목별 점수와 최종 추천 점수를 계산합니다."""
@@ -240,9 +247,35 @@ def calculate_community_recommendation_score(
         comment_count=comment_count,
     )
 
+    trust_score = calculate_trust_score(
+        author_trust_score=author_trust_score,
+    )
+
     return CommunityRecommendationScore(
         category_score=category_score,
         region_score=region_score,
         freshness_score=freshness_score,
         engagement_score=engagement_score,
+        trust_score=trust_score,
     )
+
+def calculate_trust_score(
+    *,
+    author_trust_score: int | None,
+) -> int:
+    """작성자 신뢰도 0~100점을 추천 점수 0~15점으로 환산합니다."""
+
+    if author_trust_score is None:
+        return 0
+
+    # 비정상적인 DB 값이 최종 추천 점수를 깨뜨리지 않도록
+    # 작성자 신뢰도를 0~100 범위로 보정합니다.
+    normalized_trust_score = min(
+        max(author_trust_score, 0),
+        100,
+    )
+
+    # 일반적인 round()의 0.5 짝수 반올림 대신 정수식 반올림을 사용합니다.
+    return (
+        normalized_trust_score * TRUST_MAX_SCORE + 50
+    ) // 100
