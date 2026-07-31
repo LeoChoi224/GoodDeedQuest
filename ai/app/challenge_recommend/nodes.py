@@ -61,7 +61,17 @@ from .schemas import (
     ScoredRecommendationCandidate,
     TeamRecommendationResponse,
 )
-from .scoring import score_candidates
+from .scoring import (
+    ACTIVE_TIME_MAX_SCORE,
+    CATEGORY_MAX_SCORE,
+    DAILY_STREAK_MAX_SCORE,
+    DIFFICULTY_MAX_SCORE,
+    EMBEDDING_MAX_SCORE,
+    REGION_MAX_SCORE,
+    TRUST_MAX_SCORE,
+    USER_LEVEL_MAX_SCORE,
+    score_candidates,
+)
 from .state import (
     RecommendationMetadata,
     RecommendationState,
@@ -71,7 +81,7 @@ from .state import (
 
 # LLM Fallback 시 최종 결과에 사용할 기본 문장입니다.
 DEFAULT_RECOMMENDATION_REASON = (
-    "팀과 퀘스트의 추천 기준을 종합했을 때 적합도가 높은 사용자입니다."
+    "확인 가능한 활동 정보를 종합해 이번 팀과 함께하기 좋은 친구로 추천했어요."
 )
 
 # 추천 이유 생성에 실패했을 때 State에 남길 공통 경고 문장입니다.
@@ -151,44 +161,51 @@ def _score_value(
 def _build_rule_based_highlights(
     candidate: ScoredRecommendationCandidate,
 ) -> list[str]:
-    """점수가 높은 추천 항목을 사용자에게 보여줄 핵심 근거로 변환합니다."""
+    """최대 점수 대비 비율이 높은 항목을 자연스러운 핵심 근거로 변환합니다."""
 
     score_labels = [
         (
-            _score_value(candidate, "category_score"),
-            "관심 카테고리 적합도가 높습니다.",
+            _score_value(candidate, "category_score")
+            / CATEGORY_MAX_SCORE,
+            "관심 분야와 퀘스트 주제가 잘 맞는 점",
         ),
         (
-            _score_value(candidate, "difficulty_score"),
-            "선호 난이도가 퀘스트와 잘 맞습니다.",
+            _score_value(candidate, "difficulty_score")
+            / DIFFICULTY_MAX_SCORE,
+            "선호 난이도가 이번 활동과 잘 맞는 점",
         ),
         (
-            _score_value(candidate, "active_time_score"),
-            "활동 시간대가 팀 일정과 잘 맞습니다.",
+            _score_value(candidate, "active_time_score")
+            / ACTIVE_TIME_MAX_SCORE,
+            "활동 시간대가 팀 일정과 잘 맞는 점",
         ),
         (
-            _score_value(candidate, "region_score"),
-            "활동 지역이 팀과 가깝거나 일치합니다.",
+            _score_value(candidate, "region_score")
+            / REGION_MAX_SCORE,
+            "팀과 같은 지역에서 활동할 수 있는 점",
         ),
         (
-            _score_value(candidate, "embedding_score"),
-            "프로필과 퀘스트의 의미적 유사도가 높습니다.",
+            _score_value(candidate, "embedding_score")
+            / EMBEDDING_MAX_SCORE,
+            "관심 활동의 맥락이 퀘스트 주제와 잘 맞는 점",
         ),
         (
-            _score_value(candidate, "daily_streak_score"),
-            "최근 꾸준한 활동 기록이 있습니다.",
+            _score_value(candidate, "daily_streak_score")
+            / DAILY_STREAK_MAX_SCORE,
+            "최근에도 꾸준히 활동하고 있는 점",
         ),
         (
-            _score_value(candidate, "user_level_score"),
-            "퀘스트 수행 경험과 사용자 레벨이 충분합니다.",
+            _score_value(candidate, "user_level_score")
+            / USER_LEVEL_MAX_SCORE,
+            "퀘스트 수행 경험이 충분한 점",
         ),
         (
-            _score_value(candidate, "trust_score"),
-            "활동 신뢰도가 안정적인 사용자입니다.",
+            _score_value(candidate, "trust_score")
+            / TRUST_MAX_SCORE,
+            "완료한 활동의 신뢰도가 안정적인 점",
         ),
     ]
 
-    # 점수가 높은 항목부터 정렬하고 0점인 항목은 제외합니다.
     sorted_labels = sorted(
         score_labels,
         key=lambda item: -item[0],
@@ -196,20 +213,28 @@ def _build_rule_based_highlights(
 
     return [
         label
-        for score, label in sorted_labels
-        if score > 0
-    ][:3]
+        for score_ratio, label in sorted_labels
+        if score_ratio > 0
+    ][:2]
 
 
 def build_rule_based_reason(
     candidate: ScoredRecommendationCandidate,
 ) -> CandidateRecommendationReason:
-    """LLM 없이 점수 항목만으로 안전한 기본 추천 이유를 생성합니다."""
+    """LLM 없이도 자연스러운 추천 이유를 생성합니다."""
 
     highlights = _build_rule_based_highlights(candidate)
 
-    if highlights:
-        reason_text = " ".join(highlights)
+    if len(highlights) >= 2:
+        reason_text = (
+            f"{highlights[0]}과 {highlights[1]}이 돋보여요. "
+            "이번 팀과 함께 활동하기 좋은 친구예요."
+        )
+    elif highlights:
+        reason_text = (
+            f"{highlights[0]}이 돋보여요. "
+            "이번 팀에서 함께 활동해 보세요."
+        )
     else:
         reason_text = DEFAULT_RECOMMENDATION_REASON
 
