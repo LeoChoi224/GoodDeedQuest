@@ -9,12 +9,13 @@ from ai.app.quest_recommend.nodes.user_profile_agent import analyze_user_profile
 from ai.app.quest_recommend.nodes.situation_agent import analyze_situation
 from ai.app.quest_recommend.nodes.request_agent import analyze_request
 from ai.app.quest_recommend.nodes.planner_agent import analyze_strategy
-from ai.app.quest_recommend.nodes.retrieval_tool import retrieve_volunteers
+from ai.app.quest_recommend.nodes.volunteer_agent import retrieve_volunteers
 from ai.app.quest_recommend.nodes.good_deed_agent import create_good_deeds
 from ai.app.quest_recommend.nodes.validation_agent import validate_candidates, route_validation
 from ai.app.quest_recommend.nodes.response_agent import format_response
 
 logger = logging.getLogger(__name__)
+
 
 def create_recommendation_graph():
     """
@@ -27,8 +28,8 @@ def create_recommendation_graph():
     workflow.add_node("situation", analyze_situation)
     workflow.add_node("request", analyze_request)
     workflow.add_node("planner", analyze_strategy)
-    workflow.add_node("retrieval", retrieve_volunteers)
-    workflow.add_node("recommendation", create_good_deeds)
+    workflow.add_node("volunteer", retrieve_volunteers)
+    workflow.add_node("good_deed", create_good_deeds)
     workflow.add_node("validation", validate_candidates)
     workflow.add_node("response", format_response)
 
@@ -39,23 +40,25 @@ def create_recommendation_graph():
     workflow.add_edge("user_profile", "situation")
     workflow.add_edge("situation", "request")
     workflow.add_edge("request", "planner")
-    workflow.add_edge("planner", "retrieval")
-    workflow.add_edge("retrieval", "recommendation")
-    workflow.add_edge("recommendation", "validation")
+    workflow.add_edge("planner", "volunteer")
+    workflow.add_edge("planner", "good_deed")
+    workflow.add_edge("volunteer", "validation")
+    workflow.add_edge("good_deed", "validation")
     workflow.add_edge("response", END)  # 최종 응답 후종착점(END) 연결
     
-    # 4. 검증 에이전트: 조건부 분기 (추천 품질 낮음: planner / 검색 결과 부족 : retrieval / 통과, 재시도 횟수 초과: response)
+    # 4. 검증 에이전트: 조건부 분기 (추천 품질 낮음: planner / 검색 결과 부족 : volunteer / 통과, 재시도 횟수 초과: response)
     workflow.add_conditional_edges(
         "validation",
         route_validation,
         {
             "planner": "planner",
-            "retrieval": "retrieval",
+            "volunteer": "volunteer",
             "response": "response"
         }
     )
 
     # 5. 워크플로우 컴파일
+    logger.info("AI 퀘스트 추천 8개 노드 및 병렬 에지 조립 StateGraph 컴파일 완료")
     return workflow.compile()
 
 # 글로벌 컴파일 객체 생성 (싱글톤 활용)
