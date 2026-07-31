@@ -31,4 +31,5 @@ class RecommendState(TypedDict):
     rejection_reasons_ko: List[str]
 
     retry_count: int
+    volunteer_retry_count: int
     recommended_quests: List[Dict[str, Any]]

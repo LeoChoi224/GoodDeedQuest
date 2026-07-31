@@ -204,6 +204,10 @@ def _build_rule_based_highlights(
             / TRUST_MAX_SCORE,
             "완료한 활동의 신뢰도가 안정적인 점",
         ),
+        (
+            _score_value(candidate, "trust_score"),
+            "활동 신뢰도가 안정적인 사용자입니다.",
+        ),
     ]
 
     sorted_labels = sorted(
