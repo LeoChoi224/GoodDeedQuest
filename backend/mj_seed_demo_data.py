@@ -30,6 +30,7 @@ GoodDeedQuest 데모 데이터 시드 파일
 from __future__ import annotations
 
 import argparse
+import urllib.request  # ⭐ 수정: 데모 이미지를 S3에 업로드하기 위한 다운로드용
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -40,12 +41,30 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.common.database import engine
+from backend.app.common.s3_client import upload_bytes  # ⭐ 수정
 
 
 SEED_PASSWORD = "Seed1234!"
 SEED_EMAIL_DOMAIN = "example.com"
 LEGACY_SEED_EMAIL_DOMAIN = "gdq.local"
+SEED_MEDIA_S3_PREFIX = "seed-demo"  # ⭐ 수정
 NOW = datetime.now(timezone.utc)
+
+
+# ⭐ 수정: short_form.get_eligible_media()는 QuestSubmission.media_url을 항상 실제
+# S3 key로 취급해 presigned URL을 발급한다 - 외부 URL을 그대로 넣으면 숏폼 사진
+# 선택 화면 썸네일이 깨진다. 데모용 공개 이미지를 실제 S3 버킷에 한 번 업로드해두고
+# 그 S3 key를 인증 제출(quest_submission)에 사용한다. (커뮤니티 게시글의 media_url은
+# community 도메인이 외부 URL을 그대로 렌더링하므로 원래 URL을 그대로 둔다.)
+def _ensure_seed_media_keys(image_urls: Iterable[str]) -> list[str]:
+    keys: list[str] = []
+    for index, url in enumerate(image_urls, start=1):
+        key = f"{SEED_MEDIA_S3_PREFIX}/quest-photo-{index}.jpg"
+        with urllib.request.urlopen(url, timeout=15) as response:
+            data = response.read()
+        upload_bytes(key, data, "image/jpeg")
+        keys.append(key)
+    return keys
 
 
 def _password_hash(password: str) -> str:
@@ -521,6 +540,8 @@ def seed_demo_data() -> None:
             "https://images.unsplash.com/photo-1542810634-71277d95dcbb?w=1200",
             "https://images.unsplash.com/photo-1618477461853-cf6ed80faba5?w=1200",
         ]
+        submission_media_keys = _ensure_seed_media_keys(image_urls)  # ⭐ 수정
+
         captions = [
             "[SEED] 오늘 한강에서 플로깅 완료! 작은 실천이 모이면 큰 변화가 됩니다.",
             "[SEED] 분리배출 기준을 다시 확인하고 깨끗하게 정리했어요.",
@@ -545,7 +566,9 @@ def seed_demo_data() -> None:
             owner_id = user_ids[owner_key]
             quest_id = quest_ids[index % len(quest_ids)]
             submitted_at = NOW - timedelta(days=index % 18, hours=index)
-            media_url = image_urls[index % len(image_urls)]
+            # ⭐ 수정: 인증 제출은 실제 S3 key(썸네일 presign용), 게시글은 기존 외부 URL 그대로
+            submission_media_key = submission_media_keys[index % len(image_urls)]
+            post_media_url = image_urls[index % len(image_urls)]
             explain = f"[SEED] 데모 인증 기록 {index + 1}"
 
             existing_submission = connection.execute(
@@ -569,7 +592,7 @@ def seed_demo_data() -> None:
                     "reviewed_by": user_ids["leader"],
                     "attempt_number": 1,
                     "quest_explain": explain,
-                    "media_url": media_url,
+                    "media_url": submission_media_key,  # ⭐ 수정
                     "extra_media_urls": [],
                     "media_hash": f"seed-media-{index + 1}",
                     "media_embedding": [0.8, 0.2 + index * 0.01, 0.3],
@@ -604,7 +627,7 @@ def seed_demo_data() -> None:
                                 "post_id": post_id,
                                 "user_id": owner_id,
                                 "submission_id": submission_id,
-                                "media_url": media_url,
+                                "media_url": post_media_url,  # ⭐ 수정
                                 "caption": caption,
                                 "is_active": True,
                                 "created_at": submitted_at + timedelta(minutes=5),
