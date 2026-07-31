@@ -48,6 +48,7 @@ export type PersonalRankingEntry = {
   user_id: number;
   nickname: string;
   score: number;
+  is_me: boolean;
 };
 
 export type RecommendedFacility = {
