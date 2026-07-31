@@ -2,9 +2,11 @@
  * SCREEN 05·4 · 시군구별 상세랭킹 — SiDoMap에서 시군구 확정 선택 시 진입.
  * 시군구 랭킹 리스트(탭0)는 SiDoMap 화면과 내용이 겹쳐서 제거함 - 이 화면은 상세 랭킹 전용.
  * 개인 랭킹(XP) + 🤖 부족봉사 AI 판단 + 📌 추천 봉사시설, /map/region-ranking/{region_id} 실API 연결.
- * 추천 봉사시설 → VolunteerDetail. 팀 변경 → 팀 선택 모달(값 저장은 아직 안 함, team-select API 미연결).
+ * 추천 봉사시설 → VolunteerDetail. 팀 변경 → /map/team-select 실API 연결(정산 중에만 변경 가능,
+ * 실패 시 백엔드 메시지 그대로 토스트). 이 화면 자체의 랭킹 데이터는 팀 변경 후에도 재조회하지 않음
+ * (browsing 중인 지역의 공개 랭킹이라 "내 팀"과 무관).
  */
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -12,7 +14,8 @@ import { colors, fonts, radii, shadow } from '../../theme';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import { UserRankRow, TeamSelectPopup } from './_parts';
-import { getRegionRanking, PersonalRankingEntry, RecommendedFacility } from '../../api/map';
+import { useToast } from '../../components/Toast';
+import { getRegionRanking, PersonalRankingEntry, RecommendedFacility, selectTeamRegion } from '../../api/map';
 
 function rankLabel(index: number): string {
   if (index === 0) return 'MVP';
@@ -26,7 +29,10 @@ export default function RegionDetailsScreen({ navigation, route }: any) {
   const sigungu: string = route?.params?.sigungu ?? '';
   const regionId: number | undefined = route?.params?.regionId;
 
+  const toast = useToast();
+
   const [pickOpen, setPickOpen] = useState(false);
+  const [teamSubmitting, setTeamSubmitting] = useState(false);
   const [regionName, setRegionName] = useState(sigungu);
   const [personalRanking, setPersonalRanking] = useState<PersonalRankingEntry[]>([]);
   const [lackingCategory, setLackingCategory] = useState('');
@@ -66,6 +72,19 @@ export default function RegionDetailsScreen({ navigation, route }: any) {
       cancelled = true;
     };
   }, [regionId]);
+
+  const handleTeamConfirm = async (newRegionId: number, _sido: string, sigunguName: string) => {
+    setTeamSubmitting(true);
+    try {
+      await selectTeamRegion(newRegionId);
+      setPickOpen(false);
+      toast.show(`참여 지역이 ${sigunguName}(으)로 설정되었어요.`);
+    } catch (err: any) {
+      toast.show(err.message ?? '참여 지역을 설정하지 못했어요.');
+    } finally {
+      setTeamSubmitting(false);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -160,7 +179,8 @@ export default function RegionDetailsScreen({ navigation, route }: any) {
       <TeamSelectPopup
         visible={pickOpen}
         onClose={() => setPickOpen(false)}
-        onConfirm={() => setPickOpen(false)}
+        onConfirm={handleTeamConfirm}
+        submitting={teamSubmitting}
         region={region}
         city={regionName}
       />

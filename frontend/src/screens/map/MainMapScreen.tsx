@@ -2,10 +2,13 @@
  * SCREEN 05·1+2 · 지도메인 + 대항전 전국지도 — 지도 탭 ROOT (전국 뷰 전용).
  * 내 주변 둘러보기(상단) + 전국(시/도) 스타일라이즈드 SVG 지도(우리 팀=경기도 골드, pulse/pin) +
  * 팀 변경하기(팀 선택 모달, 지도 우측 하단 오버레이) + 시/도별 랭킹(/map/national-ranking).
+ * 참여 지역 상태는 /map/main 실API로 조회, 변경은 /map/team-select 실API로 저장.
+ * teamRegion/teamSigungu는 지역 미설정 시 빈 문자열로 유지 — KoreaMapDrilldown이 이걸 보고
+ * "우리 팀" 태그/하이라이트를 숨긴다 (하드코딩된 기본값이 잘못 표시되던 버그 수정).
  * "내 위치·지역 변경" 배너는 제거함 — 실시간 GPS 연동은 별도 작업으로 진행 예정, 팀 변경은 지도에 이미 있어 중복.
  * 시/도를 2탭으로 확정 선택하면 SiDoMap 화면으로 이동(드릴다운은 이 화면 안에서 안 함).
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { colors, fonts, radii, shadow } from '../../theme';
@@ -15,17 +18,51 @@ import SpringButton from '../../components/SpringButton';
 import { TeamSelectPopup, RankRow } from './_parts';
 import KoreaMapDrilldown from '../../components/KoreaMapDrilldown';
 import { resolveProvinceName } from './provinceCityIds';
-import { getNationalRanking, NationalRankingEntry } from '../../api/map';
+import { useToast } from '../../components/Toast';
+import { getNationalRanking, NationalRankingEntry, getMapMain, selectTeamRegion } from '../../api/map';
 
 export default function MainMapScreen({ navigation, route }: any) {
-  const [teamSet, setTeamSet] = useState(true);
+  const toast = useToast();
+
+  // 참여 지역 조회 전엔 "설정하기"/"변경하기" 배너가 잘못 깜빡이지 않도록 teamLoading으로 가드
+  const [teamLoading, setTeamLoading] = useState(true);
+  const [teamSet, setTeamSet] = useState(false);
+  const [teamSubmitting, setTeamSubmitting] = useState(false);
   const [pickOpen, setPickOpen] = useState(false);
-  const [teamRegion, setTeamRegion] = useState('경기도');
-  const [teamSigungu, setTeamSigungu] = useState('안양시');
+  const [teamRegion, setTeamRegion] = useState('');
+  const [teamSigungu, setTeamSigungu] = useState('');
 
   const [ranking, setRanking] = useState<NationalRankingEntry[]>([]);
   const [rankLoading, setRankLoading] = useState(true);
   const [rankError, setRankError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTeamLoading(true);
+    getMapMain()
+      .then((data) => {
+        if (cancelled) return;
+        if (data.has_region && data.region) {
+          setTeamRegion(resolveProvinceName(data.region.city_id) ?? '');
+          setTeamSigungu(data.region.region_name);
+          setTeamSet(true);
+        } else {
+          setTeamRegion('');
+          setTeamSigungu('');
+          setTeamSet(false);
+        }
+      })
+      .catch(() => {
+        // 조회 실패 시엔 "설정하기" 배너로 폴백 - 유저가 다시 시도할 수 있게
+        if (!cancelled) setTeamSet(false);
+      })
+      .finally(() => {
+        if (!cancelled) setTeamLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +90,22 @@ export default function MainMapScreen({ navigation, route }: any) {
     navigation.navigate('SiDoMap', { province: svgName, teamRegion, teamSigungu });
   };
 
+  const handleTeamConfirm = useCallback(async (regionId: number, sido: string, sigunguName: string) => {
+    setTeamSubmitting(true);
+    try {
+      const result = await selectTeamRegion(regionId);
+      setTeamRegion(sido);
+      setTeamSigungu(result.region_name);
+      setTeamSet(true);
+      setPickOpen(false);
+      toast.show('참여 지역이 설정되었어요.');
+    } catch (err: any) {
+      toast.show(err.message ?? '참여 지역을 설정하지 못했어요.');
+    } finally {
+      setTeamSubmitting(false);
+    }
+  }, [toast]);
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -74,7 +127,7 @@ export default function MainMapScreen({ navigation, route }: any) {
             drillOnRegionTap={false}
             onRegion={(name) => navigation.navigate('SiDoMap', { province: name, teamRegion, teamSigungu })}
           />
-          {teamSet ? (
+          {teamLoading ? null : teamSet ? (
             <Pressable style={styles.teamChangeBtn} onPress={() => setPickOpen(true)}>
               <Text style={styles.teamChangeText}>팀 변경하기</Text>
             </Pressable>
@@ -123,12 +176,8 @@ export default function MainMapScreen({ navigation, route }: any) {
         onClose={() => setPickOpen(false)}
         region={teamRegion}
         city={teamSigungu}
-        onConfirm={(region, city) => {
-          setTeamRegion(region);
-          setTeamSigungu(city);
-          setTeamSet(true);
-          setPickOpen(false);
-        }}
+        submitting={teamSubmitting}
+        onConfirm={handleTeamConfirm}
       />
     </View>
   );
