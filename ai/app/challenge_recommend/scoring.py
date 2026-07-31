@@ -35,13 +35,14 @@ from typing import Any, Mapping, Sequence
 
 
 # AI 규칙 기반 추천 점수 기준
-CATEGORY_MAX_SCORE = 30.0       # 관심 카테고리
+CATEGORY_MAX_SCORE = 25.0       # 관심 카테고리
 DIFFICULTY_MAX_SCORE = 15.0     # 선호 난이도
 ACTIVE_TIME_MAX_SCORE = 15.0    # 활동 시간
 REGION_MAX_SCORE = 15.0         # 팀 활동 지역 일치
-EMBEDDING_MAX_SCORE = 15.0      # 프로필 임배딩
+EMBEDDING_MAX_SCORE = 10.0      # 프로필 임배딩
 DAILY_STREAK_MAX_SCORE = 5.0    # 활동 지속성
 USER_LEVEL_MAX_SCORE = 5.0      # 사용자 레벨
+TRUST_MAX_SCORE = 10.0          # 신뢰도 점수
 
 # 모든 항목을 합친 추천 점수의 최대값.
 TOTAL_MAX_SCORE = 100.0 
@@ -73,6 +74,7 @@ class RecommendationScore:
     embedding_score: float
     daily_streak_score: float
     user_level_score: float
+    trust_score: float
     total_score: float
 
     def to_dict(self) -> dict[str, float]:
@@ -190,7 +192,7 @@ def calculate_category_score(
         recent_score = (
             matched_category_count
             / total_category_count
-            * 10.0
+            * 5.0
         )
 
     return _clamp_score(
@@ -446,6 +448,29 @@ def calculate_user_level_score(
 
     return 0.0
 
+def calculate_trust_score(
+    *,
+    candidate: Mapping[str, Any],
+) -> float:
+    """사용자 신뢰도 0~100점을 추천 점수 0~10점으로 환산합니다."""
+
+    trust_value = candidate.get("trust_score", 0)
+
+    if (
+        isinstance(trust_value, bool)
+        or not isinstance(trust_value, (int, float))
+    ):
+        return 0.0
+
+    normalized_trust = max(
+        0.0,
+        min(float(trust_value), 100.0),
+    )
+
+    return _clamp_score(
+        normalized_trust / 100.0 * TRUST_MAX_SCORE,
+        max_score=TRUST_MAX_SCORE,
+    )
 
 def calculate_recommendation_score(
     *,
@@ -489,6 +514,10 @@ def calculate_recommendation_score(
         candidate=candidate,
     )
 
+    trust_score = calculate_trust_score(
+        candidate=candidate,
+    )
+
     total_score = _clamp_score(
         category_score
         + difficulty_score
@@ -497,6 +526,7 @@ def calculate_recommendation_score(
         + embedding_score
         + daily_streak_score
         + user_level_score,
+        + trust_score,
         max_score=TOTAL_MAX_SCORE,
     )
 
@@ -508,6 +538,7 @@ def calculate_recommendation_score(
         embedding_score=embedding_score,
         daily_streak_score=daily_streak_score,
         user_level_score=user_level_score,
+        trust_score=trust_score,
         total_score=total_score,
     )
 

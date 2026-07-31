@@ -119,6 +119,7 @@ class CommunityRepository:
         db: Session,
         *,
         user_id: int,
+        author_id: int | None = None,
         skip: int = 0,
         limit: int = 20,
     # 게시글, 작성자, 좋아요 수, 댓글 수, 좋아요 여부의 튜플 목록을 반환.
@@ -154,7 +155,6 @@ class CommunityRepository:
 
         # 피드 화면에 필요한 정보를 한 번에 가져오는 쿼리.
         query = (
-            # 게시글, 작성자, 좋아요 수, 댓글 수, 좋아요 여부를 함께 조회.
             select(
                 CommunityPost,
                 User,
@@ -171,6 +171,17 @@ class CommunityRepository:
                 CommunityPost.submission_id.is_not(None),
                 User.is_active.is_(True),
             )
+        )
+
+        # 내 게시물 조회에서는 로그인 사용자가 작성한 게시글만 남깁니다.
+        # 기본 피드 조회에서는 author_id가 None이므로 작성자 필터를 적용하지 않습니다.
+        if author_id is not None:
+            query = query.where(
+                CommunityPost.user_id == author_id,
+            )
+
+        query = (
+            query
             .order_by(
                 CommunityPost.created_at.desc(),
                 CommunityPost.post_id.desc(),

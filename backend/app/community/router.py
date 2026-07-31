@@ -133,6 +133,35 @@ def get_community_feed(
         limit=limit,
     )
 
+@router.get(
+    "/posts/mine",
+    response_model=list[CommunityFeedItemResponse],
+    status_code=status.HTTP_200_OK,
+    summary="내 커뮤니티 게시글 조회",
+)
+def get_my_community_posts(
+    skip: int = Query(
+        default=0,
+        ge=0,
+        description="건너뛸 내 게시글 수",
+    ),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="조회할 내 게시글 수",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> list[CommunityFeedItemResponse]:
+    """현재 로그인 사용자가 작성한 활성 게시글을 최신순으로 반환합니다."""
+
+    return service.get_my_community_posts(
+        db=db,
+        current_user=current_user,
+        skip=skip,
+        limit=limit,
+    )
 
 # 로그인한 사용자의 관심 정보와 게시글 반응을 반영한 추천 피드를 반환.
 @router.get(

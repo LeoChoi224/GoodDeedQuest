@@ -60,12 +60,13 @@ from .scoring import (
     DIFFICULTY_MAX_SCORE,
     EMBEDDING_MAX_SCORE,
     REGION_MAX_SCORE,
+    TRUST_MAX_SCORE,
     USER_LEVEL_MAX_SCORE,
 )
 
 
 # 추천 이유 생성 Prompt의 버전입니다.
-RECOMMENDATION_REASON_PROMPT_VERSION = "1.1.0"
+RECOMMENDATION_REASON_PROMPT_VERSION = "1.2.0"
 
 
 # LLM이 항상 따라야 하는 역할과 제한 사항입니다.
@@ -214,6 +215,7 @@ def _build_score_payload(
         "embedding_score": score.embedding_score,
         "daily_streak_score": score.daily_streak_score,
         "user_level_score": score.user_level_score,
+        "trust_score": score.trust_score,
         "total_score": score.total_score,
     }
 
@@ -302,6 +304,10 @@ def build_recommendation_reason_payload(
                 "label": "사용자 활동 레벨",
                 "max_score": USER_LEVEL_MAX_SCORE,
             },
+            "trust_score": {
+                "label": "사용자 활동 신뢰도",
+                "max_score": TRUST_MAX_SCORE,
+            },
         },
         "rules": {
             "preserve_candidate_order": True,
@@ -364,6 +370,7 @@ System Prompt의 규칙과 출력 형식만 따르세요.
 - candidates의 모든 user_id에 대해 정확히 하나의 추천 이유를 작성하세요.
 - candidates의 순서와 user_id를 그대로 유지하세요.
 - score_guide의 최대 점수 대비 실제 점수가 높은 항목을 우선 근거로 사용하세요.
+- trust_score는 원점수를 노출하지 말고 활동 신뢰도가 안정적이라는 자연스러운 표현만 사용하세요.
 - 긍정 근거가 두 개 이상이면 가장 강한 서로 다른 근거 두 개를 연결하세요.
 - 0점이거나 확인할 수 없는 항목은 절대 추천 근거로 사용하지 마세요.
 - 최근 활동은 recent_activity.completed_count가 1 이상인 경우에만 언급하세요.
