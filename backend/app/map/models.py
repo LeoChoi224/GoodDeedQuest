@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import BigInteger, Integer, String, Text, ForeignKey, DECIMAL, TIMESTAMP, Enum, func
+from sqlalchemy import BigInteger, Integer, String, Text, ForeignKey, DECIMAL, TIMESTAMP, Enum, func, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from backend.app.common.database import Base
 from backend.app.map.enums import CompetitionStatus
@@ -30,6 +30,8 @@ class VolunteerCenter(Base):
         String(50), nullable=True,
         comment="AI 임베딩 기반 의미 카테고리 (환경/동물/아동청소년/어르신/장애인/교육/다문화/재난안전/기타)"
     )
+    # 임베딩 벡터를 DB에 영구 저장하는 컬럼 (JSON 포맷)
+    embedding: Mapped[dict] = mapped_column(JSON, nullable=True, comment="봉사 공고 텍스트 임베딩 벡터")
 
 class Region(Base):
     __tablename__ = "region"

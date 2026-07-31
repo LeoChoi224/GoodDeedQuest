@@ -62,7 +62,7 @@ def validate_candidates(state: RecommendState) -> Dict[str, Any]:
 
     # 이전 회차(전체 루프) 누적 상자의 퀘스트 제목들을 미리 정규화하여 중복 목록에 등록
     seen_titles = {
-        q["quest_title"].strip().lower().replace(" ", "") 
+        q["quest_title"].strip().lower().replace(" ", "")
         for q in accumulated 
         if q.get("quest_title")
     }
@@ -72,7 +72,7 @@ def validate_candidates(state: RecommendState) -> Dict[str, Any]:
 
     # 1-1. 실제 봉사 데이터 매핑 (LLM 환각 0% 보존)
     for vol in retrieved_volunteers:
-        title = vol.get("vol_name", "봉사활동")
+        title = vol.get("title") or vol.get("vol_name") or "봉사활동"
         normalized_title = title.strip().lower().replace(" ", "")
         if normalized_title in seen_titles:
             continue
@@ -213,19 +213,24 @@ Strict Inspection Guidelines:
 def route_validation(state: RecommendState) -> str:
     """
     검증 결과(candidate_quests / accumulated_candidates)와 재시도 횟수(retry_count)를 분석하여
-    다음으로 이동할 랭그래프 노드(response / planner / retrieval)를 결정하는 라우터 함수입니다.
+    다음으로 이동할 랭그래프 노드(response / planner / volunteer)를 결정하는 라우터 함수입니다.
     """
     candidate_quests = state.get("candidate_quests", [])
     accumulated_candidates = state.get("accumulated_candidates", [])
     retrieved_volunteers = state.get("retrieved_volunteers", [])
     retry_count = state.get("retry_count", 0)
+    volunteer_retry_count = state.get("volunteer_retry_count", 0)
 
     total_candidates_count = len(accumulated_candidates) or len(candidate_quests)
 
     # 1. 검색 결과 부족 - 검색된 원본 봉사 데이터가 아예 없어 재생성이 필요한 경우
     if not retrieved_volunteers:
-        logger.info("검색된 봉사활동 데이터 부족: 추가 수집을 위해 검색 툴로 회귀합니다.")
-        return "retrieval"
+        if volunteer_retry_count < 0:
+            logger.info("검색된 봉사활동 데이터 부족: 6km 이내에 봉사데이터가 없거나 사용자의 위치가 조회되지 않아 응답 생성 노드로 이동합니다.")
+            return "response"
+
+        logger.info("검색된 봉사활동 데이터 부족: 추가 수집을 위해 volunteer 수색 노드로 회귀합니다.")
+        return "volunteer"
 
     # 2. 합격 통과 (Pass) - 최종 추천 후보 5개 이상 확보 완료
     if total_candidates_count >= 5:
