@@ -11,7 +11,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { ZoomIn } from 'react-native-reanimated';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEvent } from 'expo';
-import { File, Paths } from 'expo-file-system';
+// ⭐ 수정: 신규 File/Paths API(File.downloadFileAsync)에서 다운로드가 실패하던 문제 -
+// 오래 검증된 legacy FileSystem.downloadAsync로 교체 (expo-file-system/legacy는
+// SDK 54에서도 하위 호환용으로 계속 제공됨).
+import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
@@ -53,13 +56,18 @@ export default function PlayerScreen({ navigation, route }: any) {
     if (downloading) return;
     setDownloading(true);
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync();
+      // ⭐ 수정: 인자 없이 호출하면 기본으로 photo/video/audio 세 권한을 전부 요청하는데,
+      // app.json의 expo-media-library 플러그인 설정에 audio 권한을 선언해두지 않아서
+      // "AUDIO permission... not declared in AndroidManifest" 에러가 났다. 이 화면은
+      // 영상 저장만 하므로 video 권한만 명시적으로 요청한다.
+      const permission = await MediaLibrary.requestPermissionsAsync(false, ['video']);
       if (!permission.granted) {
         toast.show('사진 접근 권한을 허용해 주세요.');
         return;
       }
-      const file = await File.downloadFileAsync(videoUrl, Paths.cache);
-      await MediaLibrary.saveToLibraryAsync(file.uri);
+      const localUri = `${FileSystem.cacheDirectory}shortform-${Date.now()}.mp4`;
+      const { uri } = await FileSystem.downloadAsync(videoUrl, localUri);
+      await MediaLibrary.saveToLibraryAsync(uri);
       setSaved(true);
       toast.show('다운로드 완료');
     } catch (error) {
