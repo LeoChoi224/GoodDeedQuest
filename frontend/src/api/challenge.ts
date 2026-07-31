@@ -68,6 +68,7 @@ export type RecommendationScore = {
   embedding_score: number;
   daily_streak_score: number;
   user_level_score: number;
+  trust_score: number;
   total_score: number;
 };
 
@@ -86,6 +87,7 @@ export type RecommendedUser = {
   recommendation_reason: string;
   reason_source: 'LLM' | 'FALLBACK';
   rank: number;
+  trust_score: number;
 };
 
 export type TeamRecommendationResult = {

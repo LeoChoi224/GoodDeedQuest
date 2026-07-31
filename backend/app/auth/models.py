@@ -40,7 +40,7 @@ class User(Base):
     profile_embedding: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)   # AI 추천용 임베딩
     profile_image_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    trust_score: Mapped[int] = mapped_column(Integer, default=0)
+    trust_score: Mapped[int] = mapped_column(Integer, default=50, server_default="50")
     point_balance: Mapped[int] = mapped_column(Integer, default=0)
     current_xp: Mapped[int] = mapped_column(Integer, default=0)
     current_level: Mapped[int] = mapped_column(Integer, default=1)

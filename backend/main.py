@@ -21,6 +21,7 @@ from backend.app.growth.router import router as growth_router
 from backend.app.admin.router import router as admin_router
 from backend.app.shop.router import router as shop_router
 from backend.app.badge.router import router as badge_router
+from backend.app.mypage.router import router as mypage_router  # ⭐ 수정
 import backend.app.models_registry  # noqa: F401  # 모든 도메인 모델을 한 번에 등록 (relationship/ForeignKey 문자열 참조 해석용)
 
 app = FastAPI(
@@ -60,6 +61,7 @@ app.include_router(growth_router, prefix=api_prefix)
 app.include_router(admin_router, prefix=api_prefix)
 app.include_router(shop_router, prefix=api_prefix)
 app.include_router(badge_router, prefix=api_prefix)
+app.include_router(mypage_router, prefix=api_prefix)  # ⭐ 수정
 
 @app.get("/")
 def home():

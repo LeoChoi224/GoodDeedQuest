@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import create_access_token, get_password_hash, verify_password
-from backend.app.auth.schemas import UserResponse, UserCreate, LoginResponse, LoginRequest, SocialLoginRequest, ProfileCompleteRequest
+from backend.app.auth.schemas import UserResponse, UserCreate, LoginResponse, LoginRequest, SocialLoginRequest, ProfileCompleteRequest, LocationUpdateRequest
 from typing import Annotated
 from backend.app.auth.models import User
 from backend.app.common.deps import get_repository
@@ -100,4 +100,18 @@ def update_my_profile(
 
     trigger_embedding_if_needed(current_user, background_tasks)
 
+    return current_user
+
+
+@router.patch("/me/location", response_model=UserResponse)
+def update_my_location(
+    data: LocationUpdateRequest,
+    repository: UserRepository,
+    current_user: User = Depends(get_current_db_user)
+):
+    """실시간 GPS 좌표 저장 (User.current_latitude/current_longitude). VolSearchScreen(내주변둘러보기 페이지) 진입 시마다 호출"""
+    current_user.current_latitude = data.current_latitude
+    current_user.current_longitude = data.current_longitude
+    repository.session.commit()
+    repository.session.refresh(current_user)
     return current_user

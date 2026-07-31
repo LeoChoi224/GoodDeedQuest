@@ -71,6 +71,7 @@ export function CommunityStack() {
   return (
     <S.Navigator screenOptions={opts}>
       <S.Screen name="Feed" component={FeedScreen} />
+      <S.Screen name="MyPosts" component={FeedScreen} />
       <S.Screen name="NewPost" component={NewPostScreen} />
       {/* 커뮤니티 상단 "팀 챌린지" 탭 진입점 — 뒤로가기 시 Feed 복귀 (TeamStack은 별도) */}
       <S.Screen name="TeamHome" component={TeamHomeScreen} />

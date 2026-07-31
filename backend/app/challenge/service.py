@@ -1164,6 +1164,11 @@ class ChallengeRecommendationService:
                     "active_time": candidate.active_time or [],
                     "current_level": candidate.current_level,
                     "daily_streak": candidate.daily_streak,
+                    # DB 값이 비정상적이어도 AI 요청 계약의 0~100 범위를 유지합니다.
+                    "trust_score": min(
+                        max(candidate.trust_score or 0, 0),
+                        100,
+                    ),
                     "latitude": (
                         float(candidate.current_latitude)
                         if candidate.current_latitude is not None

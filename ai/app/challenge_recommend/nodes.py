@@ -182,6 +182,10 @@ def _build_rule_based_highlights(
             _score_value(candidate, "user_level_score"),
             "퀘스트 수행 경험과 사용자 레벨이 충분합니다.",
         ),
+        (
+            _score_value(candidate, "trust_score"),
+            "활동 신뢰도가 안정적인 사용자입니다.",
+        ),
     ]
 
     # 점수가 높은 항목부터 정렬하고 0점인 항목은 제외합니다.

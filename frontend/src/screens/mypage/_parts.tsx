@@ -60,7 +60,15 @@ const GOLD = ['#F5D874', '#C99A20', '#F0C24B', '#A97D10', '#F5D874'];
 /* ------------------------------------------------------------------ *
  *  ConicAvatar — rotating rainbow ring + gold ring + green icon disc   *
  * ------------------------------------------------------------------ */
-export function ConicAvatar({ size = 64, deco = false }: { size?: number; deco?: boolean }) {
+export function ConicAvatar({
+  size = 64,
+  deco = false,
+  imageUri = null, // ⭐ 수정: 실제 프로필 이미지 URI (없으면 기본 앱 아이콘)
+}: {
+  size?: number;
+  deco?: boolean;
+  imageUri?: string | null;
+}) {
   const inset = size >= 60 ? 5 : 4;
   const pad = size >= 60 ? 3 : 2.5;
   const inner = size - pad * 2;
@@ -127,7 +135,7 @@ export function ConicAvatar({ size = 64, deco = false }: { size?: number; deco?:
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
-        <Image source={brand.appIcon} style={{ width: img, height: img }} />
+        <Image source={imageUri ? { uri: imageUri } : brand.appIcon} style={{ width: img, height: img }} />
       </View>
 
       {deco && (
@@ -241,26 +249,8 @@ export const comma = (n: number) => n.toLocaleString('en-US');
 /* ------------------------------------------------------------------ *
  *  DATA — verbatim from 06_mypage_flow.dc.html                         *
  * ------------------------------------------------------------------ */
-export type Achievement = {
-  name: string;
-  category: string;
-  date: string;
-  desc: string;
-  completedAt: string;
-  exp: number;
-  point: number;
-};
-
-export const ACHIEVEMENTS: Achievement[] = [
-  { name: '골목길 쓰레기 줍기', category: 'environment', date: '2026-07-01', desc: '우리 동네 골목을 깨끗하게 만든 멋진 선행! 30분 동안 쓰레기를 주웠어요.', completedAt: '2026.07.01 16:20', exp: 100, point: 250 },
-  { name: '유기견 산책 봉사', category: 'animal', date: '2026-06-28', desc: '보호소 유기견과 함께 산책하며 따뜻한 하루를 선물했어요.', completedAt: '2026.06.28 10:05', exp: 120, point: 300 },
-  { name: '독거 어르신 안부 전화', category: 'community', date: '2026-06-25', desc: '홀로 계신 어르신께 안부 전화를 드리며 마음을 나눴어요.', completedAt: '2026.06.25 14:40', exp: 80, point: 200 },
-  { name: '무료급식 배식', category: 'sharing', date: '2026-06-20', desc: '무료급식소에서 따뜻한 한 끼 배식을 도왔어요.', completedAt: '2026.06.20 11:30', exp: 150, point: 400 },
-  { name: '헌혈 참여', category: 'volunteer', date: '2026-06-14', desc: '헌혈로 누군가의 생명을 살리는 소중한 선행에 참여했어요.', completedAt: '2026.06.14 15:10', exp: 200, point: 500 },
-  { name: '플리마켓 물품 기부', category: 'sharing', date: '2026-06-10', desc: '쓰지 않는 물품을 플리마켓에 기부해 나눔을 실천했어요.', completedAt: '2026.06.10 13:00', exp: 90, point: 220 },
-  { name: '공원 플로깅', category: 'environment', date: '2026-06-05', desc: '조깅하며 공원 쓰레기를 줍는 플로깅에 참여했어요.', completedAt: '2026.06.05 08:20', exp: 110, point: 260 },
-  { name: '길고양이 급식소 관리', category: 'animal', date: '2026-05-30', desc: '동네 길고양이 급식소를 청소하고 사료를 채워줬어요.', completedAt: '2026.05.30 19:45', exp: 95, point: 230 },
-];
+// ⭐ 수정: 퀘스트 달성 타임라인 더미데이터(Achievement/ACHIEVEMENTS) 제거 —
+// 실 데이터는 api/mypage.ts::getMyQuestAchievements()로 대체 (MyPageScreen.tsx 참고)
 
 export type RankRow = { rank: string; name: string; val: string };
 

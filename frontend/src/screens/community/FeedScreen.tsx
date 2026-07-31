@@ -2,17 +2,19 @@
  * SCREEN 03·1 — 커뮤니티 메인 · 피드 (route: Feed, 커뮤니티 tab ROOT).
  *
  * [Backend 연동 범위]
- * 1. 기본 피드 조회
+ * 1. 개인화 추천 피드 조회 및 당겨서 새로고침
  * 2. 좋아요 토글 및 좋아요 사용자 목록 조회
  * 3. 댓글 목록 조회 및 댓글 작성
  * 4. 관심 없음 기록 후 현재 화면에서 게시글 숨김
  * 5. 게시글 신고 접수
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -35,7 +37,8 @@ import {
   CommunityFeedItem,
   PostLikeUser,
   createCommunityPostComment,
-  getCommunityFeed,
+  getRecommendedCommunityFeed,
+  getMyCommunityPosts,
   getCommunityPostComments,
   getCommunityPostLikeUsers,
   markCommunityPostNotInterested,
@@ -62,6 +65,40 @@ const AVS: [string, string][] = [
 ];
 
 const COMMENT_MAX_LENGTH = 500;
+const SHEET_PAGE_SIZE = 20;
+const RECOMMENDATION_ROTATION_SIZE = 3;
+
+/**
+ * Backend 추천 점수순 상위 후보는 유지하면서
+ * 상위 3개의 노출 순서만 새로고침 횟수에 따라 순환합니다.
+ */
+function rotateRecommendedFeed(
+  feeds: CommunityFeedItem[],
+  rotationStep: number,
+): CommunityFeedItem[] {
+  const poolSize = Math.min(
+    RECOMMENDATION_ROTATION_SIZE,
+    feeds.length,
+  );
+
+  if (poolSize <= 1) {
+    return feeds;
+  }
+
+  const offset = rotationStep % poolSize;
+
+  if (offset === 0) {
+    return feeds;
+  }
+
+  const topCandidates = feeds.slice(0, poolSize);
+
+  return [
+    ...topCandidates.slice(offset),
+    ...topCandidates.slice(0, offset),
+    ...feeds.slice(poolSize),
+  ];
+}
 
 type LikeState = {
   liked: boolean;
@@ -69,10 +106,13 @@ type LikeState = {
   submitting: boolean;
 };
 
-export default function FeedScreen({ navigation }: any) {
+export default function FeedScreen({ navigation, route }: any) {
   const toast = useToast();
+  const isMyPostsView = route?.name === 'MyPosts';
+  const recommendationRotationRef = useRef(0);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [feeds, setFeeds] = useState<CommunityFeedItem[]>([]);
   const [likes, setLikes] = useState<Record<string, LikeState>>({});
@@ -81,12 +121,18 @@ export default function FeedScreen({ navigation }: any) {
   const [commentsPostId, setCommentsPostId] = useState<number | null>(null);
   const [comments, setComments] = useState<CommunityComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsLoadingMore, setCommentsLoadingMore] = useState(false);
+  const [commentsHasMore, setCommentsHasMore] = useState(false);
+  const [commentsOffset, setCommentsOffset] = useState(0);
   const [commentText, setCommentText] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
 
   const [likesPostId, setLikesPostId] = useState<number | null>(null);
   const [likeUsers, setLikeUsers] = useState<PostLikeUser[]>([]);
   const [likeUsersLoading, setLikeUsersLoading] = useState(false);
+  const [likeUsersLoadingMore, setLikeUsersLoadingMore] = useState(false);
+  const [likeUsersHasMore, setLikeUsersHasMore] = useState(false);
+  const [likeUsersOffset, setLikeUsersOffset] = useState(0);
 
   const [morePostId, setMorePostId] = useState<number | null>(null);
   const [hidingPostId, setHidingPostId] = useState<number | null>(null);
@@ -100,7 +146,9 @@ export default function FeedScreen({ navigation }: any) {
         setLoading(true);
         setFeedError(null);
 
-        const result = await getCommunityFeed();
+        const result = isMyPostsView
+          ? await getMyCommunityPosts()
+          : await getRecommendedCommunityFeed();
 
         if (!mounted) {
           return;
@@ -120,10 +168,19 @@ export default function FeedScreen({ navigation }: any) {
           ),
         );
       } catch (error) {
-        console.error('커뮤니티 피드 조회 실패:', error);
+        console.error(
+          isMyPostsView
+            ? '내 게시물 조회 실패:'
+            : '커뮤니티 피드 조회 실패:',
+          error,
+        );
 
         if (mounted) {
-          setFeedError('피드를 불러오지 못했습니다.');
+          setFeedError(
+            isMyPostsView
+              ? '내 게시물을 불러오지 못했습니다.'
+              : '피드를 불러오지 못했습니다.',
+          );
         }
       } finally {
         if (mounted) {
@@ -137,7 +194,63 @@ export default function FeedScreen({ navigation }: any) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isMyPostsView]);
+
+  const handleRefresh = async () => {
+    if (refreshing) {
+      return;
+    }
+
+    try {
+      setRefreshing(true);
+
+    const fetchedFeeds = isMyPostsView
+      ? await getMyCommunityPosts(0, 20)
+      : await getRecommendedCommunityFeed(0, 20);
+
+    let nextFeeds = fetchedFeeds;
+
+    if (!isMyPostsView) {
+      recommendationRotationRef.current += 1;
+
+      nextFeeds = rotateRecommendedFeed(
+        fetchedFeeds,
+        recommendationRotationRef.current,
+      );
+    }
+
+    setFeeds(nextFeeds);
+    setLikes(
+      Object.fromEntries(
+        nextFeeds.map((feed) => [
+          String(feed.post_id),
+          {
+            liked: feed.is_liked,
+            count: feed.like_count,
+            submitting: false,
+          },
+        ]),
+      ),
+    );
+
+      // 새 응답을 기준으로 화면의 임시 숨김 상태를 초기화합니다.
+      // 관심 없음 게시글은 Backend 추천 후보에서 이미 제외됩니다.
+      setHidden({});
+      setFeedError(null);
+    } catch (error) {
+      console.error(
+        isMyPostsView
+          ? '내 게시물 새로고침 실패:'
+          : '개인화 피드 새로고침 실패:',
+        error,
+      );
+
+      // 새로고침 실패 시 현재 화면의 기존 게시글은 그대로 유지합니다.
+      toast.show('새로고침에 실패했습니다');
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const visibleFeeds = useMemo(
     () => feeds.filter((feed) => !hidden[String(feed.post_id)]),
@@ -201,10 +314,20 @@ export default function FeedScreen({ navigation }: any) {
     setLikesPostId(postId);
     setLikeUsers([]);
     setLikeUsersLoading(true);
+    setLikeUsersLoadingMore(false);
+    setLikeUsersHasMore(false);
+    setLikeUsersOffset(0);
 
     try {
-      const result = await getCommunityPostLikeUsers(postId);
+      const result = await getCommunityPostLikeUsers(
+        postId,
+        0,
+        SHEET_PAGE_SIZE,
+      );
+
       setLikeUsers(result);
+      setLikeUsersOffset(result.length);
+      setLikeUsersHasMore(result.length === SHEET_PAGE_SIZE);
     } catch (error) {
       console.error('좋아요 사용자 목록 조회 실패:', error);
       toast.show('좋아요 목록을 불러오지 못했습니다');
@@ -217,6 +340,47 @@ export default function FeedScreen({ navigation }: any) {
     setLikesPostId(null);
     setLikeUsers([]);
     setLikeUsersLoading(false);
+    setLikeUsersLoadingMore(false);
+    setLikeUsersHasMore(false);
+    setLikeUsersOffset(0);
+  };
+
+  const loadMoreLikeUsers = async () => {
+    if (
+      likesPostId === null ||
+      likeUsersLoading ||
+      likeUsersLoadingMore ||
+      !likeUsersHasMore
+    ) {
+      return;
+    }
+
+    try {
+      setLikeUsersLoadingMore(true);
+
+      const result = await getCommunityPostLikeUsers(
+        likesPostId,
+        likeUsersOffset,
+        SHEET_PAGE_SIZE,
+      );
+
+      setLikeUsers((current) => {
+        const currentIds = new Set(current.map((user) => user.user_id));
+
+        return [
+          ...current,
+          ...result.filter((user) => !currentIds.has(user.user_id)),
+        ];
+      });
+
+      setLikeUsersOffset((current) => current + result.length);
+      setLikeUsersHasMore(result.length === SHEET_PAGE_SIZE);
+    } catch (error) {
+      console.error('좋아요 사용자 추가 조회 실패:', error);
+      toast.show('좋아요 목록을 더 불러오지 못했습니다');
+    } finally {
+      setLikeUsersLoadingMore(false);
+    }
   };
 
   const openComments = async (postId: number) => {
@@ -224,10 +388,20 @@ export default function FeedScreen({ navigation }: any) {
     setComments([]);
     setCommentText('');
     setCommentsLoading(true);
+    setCommentsLoadingMore(false);
+    setCommentsHasMore(false);
+    setCommentsOffset(0);
 
     try {
-      const result = await getCommunityPostComments(postId);
+      const result = await getCommunityPostComments(
+        postId,
+        0,
+        SHEET_PAGE_SIZE,
+      );
+
       setComments(result);
+      setCommentsOffset(result.length);
+      setCommentsHasMore(result.length === SHEET_PAGE_SIZE);
     } catch (error) {
       console.error('댓글 목록 조회 실패:', error);
       toast.show('댓글을 불러오지 못했습니다');
@@ -245,6 +419,58 @@ export default function FeedScreen({ navigation }: any) {
     setComments([]);
     setCommentText('');
     setCommentsLoading(false);
+    setCommentsLoadingMore(false);
+    setCommentsHasMore(false);
+    setCommentsOffset(0);
+  };
+
+  const loadMoreComments = async () => {
+    if (
+      commentsPostId === null ||
+      commentsLoading ||
+      commentsLoadingMore ||
+      !commentsHasMore
+    ) {
+      return;
+    }
+
+    try {
+      setCommentsLoadingMore(true);
+
+      const result = await getCommunityPostComments(
+        commentsPostId,
+        commentsOffset,
+        SHEET_PAGE_SIZE,
+      );
+
+      setComments((current) => {
+        const commentsById = new Map(
+          current.map((comment) => [comment.comment_id, comment]),
+        );
+
+        result.forEach((comment) => {
+          commentsById.set(comment.comment_id, comment);
+        });
+
+        return Array.from(commentsById.values()).sort((left, right) => {
+          const createdAtDifference =
+            new Date(left.created_at).getTime() -
+            new Date(right.created_at).getTime();
+
+          return createdAtDifference !== 0
+            ? createdAtDifference
+            : left.comment_id - right.comment_id;
+        });
+      });
+
+      setCommentsOffset((current) => current + result.length);
+      setCommentsHasMore(result.length === SHEET_PAGE_SIZE);
+    } catch (error) {
+      console.error('댓글 추가 조회 실패:', error);
+      toast.show('댓글을 더 불러오지 못했습니다');
+    } finally {
+      setCommentsLoadingMore(false);
+    }
   };
 
   const submitComment = async () => {
@@ -323,22 +549,40 @@ export default function FeedScreen({ navigation }: any) {
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      <MainHeader />
+      {isMyPostsView ? (
+        <MainHeader
+          showBack
+          title="내 게시물"
+          onBack={() => navigation.goBack()}
+        />
+      ) : (
+        <>
+          <MainHeader />
 
-      <View style={styles.topActions}>
-        <SpringButton
-          style={[styles.actBtn, styles.actOutline]}
-          onPress={() => navigation.navigate('TeamHome')}
-        >
-          <Text style={styles.actOutlineText}>⚔ 팀 챌린지</Text>
-        </SpringButton>
-        <SpringButton
-          style={[styles.actBtn, styles.actFill]}
-          onPress={() => navigation.navigate('NewPost')}
-        >
-          <Text style={styles.actFillText}>✎ 피드 작성</Text>
-        </SpringButton>
-      </View>
+          <View style={styles.topActions}>
+            <SpringButton
+              style={[styles.actBtn, styles.actOutline]}
+              onPress={() => navigation.navigate('MyPosts')}
+            >
+              <Text style={styles.actOutlineText}>▣ 내 게시물</Text>
+            </SpringButton>
+
+            <SpringButton
+              style={[styles.actBtn, styles.actOutline]}
+              onPress={() => navigation.navigate('TeamHome')}
+            >
+              <Text style={styles.actOutlineText}>⚔ 팀 챌린지</Text>
+            </SpringButton>
+
+            <SpringButton
+              style={[styles.actBtn, styles.actFill]}
+              onPress={() => navigation.navigate('NewPost')}
+            >
+              <Text style={styles.actFillText}>✎ 피드 작성</Text>
+            </SpringButton>
+          </View>
+        </>
+      )}
 
       {loading ? (
         <View style={styles.skeletonWrap}>
@@ -377,12 +621,24 @@ export default function FeedScreen({ navigation }: any) {
         </View>
       ) : visibleFeeds.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>아직 게시물이 없어요</Text>
+          <Text style={styles.emptyText}>
+            {isMyPostsView
+              ? '아직 올린 게시물이 없어요'
+              : '아직 게시물이 없어요'}
+          </Text>
         </View>
       ) : (
         <ScrollView
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[colors.primaryDark]}
+              tintColor={colors.primaryDark}
+            />
+          }
         >
           {visibleFeeds.map((feed, index) => {
             const feedKey = String(feed.post_id);
@@ -411,16 +667,21 @@ export default function FeedScreen({ navigation }: any) {
                       })
                     }
                   >
-                    <Avatar grad={avatarGradient} />
+                    <Avatar
+                      grad={avatarGradient}
+                      imageUrl={feed.author.profile_image_url}
+                    />
                     <Text style={styles.userName}>{feed.author.nickname}</Text>
                   </Pressable>
-                  <Pressable
-                    onPress={() => setMorePostId(feed.post_id)}
-                    hitSlop={6}
-                    style={styles.dotsBtn}
-                  >
-                    <DotsIcon />
-                  </Pressable>
+                  {!isMyPostsView && (
+                    <Pressable
+                      onPress={() => setMorePostId(feed.post_id)}
+                      hitSlop={6}
+                      style={styles.dotsBtn}
+                    >
+                      <DotsIcon />
+                    </Pressable>
+                  )}
                 </View>
 
                 <Image
@@ -481,8 +742,16 @@ export default function FeedScreen({ navigation }: any) {
       <BottomSheet
         visible={commentsPostId !== null}
         onClose={closeComments}
+        contentStyle={styles.communityListSheet}
       >
-        <SheetTitle text={`댓글 ${comments.length}개`} />
+        <SheetTitle
+          text={`댓글 ${
+            commentsPostId !== null
+              ? feeds.find((feed) => feed.post_id === commentsPostId)
+                  ?.comment_count ?? comments.length
+              : 0
+          }개`}
+        />
 
         {commentsLoading ? (
           <View style={styles.sheetLoading}>
@@ -494,42 +763,54 @@ export default function FeedScreen({ navigation }: any) {
             <Text style={styles.sheetEmptyText}>아직 댓글이 없습니다</Text>
           </View>
         ) : (
-          <ScrollView
+          <FlatList
+            data={comments}
+            keyExtractor={(comment) => String(comment.comment_id)}
             style={styles.commentScroll}
+            contentContainerStyle={styles.sheetList}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.sheetList}>
-              {comments.map((comment) => {
-                const commentGradient =
-                  AVS[Math.abs(comment.author.user_id) % AVS.length];
+            onEndReached={loadMoreComments}
+            onEndReachedThreshold={0.25}
+            ListFooterComponent={
+              commentsLoadingMore ? (
+                <ActivityIndicator style={styles.sheetFooterLoading} />
+              ) : null
+            }
+            renderItem={({ item: comment }) => {
+              const commentGradient =
+                AVS[Math.abs(comment.author.user_id) % AVS.length];
 
-                return (
-                  <Pressable
-                    key={comment.comment_id}
-                    style={styles.commentRow}
-                    onPress={() => {
-                      closeComments();
-                      navigation.navigate('UserDetail', {
-                        user: {
-                          name: comment.author.nickname,
-                          grad: commentGradient,
-                        },
-                      });
-                    }}
-                  >
-                    <Avatar grad={commentGradient} />
-                    <View style={styles.commentTextWrap}>
-                      <Text style={styles.rowUser}>
-                        {comment.author.nickname}
-                      </Text>
-                      <Text style={styles.commentText}>{comment.content}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </ScrollView>
+              return (
+                <Pressable
+                  style={styles.commentRow}
+                  onPress={() => {
+                    closeComments();
+                    navigation.navigate('UserDetail', {
+                      user: {
+                        name: comment.author.nickname,
+                        grad: commentGradient,
+                      },
+                    });
+                  }}
+                >
+                  <Avatar
+                    grad={commentGradient}
+                    imageUrl={comment.author.profile_image_url}
+                  />
+
+                  <View style={styles.commentTextWrap}>
+                    <Text style={styles.rowUser}>
+                      {comment.author.nickname}
+                    </Text>
+                    <Text style={styles.commentText}>
+                      {comment.content}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            }}
+          />
         )}
 
         <View style={styles.commentComposer}>
@@ -567,6 +848,7 @@ export default function FeedScreen({ navigation }: any) {
       <BottomSheet
         visible={likesPostId !== null}
         onClose={closeLikeUsers}
+        contentStyle={styles.communityListSheet}
       >
         <SheetTitle
           text={`좋아요 ${
@@ -588,35 +870,44 @@ export default function FeedScreen({ navigation }: any) {
             <Text style={styles.sheetEmptyText}>아직 좋아요가 없습니다</Text>
           </View>
         ) : (
-          <ScrollView
+          <FlatList
+            data={likeUsers}
+            keyExtractor={(user) => String(user.user_id)}
             style={styles.likerScroll}
+            contentContainerStyle={styles.sheetList}
             showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.sheetList}>
-              {likeUsers.map((user) => {
-                const userGradient = AVS[Math.abs(user.user_id) % AVS.length];
+            onEndReached={loadMoreLikeUsers}
+            onEndReachedThreshold={0.25}
+            ListFooterComponent={
+              likeUsersLoadingMore ? (
+                <ActivityIndicator style={styles.sheetFooterLoading} />
+              ) : null
+            }
+            renderItem={({ item: user }) => {
+              const userGradient = AVS[Math.abs(user.user_id) % AVS.length];
 
-                return (
-                  <Pressable
-                    key={user.user_id}
-                    style={styles.likerRow}
-                    onPress={() => {
-                      closeLikeUsers();
-                      navigation.navigate('UserDetail', {
-                        user: {
-                          name: user.nickname,
-                          grad: userGradient,
-                        },
-                      });
-                    }}
-                  >
-                    <Avatar grad={userGradient} />
-                    <Text style={styles.likerUser}>{user.nickname}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </ScrollView>
+              return (
+                <Pressable
+                  style={styles.likerRow}
+                  onPress={() => {
+                    closeLikeUsers();
+                    navigation.navigate('UserDetail', {
+                      user: {
+                        name: user.nickname,
+                        grad: userGradient,
+                      },
+                    });
+                  }}
+                >
+                  <Avatar
+                    grad={userGradient}
+                    imageUrl={user.profile_image_url}
+                  />
+                  <Text style={styles.likerUser}>{user.nickname}</Text>
+                </Pressable>
+              );
+            }}
+          />
         )}
 
         <SheetCloseChevron onPress={closeLikeUsers} />
@@ -926,11 +1217,15 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontFamily: fonts.bodyM,
   },
+  communityListSheet: {
+    height: '50%',
+  },
   sheetList: {
     paddingTop: 4,
+    paddingBottom: 8,
   },
   sheetLoading: {
-    minHeight: 130,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
@@ -941,7 +1236,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodyR,
   },
   sheetEmpty: {
-    minHeight: 110,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -951,7 +1246,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodyR,
   },
   commentScroll: {
-    maxHeight: 280,
+    flex: 1,
   },
   commentRow: {
     flexDirection: 'row',
@@ -1011,7 +1306,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodyB,
   },
   likerScroll: {
-    maxHeight: 330,
+    flex: 1,
+  },
+  sheetFooterLoading: {
+    marginVertical: 14,
   },
   likerRow: {
     flexDirection: 'row',

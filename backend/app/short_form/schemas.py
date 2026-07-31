@@ -95,6 +95,9 @@ class ScriptGenerateResponse(BaseModel):
     status: ShortFormStatus
     title: str = Field(..., description="AI가 생성한 숏폼 제목 (팝업에서 캡션과 함께 수정 가능)")
     captions: List[CaptionItem]
+    # ⭐ 수정: AI 서버가 사진 분위기 기반으로 매칭한 BGM. 매칭 실패/미실행 시 None이며,
+    # 그 경우 프론트는 기존처럼 bgm_id 없이 ShortForm을 생성해 백엔드 자체 fallback을 쓴다.
+    bgm_id: Optional[int] = Field(default=None, description="AI 서버가 사진 분위기로 자동 매칭한 BGM (자동생성 전용, 수동 경로는 무시 가능)")
 
 
 class ScriptUpdateRequest(BaseModel):

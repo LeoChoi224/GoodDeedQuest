@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .agents.vision_agent import vision_agent
+from .agents.rag_agent import rag_agent  # ⭐ 수정: 자동생성 BGM 매칭용
 from .agents.llm_story_agent import llm_story_agent
 from .graph import run_shortform_pipeline
 from .models import BackgroundMusic
@@ -148,6 +149,12 @@ class GenerateScriptCaptionResponse(BaseModel):
 class GenerateScriptResponse(BaseModel):
     title: str = ""
     captions: List[GenerateScriptCaptionResponse]
+    # ⭐ 수정: 사진 선택 화면의 "자동생성"이 대본과 함께 분위기 기반 BGM도 한 번에
+    # 받아쓸 수 있도록 추가. RAG 매칭 자체가 실패해도(예: BGM 시딩 문제) 대본 생성까지
+    # 막을 이유는 없어서 매칭 실패 시 None으로 내려간다 - 호출부(backend)가 그 경우엔
+    # 기존처럼 자체 fallback으로 bgm_id를 채운다.
+    bgm_id: int | None = None
+    bgm_title: str | None = None
 
 
 @router.post("/generate-script", response_model=GenerateScriptResponse)
@@ -156,9 +163,13 @@ def generate_script(req: GenerateScriptRequest):
     AI 대본 생성 팝업 최초 진입 시 backend/app/short_form/service.py:generate_ai_script()가 호출.
     Vision Agent로 이미지를 분석하고 LLM Story Agent로 온스크린 캡션을 생성한다.
 
-    ⚠️ RAG(BGM 매칭)/Validation/Render는 의도적으로 호출하지 않는다: rag_agent는
-    BGM 매칭 전용이라 캡션 생성 결과에 영향이 없고, ShortForm 생성 시점에 bgm_id가
-    이미 확정되어 있어 여기서 다시 실행할 이유가 없다.
+    ⭐ 수정: RAG(BGM 매칭)도 함께 실행한다. 원래는 "ShortForm 생성 시점에 bgm_id가 이미
+    확정되어 있어 여기서 다시 실행할 이유가 없다"는 전제였지만, 그 확정 로직 자체가
+    사진 분석 없이 그냥 최근 등록된 BGM을 고르는 더미 fallback이었다. 사진 선택 화면의
+    "자동생성"이 실제로 사진 분위기에 맞는 BGM을 고르려면, vision_agent 결과가 나온
+    이 시점에 RAG를 돌려서 bgm_id를 응답에 실어 보내야 backend가 그 값으로 ShortForm을
+    다시 만들 수 있다. Validation/Render는 여전히 호출하지 않는다(캡션 생성과 무관).
+    RAG 실패는 대본 생성 자체를 막을 이유가 없으므로 여기서만 잡고 bgm_id=None으로 내려보낸다.
     ⚠️ 현재 어떤 Agent도 영상 "제목(title)"을 생성하지 않으므로 title은 항상 빈 문자열.
     """
     state: ShortFormState = {
@@ -186,9 +197,20 @@ def generate_script(req: GenerateScriptRequest):
             detail=state.get("error_message") or "대본 생성에 실패했습니다.",
         )
 
+    bgm_id: int | None = None
+    bgm_title: str | None = None
+    try:
+        state = rag_agent(state)
+        bgm_match = state.get("bgm_match")
+        if bgm_match:
+            bgm_id = bgm_match["bgm_id"]
+            bgm_title = bgm_match["bgm_title"]
+    except Exception:
+        logger.exception("[ShortFormRouter] BGM 자동 매칭 실패, bgm_id 없이 대본만 반환합니다.")
+
     captions = [
         GenerateScriptCaptionResponse(media_s3_key=media_key, order=idx, caption=caption)
         for idx, (media_key, caption) in enumerate(zip(req.media_keys, state["generated_captions"]))
     ]
 
-    return GenerateScriptResponse(title="", captions=captions)
+    return GenerateScriptResponse(title="", captions=captions, bgm_id=bgm_id, bgm_title=bgm_title)

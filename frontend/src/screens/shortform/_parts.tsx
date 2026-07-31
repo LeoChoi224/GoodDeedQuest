@@ -120,7 +120,8 @@ export function AiScriptPopup({
   mediaKeys,
   questTitleResolver,
   onConfirmed,
-  onAutoGenerate,
+  savedCaptions,
+  savedTitle,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -128,8 +129,11 @@ export function AiScriptPopup({
   mediaKeys: string[];
   questTitleResolver: () => Promise<string>;
   onConfirmed: (result: ScriptGenerateResult) => void;
-  /** "자동 생성" - 대본 생성뿐 아니라 음악 자동 매칭 + 숏폼 생성 화면 이동까지 부모가 전부 처리한다. */
-  onAutoGenerate: () => Promise<void>;
+  /** 부모(사진 선택 화면)가 들고 있는, 마지막으로 저장된 대본. 팝업을 열 때마다
+   * 이 값으로 텍스트박스를 동기화한다 - 부모가 사진 선택 변경 등으로 이 값을
+   * null로 초기화했다면 팝업도 빈 텍스트박스로 열려야 하기 때문. */
+  savedCaptions: CaptionItem[] | null;
+  savedTitle: string | null;
 }) {
   const { width } = useWindowDimensions();
   const toast = useToast();
@@ -138,6 +142,27 @@ export function AiScriptPopup({
   const [captions, setCaptions] = useState<CaptionItem[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [closing, setClosing] = useState(false);
+
+  // ⭐ 수정: 팝업이 열릴 때마다 부모의 저장된 대본으로 내부 상태를 동기화한다.
+  // 이게 없으면 부모가 captions를 초기화(예: 사진 선택 변경)해도 팝업은 이전에
+  // 생성해둔 텍스트를 계속 들고 있어서(컴포넌트가 visible=false여도 unmount되지
+  // 않음), 다시 열었을 때 텍스트박스에 낡은 대본이 그대로 보이는 버그가 있었다.
+  useEffect(() => {
+    if (!visible) return;
+    if (savedCaptions) {
+      setCaptions(savedCaptions);
+      setTitle(savedTitle ?? '');
+      setText(captionsToText(savedCaptions));
+    } else {
+      setCaptions(null);
+      setTitle('');
+      setText('');
+    }
+    // 팝업이 열리는 시점(visible: false -> true)에만 동기화한다. savedCaptions/savedTitle을
+    // 의존성에 넣으면 팝업이 열려있는 동안 부모 상태가 바뀔 때마다 다시 동기화되어,
+    // "생성하기"로 막 채운 텍스트박스를 덮어써버릴 수 있다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const runGenerate = async (): Promise<ScriptGenerateResult | null> => {
     if (shortsId == null || mediaKeys.length === 0) {
@@ -165,23 +190,6 @@ export function AiScriptPopup({
     runGenerate();
   };
 
-  // 대본을 팝업에서 보여주지 않고, 대본+음악 자동 매칭+숏폼 생성까지 부모가 한 번에 처리한다.
-  const onAuto = async () => {
-    if (mediaKeys.length === 0) {
-      toast.show('사진을 먼저 선택해주세요.');
-      return;
-    }
-    setLoading(true);
-    try {
-      await onAutoGenerate();
-    } catch (error) {
-      console.error('자동 생성 실패:', error);
-      toast.show('자동 생성에 실패했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // 사용자가 캡션을 수정했으면 닫히기 전에 검증(stateless)부터 통과시킨다 - 실패하면 닫지 않는다.
   const close = async () => {
     if (!captions) {
@@ -207,6 +215,17 @@ export function AiScriptPopup({
     } finally {
       setClosing(false);
     }
+  };
+
+  // ⭐ 수정: "자동 생성" → "적용하기". 새로 생성하지 않는다 - "생성하기"로 이미 만들어둔
+  // 대본(현재 텍스트박스 내용)을 그대로 저장하고 사진 선택 화면으로 돌아간다.
+  // close()와 동일한 저장 로직(편집했으면 검증 후 반영)을 그대로 재사용한다.
+  const onApply = async () => {
+    if (!captions) {
+      toast.show('먼저 "생성하기"를 눌러 대본을 만들어주세요.');
+      return;
+    }
+    await close();
   };
 
   return (
@@ -248,8 +267,8 @@ export function AiScriptPopup({
           </SpringButton>
         </View>
         <View style={ai.btnHalf}>
-          <SpringButton onPress={onAuto} disabled={loading || closing} style={[ai.btn, ai.btnAuto]}>
-            <Text style={ai.btnAutoText}>자동 생성</Text>
+          <SpringButton onPress={onApply} disabled={loading || closing} style={[ai.btn, ai.btnAuto]}>
+            <Text style={ai.btnAutoText}>적용하기</Text>
           </SpringButton>
         </View>
       </View>

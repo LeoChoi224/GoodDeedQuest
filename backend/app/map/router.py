@@ -86,7 +86,34 @@ def get_map_main(
     if competition is not None:
         _ensure_participant(db, competition.competition_id, db_user.region_id)
 
-    return APIResponse.ok(data={"has_region": True, "region": {"region_id": region.region_id, "region_name": region.region_name}})
+    return APIResponse.ok(data={
+        "has_region": True,
+        "region": {
+            "region_id": region.region_id,
+            "region_name": region.region_name,
+            # 프론트가 시/도 SVG 표시명(강원/전북 개명 이슈 흡수용 매핑)을 역산할 때 필요
+            "city_id": region.city_id,
+        },
+    })
+
+
+@router.get("/cities/{city_id}/regions")
+def get_regions_by_city(
+    city_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """참여 지역 선택 팝업(TeamSelectPopup) - 시/도 선택 시 하위 시군구 목록 조회용.
+    대회/랭킹과 무관한 순수 조회라 대회 존재 여부와 상관없이 항상 응답함."""
+    regions = (
+        db.query(Region)
+        .filter(Region.city_id == city_id)
+        .order_by(Region.region_name)
+        .all()
+    )
+    return APIResponse.ok(data=[
+        {"region_id": r.region_id, "region_name": r.region_name} for r in regions
+    ])
 
 
 @router.get("/volunteer-centers", response_model=APIResponse[List[VolunteerCenterResponse]])

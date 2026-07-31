@@ -263,6 +263,41 @@ def get_community_feed(
         for post, author, like_count, comment_count, is_liked in feed_rows
     ]
 
+def get_my_community_posts(
+    db: Session,
+    *,
+    current_user: User,
+    skip: int = 0,
+    limit: int = 20,
+) -> list[CommunityFeedItemResponse]:
+    """현재 로그인 사용자가 작성한 활성 게시글을 최신순으로 반환합니다."""
+
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="비활성화된 사용자는 자신의 게시글을 조회할 수 없습니다.",
+        )
+
+    feed_rows = CommunityRepository.list_feed_posts(
+        db=db,
+        user_id=current_user.user_id,
+        author_id=current_user.user_id,
+        skip=skip,
+        limit=limit,
+    )
+
+    return [
+        _build_feed_item_response(
+            db=db,
+            post=post,
+            author=author,
+            like_count=like_count,
+            comment_count=comment_count,
+            is_liked=is_liked,
+        )
+        for post, author, like_count, comment_count, is_liked in feed_rows
+    ]
+
 # 현재 사용자의 관심 정보와 게시글 반응을 이용한 개인화 피드(알고리즘)를 반환.
 def get_personalized_community_feed(
     db: Session,
@@ -297,7 +332,7 @@ def get_personalized_community_feed(
 
     scored_candidates: list[_ScoredCommunityFeedCandidate] = []
 
-    # 각 추천 후보에 카테고리·지역·최신성·반응도 점수를 계산.
+    # 각 추천 후보에 카테고리·지역·최신성·반응도·작성자 신뢰도 점수를 계산.
     for (
         post,
         author,
@@ -320,6 +355,7 @@ def get_personalized_community_feed(
             created_at=post.created_at,
             like_count=like_count,
             comment_count=comment_count,
+            author_trust_score=author.trust_score,
             reference_time=reference_time,
         )
 

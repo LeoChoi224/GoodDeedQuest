@@ -16,7 +16,7 @@ PHASH_GRAY_MAX = 12
 
 def generate_challenge_code() -> str:
     return f"{secrets.randbelow(10000):04d}"
-  
+
 def build_challenge_message(code: str) -> str:
     return (
         f"자료의 진위를 확인하기 위해 추가 인증이 필요합니다.\n"

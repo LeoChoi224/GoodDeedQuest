@@ -325,7 +325,7 @@ class TeamRecommendationScoreResponse(BaseModel):
     category_score: float = Field(
         ...,
         ge=0,
-        le=30,
+        le=25,
         description="관심 카테고리 점수",
     )
 
@@ -353,8 +353,15 @@ class TeamRecommendationScoreResponse(BaseModel):
     embedding_score: float = Field(
         ...,
         ge=0,
-        le=15,
+        le=10,
         description="Embedding 유사도 점수",
+    )
+
+    trust_score: float = Field(
+        ...,
+        ge=0,
+        le=10,
+        description="사용자 신뢰도 점수",
     )
 
     daily_streak_score: float = Field(
@@ -392,6 +399,7 @@ class TeamRecommendationScoreResponse(BaseModel):
             + self.embedding_score
             + self.daily_streak_score
             + self.user_level_score,
+            + self.trust_score,
             2,
         )
 
@@ -471,6 +479,13 @@ class TeamRecommendedUserResponse(BaseModel):
         default=0,
         ge=0,
         description="추천 사용자의 연속 활동 일수",
+    )
+
+    trust_score: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="추천 사용자의 원본 신뢰도",
     )
 
     latitude: float | None = Field(

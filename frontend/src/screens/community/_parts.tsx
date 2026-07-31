@@ -4,7 +4,7 @@
  * Gradient placeholders stand in for feed photos / avatars (no new art per CONTRACT).
  */
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { Image, View, Text, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle } from 'react-native-svg';
 import Animated, {
@@ -83,10 +83,48 @@ export const HeartOutline = ({ size = 24 }: { size?: number }) => (
   <Stroke d={HEART_D} color={colors.textMuted} w={2} size={size} />
 );
 
-/* ---------- gradient placeholders (feed photo / avatar) ---------- */
-export const Avatar = ({ grad, size = 36 }: { grad: [string, string]; size?: number }) => (
-  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ width: size, height: size, borderRadius: size / 2 }} />
-);
+/* ---------- profile image with gradient fallback ---------- */
+export const Avatar = ({
+  grad,
+  size = 36,
+  imageUrl,
+}: {
+  grad: [string, string];
+  size?: number;
+  imageUrl?: string | null;
+}) => {
+  const [imageLoadFailed, setImageLoadFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    setImageLoadFailed(false);
+  }, [imageUrl]);
+
+  return (
+    <LinearGradient
+      colors={grad}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        overflow: 'hidden',
+      }}
+    >
+      {imageUrl && !imageLoadFailed ? (
+        <Image
+          source={{ uri: imageUrl }}
+          style={{
+            width: size,
+            height: size,
+          }}
+          resizeMode="cover"
+          onError={() => setImageLoadFailed(true)}
+        />
+      ) : null}
+    </LinearGradient>
+  );
+};
 
 export const GradientFill = ({
   grad,

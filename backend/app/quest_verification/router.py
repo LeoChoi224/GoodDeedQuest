@@ -21,7 +21,11 @@ from backend.app.quest_verification.challenge import (
 )
 from backend.app.badge.service import check_and_award_badges
 from backend.app.auth.router import get_current_db_user
-from backend.app.auth.models import User
+from backend.app.auth.models import User, PointTransaction
+from backend.app.auth.enums import TransactionType
+from backend.app.quest_verification.trust import (
+    adjust_trust, TRUST_ON_COMPLETE, TRUST_ON_CHALLENGE, TRUST_ON_REJECT
+)
 
 QuestRepository = Annotated[
     DatabaseRepository[Quest],
@@ -35,6 +39,44 @@ SubmissionRepository = Annotated[
 
 router = APIRouter(prefix="/quest-verification", tags=["Quest AI Verification"])
 
+def _grant_reward(
+    repository: DatabaseRepository[QuestSubmission],
+    user: User,
+    quest: Quest,
+    submission: QuestSubmission,
+) -> tuple[int, int]:
+    xp_gained = quest.reward_exp or 0
+    points_gained =  quest.reward_point or 0
+
+    # 【기능】 실제 지급. 이 3줄이 없으면 위에서 계산한 값은 화면에만 표시되고
+    #        잔액은 그대로 남는다. balance_after 를 아래에서 읽으므로 순서도 중요하다.
+    user.current_xp += xp_gained
+    user.point_balance += points_gained
+    adjust_trust(user, TRUST_ON_COMPLETE)
+
+    if points_gained:
+        repository.session.add(PointTransaction(
+            user_id=user.user_id,
+            submission_id=submission.submission_id,
+            amount=points_gained,
+            type=TransactionType.EARN,
+            balance_after=user.point_balance
+        ))
+    
+    repository.session.commit()
+    
+    try: 
+        check_and_award_badges(
+            db=repository.session,
+            user_id=user.user_id,
+            category_code=quest.category.code,
+        )
+    except Exception as error:
+        repository.session.rollback()
+        print((f"배지 지급 실패(인증은 정상 처리됨): user={user.user_id} "
+            f"quest={quest.quest_id} {type(error).__name__}: {error}"))
+
+    return xp_gained, points_gained
 
 @router.post("/presign", response_model=PresignResponse)
 def get_upload_url(req: PresignRequest, current_user: User = Depends(get_current_db_user)):
@@ -54,7 +96,29 @@ def submit_verification(
     if quest is None:
         raise HTTPException(status_code=404, detail="Quest not found")
     
+    already_done = submission_respository.get_by(
+        user_id=current_user.user_id,
+        quest_id=req.quest_id,
+        final_status=SubmissionStatus.ACCEPTED
+    )
+    if already_done is not None:
+        raise HTTPException(status_code=400, detail="이미 완료한 퀘스트입니다.")
+    
+    stale_pendings = submission_respository.filter(
+        QuestSubmission.user_id == current_user.user_id,
+        QuestSubmission.quest_id == req.quest_id,
+        QuestSubmission.final_status == SubmissionStatus.PENDING,
+    )
+    for stale in stale_pendings:
+        stale.final_status = SubmissionStatus.REJECTED
+        stale.challenge_code = None
+    
+    if stale_pendings:
+        submission_respository.session.commit()
+        print(f"옛 챌린지 {len(stale_pendings)}건 만료: user={current_user.user_id} quest={req.quest_id}")
+        
     extra_keys = req.extra_media_keys or []
+    
     if len(extra_keys) > 4:
         raise HTTPException(status_code=400, detail="추가 사진은 최대 4장까지 가능합니다.")
     
@@ -64,7 +128,8 @@ def submit_verification(
 
     media_hash = None
     primary_phash = None
-    for url in media_urls:
+    
+    for index, url in enumerate(media_urls):
         image_bytes = httpx.get(url, timeout=30.0).content
         photo_hash = compute_sha256(image_bytes)
         if media_hash is None:
@@ -74,17 +139,19 @@ def submit_verification(
 
         duplicate = submission_respository.get_by(media_hash = photo_hash)
         if duplicate is not None:
+            adjust_trust(current_user, TRUST_ON_REJECT)
             submission_respository.create({
                 "user_id": current_user.user_id,
                 "quest_id": quest.quest_id,
                 "media_url": req.s3_key,
-                "media_hash": media_hash,
+                "media_hash": photo_hash,
                 "final_status": SubmissionStatus.REJECTED,
-                "ai_verdict": {"verified": False, "reason": "duplicate"},
+                "ai_verdict": {"verified": False, "reason": "duplicate", "duplicate_key": all_keys[index]},
             })
+            where = "대표 증빙" if index == 0 else f"추가 사진 {index}번"
             return SubmitResponse(
                 verified=False,
-                reason="이미 제출된 적이 있는 사진입니다. 새로 촬영한 사진을 올려 주세요.",
+                reason=f"{where}이 이전에 제출한 자료와 완전히 같습니다. 그 파일만 새로 촬영해 올려 주세요.",
             )
 
     # 편집해서 파일 해시만 바꾼 재탕 검사 (Gemini 호출 전이라 비용이 들지 않는다)
@@ -93,6 +160,7 @@ def submit_verification(
         nearest, phash_distance = find_nearest_submission(submission_respository, primary_phash)
         if is_duplicate(phash_distance):
             print(f"pHash 재탕 거절: submission_id={nearest.submission_id} 과 거리 {phash_distance}")
+            adjust_trust(current_user, TRUST_ON_REJECT)
             submission_respository.create({
                 "user_id": current_user.user_id,
                 "quest_id": quest.quest_id,
@@ -139,10 +207,12 @@ def submit_verification(
 
     if challenge:
         final_status = SubmissionStatus.PENDING
+        adjust_trust(current_user, TRUST_ON_CHALLENGE)
     elif result["verified"]:
         final_status = SubmissionStatus.ACCEPTED
     else:
         final_status = SubmissionStatus.REJECTED
+        adjust_trust(current_user, TRUST_ON_REJECT)
 
     submission = submission_respository.create({
         "user_id": current_user.user_id,
@@ -172,16 +242,8 @@ def submit_verification(
     xp_gained = 0
     points_gained = 0
     if result['verified']:
-        xp_gained = quest.reward_exp or 0
-        points_gained = quest.reward_point or 0
-        current_user.current_xp += xp_gained
-        current_user.point_balance += points_gained
-        submission_respository.session.commit()
-        # ⭐ 수정: final_status가 ACCEPTED로 확정된 직후 카테고리 기반 배지 자동 지급
-        check_and_award_badges(
-            db=submission_respository.session,
-            user_id=current_user.user_id,
-            category_code=quest.category.code,
+        xp_gained, points_gained = _grant_reward(
+            submission_respository, current_user, quest, submission
         )
 
     return SubmitResponse(
@@ -229,26 +291,19 @@ def submit_challenge(
     points_gained = 0
     if matched:
         quest = quest_repository.get(submission.quest_id)
-        xp_gained = quest.reward_exp or 0
-        points_gained = quest.reward_point or 0
-        current_user.current_xp += xp_gained
-        current_user.point_balance += points_gained
-
-    # 상태 변경과 보상 지급이 함께 저장되도록 마지막에 한 번만 커밋한다
-    submission_respository.session.commit()
-
-    if matched:
-        # ⭐ 수정: final_status가 ACCEPTED로 확정된 직후 카테고리 기반 배지 자동 지급
-        check_and_award_badges(
-            db=submission_respository.session,
-            user_id=submission.user_id,
-            category_code=quest.category.code,
+        xp_gained, points_gained = _grant_reward(
+            submission_respository, current_user, quest, submission
         )
+    else:
+        adjust_trust(current_user, TRUST_ON_REJECT)
+        submission_respository.session.commit()
+
+    
 
     return SubmitResponse(
         verified=matched,
         reason=result.get("reason", "") if matched
-               else "손으로 쓴 인증 번호를 확인하지 못했습니다. 다시 시도해 주세요.",
+                else "손으로 쓴 인증 번호를 확인하지 못했습니다. 다시 시도해 주세요.",
         xp_gained=xp_gained,
         points_gained=points_gained,
     )

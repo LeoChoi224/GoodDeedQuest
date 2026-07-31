@@ -28,6 +28,74 @@ from backend.app.quest.models import Quest, Category
 from backend.app.quest_verification.models import QuestSubmission
 from backend.app.quest_verification.enums import SubmissionStatus
 
+# ⭐ 수정: 모든 유저가 처음부터 장착하고 시작하는 기본 칭호.
+# condition_category를 실제 Category.code와 절대 겹치지 않는 값으로 둬서
+# check_and_award_badges()의 카테고리 기반 자동 지급 대상에 섞이지 않게 한다.
+DEFAULT_BADGE_NAME = "선행 초보자"
+DEFAULT_BADGE_CONDITION_CATEGORY = "__default__"
+
+
+# ---------------------------------------------------------------------------
+# 마이페이지 프로필 헤더용 - 기본 칭호 보장 + 현재 장착 칭호 조회
+# ---------------------------------------------------------------------------
+
+def _get_or_create_default_badge(db: Session) -> Badge:
+    badge = db.query(Badge).filter(Badge.name == DEFAULT_BADGE_NAME).first()
+    if badge:
+        return badge
+
+    badge = Badge(
+        name=DEFAULT_BADGE_NAME,
+        description="선행퀘스트에 첫발을 내딛은 모든 사람에게 주어지는 기본 칭호입니다.",
+        icon_url="https://cdn-icons-png.flaticon.com/512/2917/2917995.png",
+        badge_category="기본",
+        condition_category=DEFAULT_BADGE_CONDITION_CATEGORY,
+        condition_count=0,
+    )
+    db.add(badge)
+    db.commit()
+    db.refresh(badge)
+    return badge
+
+
+def ensure_default_badge_equipped(db: Session, user_id: int) -> None:
+    """
+    유저가 장착 중인 뱃지(칭호)가 하나도 없으면 기본 칭호("선행 초보자")를 보유/장착
+    시켜준다. 신규 가입 시점이 아니라 프로필 조회 시점에 지연 실행되므로 auth 도메인
+    (회원가입 흐름)을 건드리지 않고도 "처음부터 무조건 장착된 상태"를 보장한다.
+    """
+    already_equipped = (
+        db.query(UserBadge.user_badge_id)
+        .filter(UserBadge.user_id == user_id, UserBadge.is_equipped == True)
+        .first()
+    )
+    if already_equipped:
+        return
+
+    default_badge = _get_or_create_default_badge(db)
+    owned = (
+        db.query(UserBadge)
+        .filter(UserBadge.user_id == user_id, UserBadge.badge_id == default_badge.badge_id)
+        .first()
+    )
+    if owned:
+        owned.is_equipped = True
+    else:
+        db.add(UserBadge(user_id=user_id, badge_id=default_badge.badge_id, is_equipped=True))
+    db.commit()
+
+
+def get_equipped_badge_name(db: Session, user_id: int) -> str:
+    """마이페이지 프로필 헤더에 표시할, 현재 장착 중인 칭호(Badge.name)를 조회한다."""
+    ensure_default_badge_equipped(db, user_id)
+    equipped = (
+        db.query(Badge.name)
+        .join(UserBadge, UserBadge.badge_id == Badge.badge_id)
+        .filter(UserBadge.user_id == user_id, UserBadge.is_equipped == True)
+        .first()
+    )
+    return equipped[0] if equipped else DEFAULT_BADGE_NAME
+
 
 # ---------------------------------------------------------------------------
 # 배지 도감 조회

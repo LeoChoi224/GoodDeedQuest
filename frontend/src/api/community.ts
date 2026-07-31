@@ -71,6 +71,46 @@ export async function getCommunityFeed(
 }
 
 /**
+ * 로그인한 사용자의 관심 정보와 게시글 점수를 반영한 개인화 피드를 조회합니다.
+ */
+export async function getRecommendedCommunityFeed(
+  skip = 0,
+  limit = 20,
+): Promise<CommunityFeedItem[]> {
+  const response = await api.get<CommunityFeedItem[]>(
+    '/community/posts/recommended',
+    {
+      params: {
+        skip,
+        limit,
+      },
+    },
+  );
+
+  return response.data;
+}
+
+/**
+ * 로그인한 사용자가 작성한 커뮤니티 게시글만 최신순으로 조회합니다.
+ */
+export async function getMyCommunityPosts(
+  skip = 0,
+  limit = 20,
+): Promise<CommunityFeedItem[]> {
+  const response = await api.get<CommunityFeedItem[]>(
+    '/community/posts/mine',
+    {
+      params: {
+        skip,
+        limit,
+      },
+    },
+  );
+
+  return response.data;
+}
+
+/**
  * 커뮤니티 게시글 작성에 사용할 최근 승인 퀘스트 인증 목록을 조회합니다.
  */
 export async function getRecentQuestSubmissions(
