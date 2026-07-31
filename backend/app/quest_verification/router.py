@@ -123,6 +123,13 @@ def submit_verification(
         raise HTTPException(status_code=400, detail="추가 사진은 최대 4장까지 가능합니다.")
     
     all_keys = [req.s3_key] + extra_keys
+    
+    expected_prefix = f"submission/{current_user.user_id}/{req.quest_id}/"
+    for key in all_keys:
+        if not key.startswith(expected_prefix) or ".." in key:
+            print(f"잘못된 업로드 경로 거절: user={current_user.user_id} key={key}")
+            raise HTTPException(status_code=400, detail="잘못된 업로드 경로입니다.")
+    
     media_urls = [generate_download_presigned_url(key) for key in all_keys]
     is_video = quest.quest_type != QuestType.VOLUNTEER
 
@@ -270,6 +277,10 @@ def submit_challenge(
     if submission.final_status != SubmissionStatus.PENDING or not submission.challenge_code:
         raise HTTPException(status_code=400, detail="추가 인증이 필요한 제출이 아닙니다.")
 
+    expected_prefix = f"submission/{current_user.user_id}/{submission.quest_id}/"
+    if not req.s3_key.startswith(expected_prefix) or ".." in req.s3_key:
+        print(f"잘못된 챌린지 경로 거절: user={current_user.user_id} key={req.s3_key}")
+        raise HTTPException(status_code=400, detail="잘못된 업로드 경로입니다.")
     media_url = generate_download_presigned_url(req.s3_key)
     try:
         response = httpx.post(

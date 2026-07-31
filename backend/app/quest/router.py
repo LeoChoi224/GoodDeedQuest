@@ -16,12 +16,15 @@ from backend.app.auth.router import get_current_db_user
 from backend.app.auth.models import User
 from backend.app.quest_verification.models import QuestSubmission
 from backend.app.quest_verification.enums import SubmissionStatus
+from backend.app.quest.rate_limit import count_daily_use
 
 # 하루에 만들 수 있는 커스텀 퀘스트 수.
 # 같은 활동을 여러 개 만드는 것 자체는 막지 않는다. 인증 단계에서 사진·영상
 # 재사용이 걸러지므로, 여기서는 생성 횟수 상한만 둔다.
+
 DAILY_CREATE_LIMIT = 5
 
+DAILY_PREVIEW_LIMIT = 10
 # created_at은 UTC로 저장되는데 사용자가 느끼는 '오늘'은 한국 시간이다.
 KST = timezone(timedelta(hours=9))
 
@@ -169,6 +172,13 @@ def preview_quest(
 ):
     """등록하기 전에 심사 결과만 미리 본다. 저장하지 않는다."""
     category = _load_category(category_repository, req.category_code)
+
+    if not count_daily_use("quest_preview", current_user.user_id, DAILY_PREVIEW_LIMIT):
+        return APIResponse.ok(data=CreateQuestResponse(
+            accepted=False,
+            reason=f"미리보기는 하루 {DAILY_PREVIEW_LIMIT}번까지 쓸 수 있어요. 내일 다시 시도해 주세요.",
+        ))
+
     response, _ = _judge(req, category)
     return APIResponse.ok(data=response)
 
