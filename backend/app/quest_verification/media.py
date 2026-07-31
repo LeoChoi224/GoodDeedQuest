@@ -64,9 +64,12 @@ def find_nearest_submission(repository, phash: str) -> tuple[Optional[QuestSubmi
     
     for past in repository.filter():
         for value in past.media_embedding or []:
+            
+            if not isinstance(value, str):
+                continue
             try:
                 distance = target - imagehash.hex_to_hash(value) 
-            except ValueError:
+            except (ValueError, TypeError):
                 continue
             if nearest_distance is None or distance < nearest_distance:
                 nearest, nearest_distance = past, distance
