@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
@@ -33,7 +33,7 @@ export default function TeamListScreen({ navigation, route }: any) {
   const toast = useToast();
   const [teams, setTeams] = useState<TeamListItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [sheet, setSheet] = useState(Boolean(route?.params?.openCreate));
+  const [sheet, setSheet] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [questId, setQuestId] = useState('');
@@ -55,6 +55,17 @@ export default function TeamListScreen({ navigation, route }: any) {
   }, [toast]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  useEffect(() => {
+    if (!route?.params?.openCreate) {
+      return;
+    }
+
+    setSheet(true);
+    navigation.setParams({
+      openCreate: false,
+    });
+  }, [navigation, route?.params?.openCreate]);
 
   const reset = () => {
     setName(''); setQuestId(''); setRegion(''); setNotification('잘 부탁드립니다.');

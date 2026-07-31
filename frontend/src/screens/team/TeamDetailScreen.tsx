@@ -57,7 +57,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
   const [reloading, setReloading] = useState(false);
 
   const [recommendationLoadingText, setRecommendationLoadingText] = useState(
-    '추천 후보 데이터를 분석하고 있어요...',
+    '함께할 친구 정보를 분석하고 있어요...',
   );
 
   const recommendationLoadingTimers = useRef<
@@ -78,19 +78,19 @@ export default function TeamDetailScreen({ navigation, route }: any) {
     clearRecommendationLoadingTimers();
 
     setRecommendationLoadingText(
-      '추천 후보 데이터를 분석하고 있어요...',
+      '함께할 친구 정보를 분석하고 있어요...',
     );
 
     recommendationLoadingTimers.current = [
       setTimeout(() => {
         setRecommendationLoadingText(
-          '적합도와 추천 순위를 계산하고 있어요...',
+          '팀과 잘 맞는 활동 성향을 비교하고 있어요...',
         );
       }, 2500),
 
       setTimeout(() => {
         setRecommendationLoadingText(
-          '후보별 추천 이유를 생성하고 있어요...',
+          '친구별 추천 이유를 정리하고 있어요...',
         );
       }, 7000),
     ];
@@ -130,28 +130,6 @@ export default function TeamDetailScreen({ navigation, route }: any) {
 
   const leader = useMemo(() => members.find((member) => member.role_in_team === 'LEADER'), [members]);
   const normalMembers = useMemo(() => members.filter((member) => member.role_in_team !== 'LEADER'), [members]);
-
-  const recommendationSourceSummary = useMemo(() => {
-    if (recommendations.length === 0) {
-      return '규칙 기반 점수와 추천 이유를 함께 확인할 수 있습니다.';
-    }
-
-    const llmReasonCount = recommendations.filter(
-      (user) => user.reason_source === 'LLM',
-    ).length;
-
-    if (llmReasonCount === recommendations.length) {
-      return 'LLM이 후보별 추천 이유를 생성했습니다.';
-    }
-
-    if (llmReasonCount === 0) {
-      return 'LLM을 사용할 수 없어 규칙 기반 추천 이유로 대체했습니다.';
-    }
-
-    const fallbackCount = recommendations.length - llmReasonCount;
-
-    return `${fallbackCount}개의 추천 이유가 규칙 기반으로 대체되었습니다.`;
-  }, [recommendations]);
 
   const onJoin = async () => {
     setJoining(true);
@@ -198,7 +176,10 @@ export default function TeamDetailScreen({ navigation, route }: any) {
       setView('recommend');
 
       if (result.warnings?.length) {
-        toast.show(result.warnings[0]);
+        console.warn(
+          '친구 추천 참고 정보:',
+          result.warnings,
+        );
       }
     } catch (error) {
       toast.show(getChallengeErrorMessage(error));
@@ -206,7 +187,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
       clearRecommendationLoadingTimers();
 
       setRecommendationLoadingText(
-        '추천 후보 데이터를 분석하고 있어요...',
+        '함께할 친구 정보를 분석하고 있어요...',
       );
 
       setReloading(false);
@@ -233,7 +214,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      <MainHeader showBack title={view === 'detail' ? '팀 상세' : 'AI 유저 추천'} onBack={() => view === 'recommend' ? setView('detail') : navigation.goBack()} />
+      <MainHeader showBack title={view === 'detail' ? '팀 상세' : '친구 초대'} onBack={() => view === 'recommend' ? setView('detail') : navigation.goBack()} />
 
       {reloading ? (
         <View style={styles.aiLoadingCard}>
@@ -244,7 +225,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
 
           <View style={styles.aiLoadingContent}>
             <Text style={styles.aiLoadingTitle}>
-              AI 추천 분석 중
+              친구 추천 분석 중
             </Text>
 
             <Text style={styles.aiLoadingText}>
@@ -289,7 +270,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
             <Text style={[styles.footText, { color: colors.white }]}>{joining ? '참가 중...' : '팀 참가하기'}</Text>
           </SpringButton> : <>
             <SpringButton disabled={reloading} style={[styles.footBtn, styles.inviteBtn]} onPress={() => void loadRecommendations()}>
-              <Text style={[styles.footText, { color: colors.white }]}>{reloading ? '분석 중...' : 'AI 유저 추천'}</Text>
+              <Text style={[styles.footText, { color: colors.white }]}>{reloading ? '분석 중...' : '친구 초대'}</Text>
             </SpringButton>
             <SpringButton style={[styles.footBtn, styles.leaveBtn]} onPress={() => setConfirmLeave(true)}>
               <Text style={[styles.footText, { color: colors.primaryDark }]}>팀 나가기</Text>
@@ -297,29 +278,87 @@ export default function TeamDetailScreen({ navigation, route }: any) {
           </>}
         </StickyFooter>
       </> : <>
-        <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          <PixelTitle size={18}>챌린지팀 유저 추천 리스트</PixelTitle>
-          <Text style={styles.recSub}>{recommendationSourceSummary}</Text>
-          <SearchSortBar placeholder="추천 결과" sortLabel="점수순" />
-          {recommendations.length === 0 ? <EmptyState icon="🤖" message="추천 가능한 사용자가 없어요" /> : <View style={{ gap: 10 }}>
-            {recommendations.map((user, i) => (
-              <Animated.View key={user.user_id} entering={FadeInDown.delay(staggerDelay(i)).duration(450)} style={styles.userCard}>
-                <Avatar grad={AVATARS[i % AVATARS.length]} size={48} />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.userName}>#{user.rank} {user.nickname ?? `사용자 ${user.user_id}`}</Text>
-                  <Text style={styles.score}>{user.score.total_score.toFixed(1)}점 · LV.{user.current_level}</Text>
-                  <View style={[styles.reasonBadge, user.reason_source === 'LLM'? styles.llmReasonBadge: styles.fallbackReasonBadge]}>
-                    <Text style={[styles.reasonBadgeText, user.reason_source === 'LLM'? styles.llmReasonBadgeText: styles.fallbackReasonBadgeText]}>
-                      {user.reason_source === 'LLM'? 'LLM 생성 이유': '규칙 기반 대체'}</Text>
+        <ScrollView
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}
+        >
+          <PixelTitle size={18}>
+            함께할 친구 추천
+          </PixelTitle>
+
+          <Text style={styles.recSub}>
+            팀의 퀘스트와 활동 성향을 바탕으로 함께하기 좋은
+            친구를 추천했어요.
+          </Text>
+
+          <SearchSortBar
+            placeholder="추천 결과"
+            sortLabel="점수순"
+          />
+
+          {recommendations.length === 0 ? (
+            <EmptyState
+              icon="🤝"
+              message="초대할 수 있는 친구가 없어요"
+            />
+          ) : (
+            <View style={{ gap: 10 }}>
+              {recommendations.map((user, i) => (
+                <Animated.View
+                  key={user.user_id}
+                  entering={FadeInDown
+                    .delay(staggerDelay(i))
+                    .duration(450)}
+                  style={styles.userCard}
+                >
+                  <Avatar
+                    grad={AVATARS[i % AVATARS.length]}
+                    size={48}
+                  />
+
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.userName}>
+                      #{user.rank}{' '}
+                      {user.nickname ?? `사용자 ${user.user_id}`}
+                    </Text>
+
+                    <Text style={styles.score}>
+                      {user.score.total_score.toFixed(1)}점 · LV.
+                      {user.current_level}
+                    </Text>
+
+                    <Text style={styles.userInfo}>
+                      {user.recommendation_reason}
+                    </Text>
                   </View>
-                  <Text style={styles.userInfo}>{user.recommendation_reason}</Text>
-                </View>
-                <SpringButton style={styles.userInviteBtn} onPress={() => setConfirmUser(user)}><Text style={styles.userInviteText}>초대</Text></SpringButton>
-              </Animated.View>
-            ))}
-          </View>}
+
+                  <SpringButton
+                    style={styles.userInviteBtn}
+                    onPress={() => setConfirmUser(user)}
+                  >
+                    <Text style={styles.userInviteText}>
+                      초대
+                    </Text>
+                  </SpringButton>
+                </Animated.View>
+              ))}
+            </View>
+          )}
         </ScrollView>
-        <StickyFooter><SpringButton disabled={reloading} style={styles.reloadBtn} onPress={() => void loadRecommendations()}><Text style={styles.reloadText}>{reloading ? '추천 분석 중...' : '추천 다시받기'}</Text></SpringButton></StickyFooter>
+
+        <StickyFooter>
+          <SpringButton
+            disabled={reloading}
+            style={styles.reloadBtn}
+            onPress={() => void loadRecommendations()}
+          >
+            <Text style={styles.reloadText}>
+              {reloading
+                ? '다른 친구 찾는 중...'
+                : '다른 친구 추천받기'}
+            </Text>
+          </SpringButton>
+        </StickyFooter>
       </>}
 
       <GamePopup visible={!!confirmUser} onClose={() => setConfirmUser(null)} width={popupW}>
@@ -369,13 +408,7 @@ const styles = StyleSheet.create({
   userCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 12, padding: 12 },
   userName: { fontSize: 15, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
   score: { fontSize: 12, color: colors.gold, fontFamily: fonts.bodyB, marginTop: 2 },
-  reasonBadge: { alignSelf: 'flex-start', marginTop: 5, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderRadius: 999 },
-  llmReasonBadge: { backgroundColor: colors.primaryDark, borderColor: colors.primaryDark },
-  fallbackReasonBadge: { backgroundColor: colors.parchment, borderColor: colors.gold },
-  reasonBadgeText: { fontSize: 10, fontFamily: fonts.bodyB },
-  llmReasonBadgeText: { color: colors.white },
-  fallbackReasonBadgeText: { color: colors.primaryDark },
-  userInfo: { fontSize: 12, color: INFO, fontFamily: fonts.bodyR, marginTop: 3 },
+  userInfo: { fontSize: 12, color: INFO, fontFamily: fonts.bodyR, marginTop: 6, lineHeight: 18 },
   userInviteBtn: { backgroundColor: colors.xpGreen, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   userInviteText: { fontFamily: fonts.pixel, fontSize: 12, color: colors.white },
   reloadBtn: { height: 52, borderRadius: 8, backgroundColor: colors.screenBg, borderWidth: 1.5, borderColor: colors.pixelBorder, alignItems: 'center', justifyContent: 'center' },
