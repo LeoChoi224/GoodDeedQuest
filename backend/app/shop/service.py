@@ -116,4 +116,61 @@ def get_user_purchases(db: Session, user_id: int) -> List[Purchase]:
     )
 
 
+# ⭐ 수정: 아이템(프로필 테두리) 장착 / 해제 — badge/service.py의 equip_badge/unequip_badge와
+# 동일하게 유저당 1개만 장착 가능한 단일 슬롯 정책.
+def equip_item(db: Session, user_id: int, item_id: int) -> Purchase:
+    """
+    유저가 구매(보유)한 아이템을 장착한다. 기존에 장착 중이던 아이템이 있으면 먼저 전부 해제한다.
+    """
+    target = (
+        db.query(Purchase)
+        .filter(
+            Purchase.user_id == user_id,
+            Purchase.item_id == item_id,
+            Purchase.status == PurchaseStatus.COMPLETED,
+        )
+        .first()
+    )
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"보유하지 않은 아이템입니다. (item_id={item_id})",
+        )
+
+    db.query(Purchase).filter(
+        Purchase.user_id == user_id,
+        Purchase.is_equipped == True,
+    ).update({"is_equipped": False}, synchronize_session=False)
+
+    target.is_equipped = True
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+def unequip_item(db: Session, user_id: int, item_id: int) -> Purchase:
+    """
+    장착 중인 아이템을 해제한다. 대상이 애초에 장착 상태가 아니면 404를 반환한다.
+    """
+    target = (
+        db.query(Purchase)
+        .filter(
+            Purchase.user_id == user_id,
+            Purchase.item_id == item_id,
+            Purchase.is_equipped == True,
+        )
+        .first()
+    )
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"장착된 아이템이 아닙니다. (item_id={item_id})",
+        )
+
+    target.is_equipped = False
+    db.commit()
+    db.refresh(target)
+    return target
+
+
 

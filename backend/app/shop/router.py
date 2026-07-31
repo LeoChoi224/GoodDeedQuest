@@ -16,6 +16,8 @@ from backend.app.shop.service import (
     get_item_by_id,
     execute_purchase,
     get_user_purchases,
+    equip_item,
+    unequip_item,
 )
 
 router = APIRouter(prefix="/shop", tags=["Shop"])
@@ -83,5 +85,40 @@ def purchase_item(
     user_id = current_user.get("id") or current_user.get("user_id")
     purchase = execute_purchase(db, user_id=user_id, item_id=req.item_id)
     return APIResponse.ok(data=purchase, message="아이템 구매가 성공적으로 완료되었습니다.")
+
+
+# ⭐ 수정: 보유 아이템 장착 / 해제 (badge 도메인 /badges/{id}/equip,unequip과 동일한 패턴)
+@router.patch(
+    "/{item_id}/equip",
+    response_model=APIResponse[PurchaseResponse],
+    status_code=status.HTTP_200_OK,
+    summary="보유 아이템 장착",
+    description="구매(보유)한 아이템을 장착합니다. 유저당 최대 1개만 장착 가능하며, 기존에 장착 중이던 아이템은 자동으로 해제됩니다.",
+)
+def equip_item_endpoint(
+    item_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.get("id") or current_user.get("user_id")
+    purchase = equip_item(db, user_id=user_id, item_id=item_id)
+    return APIResponse.ok(data=purchase, message="아이템 장착 성공")
+
+
+@router.patch(
+    "/{item_id}/unequip",
+    response_model=APIResponse[PurchaseResponse],
+    status_code=status.HTTP_200_OK,
+    summary="보유 아이템 장착 해제",
+    description="장착 중인 아이템을 해제합니다.",
+)
+def unequip_item_endpoint(
+    item_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.get("id") or current_user.get("user_id")
+    purchase = unequip_item(db, user_id=user_id, item_id=item_id)
+    return APIResponse.ok(data=purchase, message="아이템 장착 해제 성공")
 
 

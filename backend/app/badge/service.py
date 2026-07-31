@@ -16,7 +16,7 @@ Badge 도메인 서비스 레이어.
   바로 HTTPException(404)을 raise한다 (라우터에서 별도 변환 불필요).
 """
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import func
@@ -33,6 +33,11 @@ from backend.app.quest_verification.enums import SubmissionStatus
 # check_and_award_badges()의 카테고리 기반 자동 지급 대상에 섞이지 않게 한다.
 DEFAULT_BADGE_NAME = "선행 초보자"
 DEFAULT_BADGE_CONDITION_CATEGORY = "__default__"
+
+# ⭐ 수정: 특별 칭호("나는 정운") 관련 상수.
+# 카테고리별 5단계(최종 단계) 뱃지의 condition_count 값 - 이 값과 같은 뱃지를 보유해야 "마스터"로 친다.
+MASTER_TIER_CONDITION_COUNT = 50
+SPECIAL_BADGE_CONDITION_CATEGORY = "__special__"
 
 
 # ---------------------------------------------------------------------------
@@ -61,8 +66,9 @@ def _get_or_create_default_badge(db: Session) -> Badge:
 def ensure_default_badge_equipped(db: Session, user_id: int) -> None:
     """
     유저가 장착 중인 뱃지(칭호)가 하나도 없으면 기본 칭호("선행 초보자")를 보유/장착
-    시켜준다. 신규 가입 시점이 아니라 프로필 조회 시점에 지연 실행되므로 auth 도메인
-    (회원가입 흐름)을 건드리지 않고도 "처음부터 무조건 장착된 상태"를 보장한다.
+    시켜준다. 신규 가입 시점이 아니라 프로필 조회·배지 해제(unequip_badge) 시점에
+    지연 실행되므로 auth 도메인(회원가입 흐름)을 건드리지 않고도 "장착중인 칭호가
+    하나도 없는 상태"가 절대 존재하지 않도록 보장한다.
     """
     already_equipped = (
         db.query(UserBadge.user_badge_id)
@@ -207,6 +213,12 @@ def unequip_badge(db: Session, user_id: int, badge_id: int) -> UserBadge:
 
     target.is_equipped = False
     db.commit()
+
+    # ⭐ 수정: 해제 후 장착중인 칭호가 하나도 안 남으면 기본 칭호를 즉시 자동 장착.
+    # 기존엔 다음 프로필 조회 시점에야 지연 반영돼서, 아이템 목록 화면에서 방금 해제한
+    # 직후엔 화면 어디에도 "장착중" 표시가 없는 상태가 잠깐 보였다.
+    ensure_default_badge_equipped(db, user_id)
+
     db.refresh(target)
     return target
 
@@ -219,6 +231,7 @@ def check_and_award_badges(db: Session, user_id: int, category_code: str) -> Lis
     """
     유저가 특정 카테고리 퀘스트를 완료(ACCEPTED)했을 때 호출.
     해당 카테고리 완료 횟수를 계산해 조건을 만족하는 미보유 배지를 지급한다.
+    이번에 최종 단계(마스터) 배지를 획득했다면 특별 칭호 지급 조건도 함께 확인한다.
     """
     completed_count = (
         db.query(func.count(QuestSubmission.submission_id))
@@ -254,4 +267,52 @@ def check_and_award_badges(db: Session, user_id: int, category_code: str) -> Lis
         db.add(UserBadge(user_id=user_id, badge_id=badge.badge_id, is_equipped=False))
 
     db.commit()
+
+    # ⭐ 수정: 이번에 카테고리 마스터 등급을 새로 획득했다면 특별 칭호 지급 조건도 확인
+    if any(badge.condition_count == MASTER_TIER_CONDITION_COUNT for badge in eligible_badges):
+        special_badge = _check_and_award_special_badge(db, user_id)
+        if special_badge:
+            eligible_badges = eligible_badges + [special_badge]
+
     return eligible_badges
+
+
+def _check_and_award_special_badge(db: Session, user_id: int) -> Optional[Badge]:
+    """
+    서로 다른 카테고리 2개 이상에서 최종 단계(condition_count=MASTER_TIER_CONDITION_COUNT)
+    배지를 보유하면 특별 칭호("나는 정운")를 자동 지급한다.
+    "2개 이상"의 2는 하드코딩하지 않고, 특별 칭호 배지의 condition_count 값을 읽어서 판정한다.
+    """
+    special_badge = (
+        db.query(Badge)
+        .filter(Badge.condition_category == SPECIAL_BADGE_CONDITION_CATEGORY)
+        .first()
+    )
+    if not special_badge:
+        return None
+
+    already_owned = (
+        db.query(UserBadge.user_badge_id)
+        .filter(UserBadge.user_id == user_id, UserBadge.badge_id == special_badge.badge_id)
+        .first()
+    )
+    if already_owned:
+        return None
+
+    mastered_category_count = (
+        db.query(Badge.condition_category)
+        .join(UserBadge, UserBadge.badge_id == Badge.badge_id)
+        .filter(
+            UserBadge.user_id == user_id,
+            Badge.condition_count == MASTER_TIER_CONDITION_COUNT,
+            Badge.condition_category != SPECIAL_BADGE_CONDITION_CATEGORY,
+        )
+        .distinct()
+        .count()
+    )
+    if mastered_category_count < special_badge.condition_count:
+        return None
+
+    db.add(UserBadge(user_id=user_id, badge_id=special_badge.badge_id, is_equipped=False))
+    db.commit()
+    return special_badge
