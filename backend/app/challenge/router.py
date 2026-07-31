@@ -50,6 +50,7 @@ from backend.app.challenge.schema import (
     TeamPasswordVerify,
     TeamResponse,
     TeamRecommendationResponse,
+    TeamInviteCandidateResponse,
 )
 from backend.app.challenge.service import (
     ChallengeRecommendationService,
@@ -426,6 +427,54 @@ def get_team_member_recommendations(
     return APIResponse.ok(
         data=recommendations,
         message="팀원 추천 목록을 성공적으로 조회했습니다.",
+    )
+
+@router.get(
+    "/teams/{team_id}/invite-candidates",
+    response_model=APIResponse[list[TeamInviteCandidateResponse]],
+    status_code=status.HTTP_200_OK,
+    summary="Challenge 팀 초대 사용자 검색",
+)
+def search_team_invite_candidates(
+    team_id: int,
+    search: str = Query(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="검색할 사용자 닉네임",
+    ),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=50),
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> APIResponse[list[TeamInviteCandidateResponse]]:
+    """팀장이 직접 초대할 수 있는 사용자를 닉네임으로 검색합니다."""
+
+    candidate_rows = ChallengeTeamService.search_team_invite_candidates(
+        session,
+        team_id=team_id,
+        nickname=search,
+        current_user=current_user,
+        page=page,
+        size=size,
+    )
+
+    response_data = [
+        TeamInviteCandidateResponse(
+            user_id=user.user_id,
+            nickname=user.nickname,
+            profile_image_url=user.profile_image_url,
+            region_id=user.region_id,
+            region=region_name,
+            current_level=user.current_level,
+            daily_streak=user.daily_streak,
+        )
+        for user, region_name in candidate_rows
+    ]
+
+    return APIResponse.ok(
+        data=response_data,
+        message="초대할 사용자 검색 결과를 성공적으로 조회했습니다.",
     )
 
 # 특정 팀의 상세 정보와 현재 참가 인원을 조회하는 API.

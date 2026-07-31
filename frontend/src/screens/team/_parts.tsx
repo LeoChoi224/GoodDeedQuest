@@ -5,7 +5,7 @@
  * the shared PixelIcons set doesn't include (search / chevrons / lock / megaphone / star).
  */
 import React, { useEffect } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, StyleProp, ViewStyle, TextStyle } from 'react-native';
+import { View, Text, TextInput, Image, Pressable, StyleSheet, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Rect, Circle } from 'react-native-svg';
 import Animated, {
@@ -172,27 +172,40 @@ export const TEAMS = [
 export const staggerDelay = (i: number) => 50 + i * 70;
 
 /* ------------------------------------------------------------------ *
- * Search + sort bar (방 찾기 / 유저 추천 공통)
+ * User search bar
  * ------------------------------------------------------------------ */
-export function SearchSortBar({ placeholder, sortLabel }: { placeholder: string; sortLabel: string }) {
+export function SearchSortBar({
+  placeholder,
+  value,
+  onChangeText,
+}: {
+  placeholder: string;
+  value: string;
+  onChangeText: (value: string) => void;
+}) {
   return (
     <View style={sb.row}>
       <View style={sb.search}>
         <IconSearch />
-        <Text style={sb.searchPh}>{placeholder}</Text>
-      </View>
-      <View style={sb.sort}>
-        <Text style={sb.sortText}>{sortLabel}</Text>
-        <IconChevDown />
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textMuted}
+          style={sb.searchInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
       </View>
     </View>
   );
 }
 
 const sb = StyleSheet.create({
-  row: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  row: { width: '100%', marginBottom: 14 },
   search: {
-    flex: 1,
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -203,18 +216,7 @@ const sb = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
-  searchPh: { fontSize: 13, color: colors.textMuted, fontFamily: fonts.bodyR },
-  sort: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.pixelBorder,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-  },
-  sortText: { fontSize: 12, fontWeight: '700', color: colors.primaryDark, fontFamily: fonts.bodyB },
+  searchInput: { flex: 1, paddingVertical: 0, fontSize: 13, color: colors.primaryDark, fontFamily: fonts.bodyR },
 });
 
 /* ------------------------------------------------------------------ *

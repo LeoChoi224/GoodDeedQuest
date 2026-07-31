@@ -16,3 +16,12 @@ class UserReportStatus(str, enum.Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
+
+class AdminUserSort(str, enum.Enum):
+    """관리자 사용자 목록 정렬 기준."""
+
+    NEWEST = "newest"
+    OLDEST = "oldest"
+    LEVEL = "level"
+    NICKNAME = "nickname"
+    TRUST = "trust"

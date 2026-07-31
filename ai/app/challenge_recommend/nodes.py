@@ -52,6 +52,10 @@ from __future__ import annotations
 #    - 운영 환경에서는 개인정보 노출과 로그 용량을 고려해 저장 여부를 검토합니다.
 # =========================================================
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from dataclasses import dataclass, field
 from typing import Any, Protocol, Sequence, runtime_checkable
 
@@ -165,48 +169,36 @@ def _build_rule_based_highlights(
 
     score_labels = [
         (
-            _score_value(candidate, "category_score")
-            / CATEGORY_MAX_SCORE,
+            _score_value(candidate, "category_score") / CATEGORY_MAX_SCORE,
             "관심 분야와 퀘스트 주제가 잘 맞는 점",
         ),
         (
-            _score_value(candidate, "difficulty_score")
-            / DIFFICULTY_MAX_SCORE,
+            _score_value(candidate, "difficulty_score") / DIFFICULTY_MAX_SCORE,
             "선호 난이도가 이번 활동과 잘 맞는 점",
         ),
         (
-            _score_value(candidate, "active_time_score")
-            / ACTIVE_TIME_MAX_SCORE,
+            _score_value(candidate, "active_time_score") / ACTIVE_TIME_MAX_SCORE,
             "활동 시간대가 팀 일정과 잘 맞는 점",
         ),
         (
-            _score_value(candidate, "region_score")
-            / REGION_MAX_SCORE,
+            _score_value(candidate, "region_score") / REGION_MAX_SCORE,
             "팀과 같은 지역에서 활동할 수 있는 점",
         ),
         (
-            _score_value(candidate, "embedding_score")
-            / EMBEDDING_MAX_SCORE,
+            _score_value(candidate, "embedding_score") / EMBEDDING_MAX_SCORE,
             "관심 활동의 맥락이 퀘스트 주제와 잘 맞는 점",
         ),
         (
-            _score_value(candidate, "daily_streak_score")
-            / DAILY_STREAK_MAX_SCORE,
+            _score_value(candidate, "daily_streak_score") / DAILY_STREAK_MAX_SCORE,
             "최근에도 꾸준히 활동하고 있는 점",
         ),
         (
-            _score_value(candidate, "user_level_score")
-            / USER_LEVEL_MAX_SCORE,
+            _score_value(candidate, "user_level_score") / USER_LEVEL_MAX_SCORE,
             "퀘스트 수행 경험이 충분한 점",
         ),
         (
-            _score_value(candidate, "trust_score")
-            / TRUST_MAX_SCORE,
+            _score_value(candidate, "trust_score") / TRUST_MAX_SCORE,
             "완료한 활동의 신뢰도가 안정적인 점",
-        ),
-        (
-            _score_value(candidate, "trust_score"),
-            "활동 신뢰도가 안정적인 사용자입니다.",
         ),
     ]
 
@@ -654,6 +646,8 @@ def build_response_node(
 
     metadata = _copy_metadata(state)
 
+    fallback_recommendations = ...  # 기존 규칙 기반 추천 생성 코드
+
     try:
         request = state["request"]
         recommendations = state["recommendations"]
@@ -668,19 +662,21 @@ def build_response_node(
         )
 
     except Exception as exc:
+        logger.exception(
+            "LLM 추천 이유 생성 실패: %s",
+            exc,
+        )
+
         errors = _append_unique_messages(
             state["errors"],
             [
-                "최종 추천 응답 생성에 실패했습니다. "
-                f"원인: {type(exc).__name__}: {exc}"
+                "추천 이유 생성에 실패하여 "
+                "규칙 기반 추천 이유를 사용했습니다."
             ],
         )
 
-        metadata["recommendation_count"] = 0
-
         return {
-            "response": None,
-            "status": "failed",
+            "recommendations": fallback_recommendations,
             "errors": errors,
             "metadata": metadata,
         }

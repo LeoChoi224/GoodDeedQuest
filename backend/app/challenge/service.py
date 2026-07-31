@@ -636,6 +636,83 @@ class ChallengeTeamService:
 
         return renewed_invite
 
+    @staticmethod
+    def search_team_invite_candidates(
+        session: Session,
+        *,
+        team_id: int,
+        nickname: str,
+        current_user: User,
+        page: int = 1,
+        size: int = 20,
+    ) -> list[tuple[User, str | None]]:
+        """팀장이 직접 초대할 수 있는 사용자를 닉네임으로 검색합니다."""
+
+        if not current_user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="비활성화된 사용자는 팀원을 검색할 수 없습니다.",
+            )
+
+        team = TeamRepository.get_team_by_id(
+            session,
+            team_id,
+        )
+
+        if team is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="존재하지 않는 팀입니다.",
+            )
+
+        if team.leader_id != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="팀장만 초대할 사용자를 검색할 수 있습니다.",
+            )
+
+        if team.status != TeamStatus.RECRUITING:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="현재 팀원을 모집 중인 팀이 아닙니다.",
+            )
+
+        if team.expires_at is not None:
+            current_time = datetime.now(
+                tz=team.expires_at.tzinfo,
+            )
+
+            if team.expires_at <= current_time:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="이미 만료된 팀입니다.",
+                )
+
+        current_members = TeamMemberRepository.count_team_members(
+            session,
+            team_id=team.team_id,
+        )
+
+        if current_members >= team.max_members:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="팀 정원이 모두 찼습니다.",
+            )
+
+        normalized_nickname = nickname.strip()
+
+        if not normalized_nickname:
+            return []
+
+        return TeamInviteRepository.search_invite_candidates(
+            session,
+            team_id=team.team_id,
+            requester_id=current_user.user_id,
+            nickname=normalized_nickname,
+            offset=(page - 1) * size,
+            limit=size,
+        )
+
     # 현재 로그인 사용자가 받은 처리 대기 중 초대 목록을 조회.
     @staticmethod
     def get_received_invites(

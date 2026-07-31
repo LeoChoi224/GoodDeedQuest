@@ -45,7 +45,7 @@ from sqlalchemy.orm import Session
 from backend.app.auth.models import User
 from backend.app.admin.dependencies import get_current_admin
 from backend.app.common.database import get_db
-from backend.app.admin.enums import UserReportStatus
+from backend.app.admin.enums import AdminUserSort, UserReportStatus
 from backend.app.admin.schema import (
     AdminDashboardActivityTrendResponse,
     AdminDashboardAlertResponse,
@@ -53,6 +53,7 @@ from backend.app.admin.schema import (
     AdminUserDetailResponse,
     AdminUserListResponse,
     ReportResponse,
+    ReportDetailResponse,
     UserActiveStatusUpdate,
 )
 from backend.app.admin import service
@@ -114,23 +115,37 @@ def get_report_list(
 # 관리자 신고 상세 정보를 조회하는 API.
 @router.get(
     "/reports/{report_id}",
-    response_model=ReportResponse,
+    response_model=ReportDetailResponse,
     status_code=status.HTTP_200_OK,
     summary="관리자 신고 상세 조회",
 )
 def get_report_detail(
-    # URL 경로를 통해 조회할 신고 ID를 전달.
     report_id: int,
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
-) -> ReportResponse:
-    # 관리자가 특정 신고의 상세 정보를 조회.
-    report = service.get_report_detail(
+) -> ReportDetailResponse:
+    return service.get_report_detail_with_post(
         db=db,
         report_id=report_id,
     )
 
-    return report
+# 처리 대기 중인 신고를 반려하는 API.
+@router.patch(
+    "/reports/{report_id}/reject",
+    response_model=ReportResponse,
+    status_code=status.HTTP_200_OK,
+    summary="신고 반려",
+)
+def reject_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+) -> ReportResponse:
+    return service.reject_report(
+        db=db,
+        report_id=report_id,
+        admin_id=current_admin.user_id,
+    )
 
 # 신고된 커뮤니티 게시글을 삭제 승인하는 API.
 @router.patch(
@@ -210,10 +225,13 @@ def get_admin_user_list(
         le=100,
         description="한 번에 조회할 사용자 개수",
     ),
-    # 최신순 또는 오래된 순 정렬 여부를 전달.
-    newest_first: bool = Query(
-        default=True,
-        description="true이면 최신 가입순, false이면 오래된 가입순",
+    # 사용자 정렬 여부를 전달.
+    sort_by: AdminUserSort = Query(
+        default=AdminUserSort.NEWEST,
+        description=(
+            "사용자 정렬 기준: "
+            "newest, oldest, level, nickname, trust"
+        ),
     ),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
@@ -225,7 +243,7 @@ def get_admin_user_list(
         is_active=is_active,
         skip=skip,
         limit=limit,
-        newest_first=newest_first,
+        sort_by=sort_by,
     )
 
     return users

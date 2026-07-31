@@ -60,6 +60,16 @@ export type TeamInvite = {
   updated_at: string;
 };
 
+export type TeamInviteCandidate = {
+  user_id: number;
+  nickname: string;
+  profile_image_url: string | null;
+  region_id: number | null;
+  region: string | null;
+  current_level: number;
+  daily_streak: number;
+};
+
 export type RecommendationScore = {
   category_score: number;
   difficulty_score: number;
@@ -193,6 +203,21 @@ export async function createTeamInvite(teamId: number, userId: number): Promise<
     team_id: teamId,
     user_id: userId,
   });
+  return unwrap(response.data);
+}
+
+export async function searchTeamInviteCandidates(
+  teamId: number,
+  search: string,
+  page = 1,
+  size = 20,
+): Promise<TeamInviteCandidate[]> {
+  const response = await api.get<
+    TeamInviteCandidate[] | APIEnvelope<TeamInviteCandidate[]>
+  >(`/challenges/teams/${teamId}/invite-candidates`, {
+    params: { search, page, size },
+  });
+
   return unwrap(response.data);
 }
 

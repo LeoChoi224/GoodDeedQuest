@@ -75,12 +75,23 @@ export interface AdminReport {
   updated_at: string;
 }
 
+export interface AdminReportDetail extends AdminReport {
+  post_media_url: string | null;
+}
+
+export type AdminUserSort =
+  | 'newest'
+  | 'oldest'
+  | 'level'
+  | 'nickname'
+  | 'trust';
+
 export interface AdminUserListParams {
   nickname?: string;
   is_active?: boolean;
   skip?: number;
   limit?: number;
-  newest_first?: boolean;
+  sort_by?: AdminUserSort;
 }
 
 export interface AdminReportListParams {
@@ -163,8 +174,18 @@ export const adminApi = {
   },
 
   // 특정 신고 상세 정보를 조회합니다.
-  async getReport(reportId: number): Promise<AdminReport> {
+  async getReport(reportId: number): Promise<AdminReportDetail> {
     const response = await api.get(`/admin/reports/${reportId}`);
+
+    return unwrapResponse<AdminReportDetail>(response.data);
+  },
+
+  // 처리 대기 중인 신고를 반려합니다.
+  async rejectReport(reportId: number): Promise<AdminReport> {
+    const response = await api.patch(
+      `/admin/reports/${reportId}/reject`,
+    );
+
     return unwrapResponse<AdminReport>(response.data);
   },
 

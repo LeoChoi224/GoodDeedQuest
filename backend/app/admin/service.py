@@ -24,9 +24,11 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.admin import repository
-from backend.app.admin.enums import UserReportStatus
+from backend.app.admin.enums import AdminUserSort, UserReportStatus
 from backend.app.admin.models import Report
 from backend.app.auth.models import User
+from backend.app.admin.schema import ReportDetailResponse, ReportResponse
+from backend.app.common.s3_client import generate_download_presigned_url
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -49,6 +51,45 @@ def get_report_list(
     )
 
     return reports
+
+def get_report_detail_with_post(
+    db: Session,
+    *,
+    report_id: int,
+) -> ReportDetailResponse:
+    """신고 정보와 신고 대상 게시글 사진을 함께 조회합니다."""
+
+    report = get_report_detail(
+        db=db,
+        report_id=report_id,
+    )
+
+    post = None
+
+    if report.post_id is not None:
+        post = repository.get_post_by_id(
+            db=db,
+            post_id=report.post_id,
+        )
+
+    post_media_url = None
+
+    if post is not None and post.media_url:
+        stored_media_url = post.media_url.strip()
+
+        if stored_media_url.startswith(("http://", "https://")):
+            post_media_url = stored_media_url
+        else:
+            post_media_url = generate_download_presigned_url(
+                stored_media_url,
+            )
+
+    report_data = ReportResponse.model_validate(report).model_dump()
+
+    return ReportDetailResponse(
+        **report_data,
+        post_media_url=post_media_url,
+    )
 
 # 신고 상세 정보를 조회하는 Service 함수.
 def get_report_detail(
@@ -81,6 +122,37 @@ def _validate_report_is_pending(
             detail="이미 처리되었거나 만료된 신고입니다.",
         )
 
+# 신고를 반려하고 관리자 처리 정보를 기록하는 Service 함수.
+def reject_report(
+    db: Session,
+    *,
+    report_id: int,
+    admin_id: int,
+) -> Report:
+    try:
+        report = get_report_detail(
+            db=db,
+            report_id=report_id,
+        )
+
+        _validate_report_is_pending(report)
+
+        return repository.update_report_review(
+            db=db,
+            report=report,
+            status=UserReportStatus.REJECTED,
+            reviewed_by=admin_id,
+            reviewed_at=datetime.now(timezone.utc),
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="신고 반려 처리 중 오류가 발생했습니다.",
+        ) from exc
 
 # 신고와 연결된 게시글을 조회하는 내부 함수.
 def _get_reported_post(
@@ -253,27 +325,27 @@ def get_admin_user_list(
     is_active: bool | None = None,
     skip: int = 0,
     limit: int = 20,
-    newest_first: bool = True,
+    sort_by: AdminUserSort = AdminUserSort.NEWEST,
 ) -> list[User]:
-    # 닉네임과 활성 상태 조건에 따라 사용자 목록을 조회.
-    # 닉네임 검색어가 존재하면 앞뒤 공백을 제거합니다.
-    normalized_nickname = nickname.strip() if nickname is not None else None
+    """관리자 사용자 목록의 검색·필터·정렬 조건을 처리합니다."""
 
-    # 닉네임 검색어가 공백뿐이라면 검색 조건을 제거.
+    normalized_nickname = (
+        nickname.strip()
+        if nickname is not None
+        else None
+    )
+
     if normalized_nickname == "":
         normalized_nickname = None
 
-    # Repository를 통해 조건에 맞는 사용자 목록을 조회.
-    users = repository.get_users(
+    return repository.get_users(
         db=db,
         nickname=normalized_nickname,
         is_active=is_active,
         skip=skip,
         limit=limit,
-        newest_first=newest_first,
+        sort_by=sort_by,
     )
-
-    return users
 
 
 # 관리자 화면에서 사용자 상세 정보를 조회하는 Service 함수.

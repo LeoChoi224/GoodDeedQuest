@@ -26,6 +26,9 @@ from .schemas import (
     TeamRecommendationResponse,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/ai/challenge",
@@ -48,6 +51,11 @@ async def recommend_challenge_members(
         return await agent.run_team_recommendation_async(request)
 
     except agent.RecommendationGraphError as exc:
+        logger.exception(
+            "AI 팀원 추천 Graph 실패: %s",
+            exc,
+        )
+
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI 팀원 추천 처리에 실패했습니다.",
