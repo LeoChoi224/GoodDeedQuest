@@ -14,6 +14,7 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage
 
 from ai.app.common.llm import get_gemini_model
+from ai.app.common.llm_response import extract_text
 from ai.app.quest_verification.video import extract_frames
 from ai.app.quest_verification.prompts import build_video_prompt, build_certificate_prompt
 
@@ -118,7 +119,7 @@ def vision_verify(state: VerifyState) -> dict:
   model = get_gemini_model(temperature=0.0)
   response = model.invoke([HumanMessage(content=content)])
 
-  text = response.content.strip()
+  text = extract_text(response)
   print("Gemini 원문 응답:", text[:300])
 
   if text.startswith("```"):

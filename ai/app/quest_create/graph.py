@@ -11,6 +11,7 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage
 
 from ai.app.common.llm import get_gemini_model
+from ai.app.common.llm_response import extract_text
 from ai.app.quest_create.prompts import build_evaluate_prompt, DIFFICULTY_GUIDE
 from ai.app.quest_create.similarity import embed_quest
 
@@ -48,7 +49,7 @@ def evaluate(state: CreateState) -> dict:
   model = get_gemini_model(temperature=0.0)
   response = model.invoke([HumanMessage(content=prompt)])
 
-  text = response.content.strip()
+  text = extract_text(response)
   print("퀘스트 심사 원문:", text[:300])
 
   if text.startswith("```"):

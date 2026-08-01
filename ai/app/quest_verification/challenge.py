@@ -10,6 +10,7 @@ import httpx
 from langchain_core.messages import HumanMessage
 
 from ai.app.common.llm import get_gemini_model
+from ai.app.common.llm_response import extract_text
 from ai.app.quest_verification.prompts import build_challenge_prompt
 
 
@@ -26,7 +27,7 @@ def verify_challenge(media_url: str, code: str) -> dict:
     model = get_gemini_model(temperature=0.0)
     response = model.invoke([HumanMessage(content=content)])
 
-    text = response.content.strip()
+    text = extract_text(response)
     print("챌린지 판정 원문:", text[:200])
 
     if text.startswith("```"):
