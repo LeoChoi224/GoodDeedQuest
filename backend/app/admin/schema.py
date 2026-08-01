@@ -74,6 +74,13 @@ class ReportResponse(BaseModel):
     reviewed_at: datetime | None
     updated_at: datetime
 
+class ReportDetailResponse(ReportResponse):
+    """신고 대상 게시글 사진이 포함된 관리자 신고 상세 응답."""
+
+    post_media_url: str | None = Field(
+        default=None,
+        description="신고 대상 게시글 이미지 조회 URL",
+    )
 
 """관리자 사용자 관리 요청/응답 Schema"""
 

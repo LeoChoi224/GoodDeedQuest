@@ -21,7 +21,9 @@ import {
   joinTeam,
   leaveTeam,
   RecommendedUser,
+  searchTeamInviteCandidates,
   TeamDetail,
+  TeamInviteCandidate,
   TeamMember,
 } from '../../api/challenge';
 import {
@@ -51,10 +53,15 @@ export default function TeamDetailScreen({ navigation, route }: any) {
   const [isMember, setIsMember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<'detail' | 'recommend'>('detail');
-  const [confirmUser, setConfirmUser] = useState<RecommendedUser | null>(null);
+  const [confirmUser, setConfirmUser] = useState<Pick<RecommendedUser, 'user_id' | 'nickname'> | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [joining, setJoining] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userSearchResults, setUserSearchResults] = useState<TeamInviteCandidate[]>([]);
+  const [userSearchLoading, setUserSearchLoading] = useState(false);
+  const [userSearchError, setUserSearchError] = useState<string | null>(null);
+  const userSearchRequestId = useRef(0);
 
   const [recommendationLoadingText, setRecommendationLoadingText] = useState(
     '함께할 친구 정보를 분석하고 있어요...',
@@ -101,6 +108,43 @@ export default function TeamDetailScreen({ navigation, route }: any) {
       clearRecommendationLoadingTimers();
     };
   }, [clearRecommendationLoadingTimers]);
+
+  useEffect(() => {
+    const keyword = userSearchQuery.trim();
+    const requestId = ++userSearchRequestId.current;
+
+    if (!keyword) {
+      setUserSearchResults([]);
+      setUserSearchLoading(false);
+      setUserSearchError(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setUserSearchLoading(true);
+      setUserSearchError(null);
+
+      void searchTeamInviteCandidates(teamId, keyword)
+        .then((results) => {
+          if (userSearchRequestId.current === requestId) {
+            setUserSearchResults(results);
+          }
+        })
+        .catch((error) => {
+          if (userSearchRequestId.current === requestId) {
+            setUserSearchResults([]);
+            setUserSearchError(getChallengeErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          if (userSearchRequestId.current === requestId) {
+            setUserSearchLoading(false);
+          }
+        });
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [teamId, userSearchQuery]);
 
   const load = useCallback(async () => {
     if (!Number.isInteger(teamId) || teamId <= 0) {
@@ -173,6 +217,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
       );
 
       setRecommendations(result.recommendations);
+      setUserSearchQuery('');
       setView('recommend');
 
       if (result.warnings?.length) {
@@ -201,6 +246,8 @@ export default function TeamDetailScreen({ navigation, route }: any) {
     try {
       await createTeamInvite(teamId, user.user_id);
       toast.show(`${user.nickname ?? `사용자 #${user.user_id}`}님에게 초대를 보냈습니다`);
+      setRecommendations((current) => current.filter((item) => item.user_id !== user.user_id));
+      setUserSearchResults((current) => current.filter((item) => item.user_id !== user.user_id));
     } catch (error) {
       toast.show(getChallengeErrorMessage(error));
     }
@@ -281,22 +328,61 @@ export default function TeamDetailScreen({ navigation, route }: any) {
         <ScrollView
           contentContainerStyle={styles.body}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           <PixelTitle size={18}>
-            함께할 친구 추천
+            {userSearchQuery.trim() ? '전체 사용자 검색' : '함께할 친구 추천'}
           </PixelTitle>
 
           <Text style={styles.recSub}>
-            팀의 퀘스트와 활동 성향을 바탕으로 함께하기 좋은
-            친구를 추천했어요.
+            {userSearchQuery.trim()
+              ? '닉네임이 일치하는 초대 가능 사용자를 찾았어요.'
+              : '팀의 퀘스트와 활동 성향을 바탕으로 함께하기 좋은 친구를 추천했어요.'}
           </Text>
 
           <SearchSortBar
-            placeholder="추천 결과"
-            sortLabel="점수순"
+            placeholder="닉네임으로 전체 사용자 검색"
+            value={userSearchQuery}
+            onChangeText={setUserSearchQuery}
           />
 
-          {recommendations.length === 0 ? (
+          {userSearchQuery.trim() ? (
+            userSearchLoading ? (
+              <ActivityIndicator color={colors.primaryDark} style={styles.userSearchLoading} />
+            ) : userSearchError ? (
+              <Text style={styles.userSearchError}>{userSearchError}</Text>
+            ) : userSearchResults.length === 0 ? (
+              <EmptyState icon="🔎" message="일치하는 사용자가 없어요" />
+            ) : (
+              <View style={{ gap: 10 }}>
+                {userSearchResults.map((user, i) => (
+                  <Animated.View
+                    key={user.user_id}
+                    entering={FadeInDown.delay(staggerDelay(i)).duration(450)}
+                    style={styles.userCard}
+                  >
+                    <Avatar
+                      grad={AVATARS[i % AVATARS.length]}
+                      size={48}
+                      child={<Text style={styles.avatarInitial}>{user.nickname.slice(0, 1)}</Text>}
+                    />
+
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.userName}>{user.nickname}</Text>
+                      <Text style={styles.score}>
+                        LV.{user.current_level} · {user.region ?? '지역 미설정'}
+                      </Text>
+                      <Text style={styles.userInfo}>연속 활동 {user.daily_streak}일</Text>
+                    </View>
+
+                    <SpringButton style={styles.userInviteBtn} onPress={() => setConfirmUser(user)}>
+                      <Text style={styles.userInviteText}>초대</Text>
+                    </SpringButton>
+                  </Animated.View>
+                ))}
+              </View>
+            )
+          ) : recommendations.length === 0 ? (
             <EmptyState
               icon="🤝"
               message="초대할 수 있는 친구가 없어요"
@@ -346,7 +432,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
           )}
         </ScrollView>
 
-        <StickyFooter>
+        {!userSearchQuery.trim() ? <StickyFooter>
           <SpringButton
             disabled={reloading}
             style={styles.reloadBtn}
@@ -358,7 +444,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
                 : '다른 친구 추천받기'}
             </Text>
           </SpringButton>
-        </StickyFooter>
+        </StickyFooter> : null}
       </>}
 
       <GamePopup visible={!!confirmUser} onClose={() => setConfirmUser(null)} width={popupW}>
@@ -406,11 +492,14 @@ const styles = StyleSheet.create({
   footText: { fontFamily: fonts.pixel, fontSize: 15 },
   recSub: { fontSize: 13, color: INFO, marginTop: 2, marginBottom: 14, fontFamily: fonts.bodyR },
   userCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 12, padding: 12 },
+  avatarInitial: { fontFamily: fonts.pixel, fontSize: 18, color: colors.white },
   userName: { fontSize: 15, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
   score: { fontSize: 12, color: colors.gold, fontFamily: fonts.bodyB, marginTop: 2 },
   userInfo: { fontSize: 12, color: INFO, fontFamily: fonts.bodyR, marginTop: 6, lineHeight: 18 },
   userInviteBtn: { backgroundColor: colors.xpGreen, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   userInviteText: { fontFamily: fonts.pixel, fontSize: 12, color: colors.white },
+  userSearchLoading: { marginTop: 24 },
+  userSearchError: { marginTop: 12, color: colors.danger, fontFamily: fonts.bodyR, textAlign: 'center' },
   reloadBtn: { height: 52, borderRadius: 8, backgroundColor: colors.screenBg, borderWidth: 1.5, borderColor: colors.pixelBorder, alignItems: 'center', justifyContent: 'center' },
   reloadText: { fontFamily: fonts.pixel, fontSize: 16, color: colors.primaryDark },
   popupContent: { alignSelf: 'stretch', width: '100%' },

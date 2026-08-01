@@ -289,7 +289,11 @@ export function SkeletonCard({ height = 74 }: { height?: number }) {
 }
 
 /* ─────────────────────────  차단/삭제 확인 팝업 (3A) — shared confirm dialog  ───────────────────────── */
-export type ConfirmAction = 'block' | 'delete' | null;
+export type ConfirmAction =
+  | 'block'
+  | 'delete'
+  | 'reject'
+  | null;
 
 export function ConfirmPopup({
   action,
@@ -301,11 +305,31 @@ export function ConfirmPopup({
   onCancel: () => void;
 }) {
   const { width } = useWindowDimensions();
+
+  const confirmMessage =
+    action === 'delete'
+      ? '삭제하시겠습니까?'
+      : action === 'reject'
+        ? '신고를 반려하시겠습니까?'
+        : '차단하시겠습니까?';
+
   return (
-    <GamePopup visible={!!action} onClose={onCancel} width={width - 48}>
+    <GamePopup
+      visible={!!action}
+      onClose={onCancel}
+      width={width - 48}
+    >
       <View style={{ alignSelf: 'stretch' }}>
-        <Text style={styles.confirmText}>{action === 'delete' ? '삭제하시겠습니까?' : '차단하시겠습니까?'}</Text>
-        <PopupButtons primaryLabel="예" onPrimary={onConfirm} secondaryLabel="아니오" onSecondary={onCancel} />
+        <Text style={styles.confirmText}>
+          {confirmMessage}
+        </Text>
+
+        <PopupButtons
+          primaryLabel="예"
+          onPrimary={onConfirm}
+          secondaryLabel="아니오"
+          onSecondary={onCancel}
+        />
       </View>
     </GamePopup>
   );

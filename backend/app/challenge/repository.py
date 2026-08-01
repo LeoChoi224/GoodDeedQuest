@@ -434,6 +434,70 @@ class TeamInviteRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
+    def search_invite_candidates(
+        session: Session,
+        *,
+        team_id: int,
+        requester_id: int,
+        nickname: str,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> list[tuple[User, str | None]]:
+        """팀에 직접 초대할 수 있는 활성 사용자를 닉네임으로 검색합니다."""
+
+        current_member_exists = exists(
+            select(1)
+            .select_from(TeamMember)
+            .where(
+                TeamMember.team_id == team_id,
+                TeamMember.user_id == User.user_id,
+            )
+        )
+
+        unavailable_invite_exists = exists(
+            select(1)
+            .select_from(TeamInvite)
+            .where(
+                TeamInvite.team_id == team_id,
+                TeamInvite.user_id == User.user_id,
+                TeamInvite.status.in_(
+                    [
+                        TeamInviteStatus.PENDING,
+                        TeamInviteStatus.ACCEPTED,
+                    ]
+                ),
+            )
+        )
+
+        stmt = (
+            select(
+                User,
+                Region.region_name.label("region_name"),
+            )
+            .outerjoin(
+                Region,
+                Region.region_id == User.region_id,
+            )
+            .where(
+                User.user_id != requester_id,
+                User.is_active.is_(True),
+                User.role == UserRole.USER,
+                User.nickname.ilike(f"%{nickname}%"),
+                ~current_member_exists,
+                ~unavailable_invite_exists,
+            )
+            .order_by(
+                func.lower(User.nickname).asc(),
+                User.user_id.asc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+
+        result = session.execute(stmt)
+        return list(result.all())
+
+    @staticmethod
     # 특정 사용자가 받은 대기 중 초대 목록을 조회.
     def get_user_pending_invites(
         session: Session,

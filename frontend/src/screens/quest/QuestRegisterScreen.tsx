@@ -22,7 +22,7 @@ import { AiIcon, SpinnerRing, CoinW, StarW } from './_parts';
 
 type Stage = 'idle' | 'loading' | 'done';
 
-export default function QuestRegisterScreen({ navigation }: any) {
+export default function QuestRegisterScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
   const toast = useToast();
 
@@ -73,6 +73,13 @@ export default function QuestRegisterScreen({ navigation }: any) {
         return;
       }
       toast.show(`퀘스트가 등록되었어요 (${result.reward_point}P / ${result.reward_exp} EXP)`, 4000);
+      if (route?.params?.returnToTeamCreate) {
+        if (result.quest_id === null) {toast.show('등록된 퀘스트 정보를 확인하지 못했어요.');
+          return;
+        }
+        navigation.popTo('TeamList', {openCreate: true, selectedQuestId: result.quest_id});
+        return;
+      }
       navigation.navigate('QuestHome');
     } catch (err: any) {
       const detail = err?.response?.data?.detail;

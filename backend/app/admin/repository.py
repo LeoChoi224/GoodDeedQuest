@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.auth.models import User
 from backend.app.admin.models import Report
-from backend.app.admin.enums import UserReportStatus
+from backend.app.admin.enums import AdminUserSort, UserReportStatus
 from backend.app.community.models import CommunityPost, UserActivityLog
 
 
@@ -140,9 +140,9 @@ def get_users(
     is_active: bool | None = None,
     skip: int = 0,
     limit: int = 20,
-    newest_first: bool = True,
+    sort_by: AdminUserSort = AdminUserSort.NEWEST,
 ) -> list[User]:
-    """관리자용 사용자 목록을 조회합니다."""
+    """검색·활성 상태·정렬 조건에 맞는 관리자용 사용자 목록을 조회합니다."""
 
     query: Select[tuple[User]] = select(User)
 
@@ -151,21 +151,48 @@ def get_users(
             User.nickname.ilike(f"%{nickname}%"),
         )
 
-    # 활성 상태가 전달되면 활성 또는 비활성 사용자만 조회합니다. (필터 조회)
-    # None이면 활성·비활성 사용자 전체를 조회합니다.
+    # false이면 비활성화된 사용자만 조회합니다.
     if is_active is not None:
         query = query.where(
             User.is_active == is_active,
         )
 
-    if newest_first:
-        query = query.order_by(User.created_at.desc())
+    if sort_by == AdminUserSort.OLDEST:
+        query = query.order_by(
+            User.created_at.asc(),
+            User.user_id.asc(),
+        )
+
+    elif sort_by == AdminUserSort.LEVEL:
+        query = query.order_by(
+            User.current_level.desc(),
+            User.created_at.desc(),
+            User.user_id.desc(),
+        )
+
+    elif sort_by == AdminUserSort.NICKNAME:
+        query = query.order_by(
+            func.lower(User.nickname).asc(),
+            User.user_id.asc(),
+        )
+
+    elif sort_by == AdminUserSort.TRUST:
+        query = query.order_by(
+            User.trust_score.desc(),
+            User.created_at.desc(),
+            User.user_id.desc(),
+        )
+
     else:
-        query = query.order_by(User.created_at.asc())
+        query = query.order_by(
+            User.created_at.desc(),
+            User.user_id.desc(),
+        )
 
     query = query.offset(skip).limit(limit)
-   
+
     result = db.execute(query)
+
     return list(result.scalars().all())
 
 

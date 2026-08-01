@@ -120,6 +120,7 @@ export function TeamStack() {
       <S.Screen name="RoomFind" component={RoomFindScreen} />
       <S.Screen name="TeamDetail" component={TeamDetailScreen} />
       <S.Screen name="TeamList" component={TeamListScreen} />
+      <S.Screen name="QuestRegister" component={QuestRegisterScreen} />
     </S.Navigator>
   );
 }

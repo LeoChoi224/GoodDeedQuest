@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
+import { View, Text, TextInput, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -21,6 +21,8 @@ import {
 import {
   PixelTitle,
   CatIcon,
+  IconSearch,
+  IconChevDown,
   IconLock,
   StickyFooter,
   PopupTealBtn,
@@ -29,6 +31,14 @@ import {
   INFO,
   staggerDelay,
 } from './_parts';
+
+const ROOM_SORT_OPTIONS: Array<{
+  value: TeamSort;
+  label: string;
+}> = [
+    { value: 'latest', label: '최신순' },
+    { value: 'name', label: '이름순' },
+  ];
 
 function categoryFor(team: TeamListItem): string {
   const text = `${team.name} ${team.notification}`.toLowerCase();
@@ -45,6 +55,7 @@ export default function RoomFindScreen({ navigation }: any) {
   const [teams, setTeams] = useState<TeamListItem[]>([]);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<TeamSort>('latest');
+  const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [pwTeam, setPwTeam] = useState<TeamListItem | null>(null);
   const [pw, setPw] = useState('');
@@ -87,31 +98,90 @@ export default function RoomFindScreen({ navigation }: any) {
     navigation.navigate('TeamDetail', { teamId, joinPassword: pw.trim() });
   };
 
+  const selectedSortLabel =
+    ROOM_SORT_OPTIONS.find(
+      (option) => option.value === sortBy,
+    )?.label ?? '최신순';
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
       <MainHeader showBack title="방 찾기" onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-      <View style={styles.searchRow}>
-        <View style={styles.searchInputWrap}>
-          <GdqInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="방 이름 검색"
-          />
-        </View>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+        onScrollBeginDrag={() => setFilterOpen(false)}
+      >
+        <View style={styles.toolbar}>
+          <View style={styles.searchBox}>
+            <IconSearch />
 
-        <SpringButton
-          style={styles.searchBtn}
-          onPress={() => void load()}
-        >
-          <Text style={styles.searchText}>검색</Text>
-        </SpringButton>
-      </View>
-        <SpringButton style={styles.sortBtn} onPress={() => setSortBy((v) => v === 'latest' ? 'name' : 'latest')}>
-          <Text style={styles.sortText}>{sortBy === 'latest' ? '최신순' : '이름순'}</Text>
-        </SpringButton>
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="방 이름 검색"
+              placeholderTextColor={colors.textMuted}
+              style={styles.searchInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={() => void load()}
+            />
+          </View>
+
+          <View style={styles.filterWrap}>
+            <SpringButton
+              style={styles.filterButton}
+              pressScale={0.97}
+              onPress={() =>
+                setFilterOpen((previous) => !previous)
+              }
+            >
+              <Text
+                numberOfLines={1}
+                style={styles.filterButtonText}
+              >
+                {selectedSortLabel}
+              </Text>
+
+              <IconChevDown size={14} />
+            </SpringButton>
+
+            {filterOpen ? (
+              <View style={styles.filterMenu}>
+                {ROOM_SORT_OPTIONS.map((option) => {
+                  const active = sortBy === option.value;
+
+                  return (
+                    <SpringButton
+                      key={option.value}
+                      pressScale={0.98}
+                      style={[
+                        styles.filterOption,
+                        active && styles.filterOptionActive,
+                      ]}
+                      onPress={() => {
+                        setSortBy(option.value);
+                        setFilterOpen(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.filterOptionText,
+                          active &&
+                          styles.filterOptionTextActive,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </SpringButton>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        </View>
         <PixelTitle size={16} style={{ marginBottom: 12 }}>모집 중인 방</PixelTitle>
         {loading ? <Text style={styles.loading}>불러오는 중...</Text> : visibleTeams.length === 0 ? (
           <EmptyState icon="📜" message="현재 참여 가능한 방이 없어요" subMessage="방 만들기로 새 팀을 시작해보세요" />
@@ -155,24 +225,109 @@ export default function RoomFindScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.screenBg },
   body: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 130 },
-  searchRow: {
+  toolbar: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 14,
+    zIndex: 20,
+    elevation: 20,
   },
-  searchInputWrap: {
+
+  searchBox: {
+    flex: 3,
+    minWidth: 0,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.pixelBorder,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+  },
+
+  searchInput: {
     flex: 1,
     minWidth: 0,
+    paddingVertical: 0,
+    color: colors.primaryDark,
+    fontFamily: fonts.bodyR,
   },
-  searchBtn: {
-    backgroundColor: colors.primaryDark,
-    borderRadius: 8,
-    paddingHorizontal: 16,
+
+  filterWrap: {
+    flex: 1,
+    minWidth: 0,
+    position: 'relative',
+    zIndex: 30,
+    elevation: 30,
+  },
+
+  filterButton: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4,
+    paddingHorizontal: 8,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.pixelBorder,
+    borderRadius: 10,
+  },
+
+  filterButtonText: {
+    flex: 1,
+    color: colors.primaryDark,
+    fontFamily: fonts.bodyM,
+    fontSize: 11,
+  },
+
+  filterMenu: {
+    position: 'absolute',
+    top: 48,
+    right: 0,
+    width: 120,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.pixelBorder,
+    borderRadius: 10,
+    overflow: 'hidden',
+    zIndex: 40,
+    elevation: 40,
+    shadowColor: '#033236',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+  },
+
+  filterOption: {
+    minHeight: 42,
     justifyContent: 'center',
+    paddingHorizontal: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.hairline,
+    backgroundColor: colors.white,
   },
-  searchText: { color: colors.white, fontFamily: fonts.pixel },
-  sortBtn: { alignSelf: 'flex-end', paddingVertical: 8, paddingHorizontal: 12, marginBottom: 12 },
-  sortText: { color: colors.primaryDark, fontFamily: fonts.bodyB, fontSize: 12 },
+
+  filterOptionActive: {
+    backgroundColor: colors.screenBg,
+  },
+
+  filterOptionText: {
+    color: colors.primaryDark,
+    fontFamily: fonts.bodyR,
+    fontSize: 13,
+  },
+
+  filterOptionTextActive: {
+    color: colors.gold,
+    fontFamily: fonts.bodyB,
+  },
   loading: { textAlign: 'center', marginTop: 40, color: colors.textMuted, fontFamily: fonts.bodyR },
   card: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 12, padding: 12 },
   cardBody: { flex: 1, minWidth: 0 },

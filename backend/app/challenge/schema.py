@@ -244,6 +244,16 @@ class TeamInviteResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+class TeamInviteCandidateResponse(BaseModel):
+    """팀 초대 검색 결과에 표시할 공개 사용자 정보."""
+
+    user_id: int = Field(..., gt=0)
+    nickname: str = Field(..., min_length=1, max_length=50)
+    profile_image_url: str | None = None
+    region_id: int | None = None
+    region: str | None = None
+    current_level: int = Field(default=1, ge=0)
+    daily_streak: int = Field(default=0, ge=0)
 
 class TeamMemberResponse(BaseModel):
     """팀 멤버 조회 응답."""
@@ -398,7 +408,7 @@ class TeamRecommendationScoreResponse(BaseModel):
             + self.region_score
             + self.embedding_score
             + self.daily_streak_score
-            + self.user_level_score,
+            + self.user_level_score
             + self.trust_score,
             2,
         )

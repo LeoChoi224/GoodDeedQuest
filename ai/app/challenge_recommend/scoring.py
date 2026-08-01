@@ -525,7 +525,7 @@ def calculate_recommendation_score(
         + region_score
         + embedding_score
         + daily_streak_score
-        + user_level_score,
+        + user_level_score
         + trust_score,
         max_score=TOTAL_MAX_SCORE,
     )
