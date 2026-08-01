@@ -1,16 +1,25 @@
 import logging
+from typing import Final
+
 import httpx
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from backend.app.common.database import get_db
-from backend.app.common.response import APIResponse
 from backend.app.common.auth import get_current_user
 from backend.app.common.config import get_setting
+from backend.app.common.database import get_db
+from backend.app.common.response import APIResponse
 from backend.app.quest_recommend.schemas import BackendQuestRecommendRequest
-from backend.app.quest_recommend.service import save_recommendation_log, save_recommendation_items
+from backend.app.quest_recommend.service import (
+    save_recommendation_log,
+    save_recommendation_items,
+    get_completed_quest_titles,
+    get_recent_recommended_titles,
+    get_user_coordinates,
+)
 
-logger = logging.getLogger(__name__)
+
+logger: Final = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/quest-recommend", tags=["Quest AI Recommendation & Coach"])
 
@@ -30,30 +39,35 @@ async def recommend_quests(
     # 기본 관심 분야 설정 (영문 규격 준수)
     user_interests = req.interests if req.interests else ["VULNERABLE_GROUP", "ENVIRONMENT"]
 
-    # 요청 당시 수집된 Context 데이터 구성
-    request_context = {
-        "interests": user_interests,
-        "latitude": req.latitude,
-        "longitude": req.longitude,
-        "level": user.get("level", 1),
-        "request_message": req.request_message
-    }
+    # 요청에 좌표가 없으면 User 테이블 저장 좌표로 폴백 
+    latitude = req.latitude
+    longitude = req.longitude
+    if latitude is None or longitude is None:
+        fallback_lat, fallback_lng = get_user_coordinates(db=db, user_id=user_id)
+        latitude = latitude if latitude is not None else fallback_lat
+        longitude = longitude if longitude is not None else fallback_lng
+        logger.info(f"요청 좌표 누락으로 User 테이블 저장 좌표를 사용합니다. User ID: {user_id}")
 
     # 요청 당시 수집된 Context 데이터 구성
     request_context = {
         "interests": user_interests,
-        "latitude": req.latitude,
-        "longitude": req.longitude,
+        "latitude": latitude,
+        "longitude": longitude,
         "level": user.get("level", 1),
         "request_message": req.request_message
     }
+
+    history_quests = get_completed_quest_titles(db=db, user_id=user_id)
+    recent_recommendations = get_recent_recommended_titles(db=db, user_id=user_id)
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             ai_service_url = f"{get_setting().AI_SERVICE_URL}/ai/recommend"
             payload = {
                 "user_id": user_id,
-                **request_context
+                **request_context,
+                "history_quests": history_quests,
+                "recent_recommendations": recent_recommendations,
             }
             
             response = await client.post(ai_service_url, json=payload)

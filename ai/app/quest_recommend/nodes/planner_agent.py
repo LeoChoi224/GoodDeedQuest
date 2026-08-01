@@ -1,16 +1,17 @@
-from pydantic import BaseModel, Field
 import logging
+from typing import Dict, Any, List, Final
+
 import httpx
 import openai
-from typing import Dict, Any, List
-
-from ai.app.quest_recommend.state import RecommendState
-from ai.app.common.llm import get_openai_model, invoke_gemini_fallback
-
-from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
 from langchain_core.exceptions import OutputParserException
+from langchain_core.prompts import ChatPromptTemplate
 
-logger = logging.getLogger(__name__)
+from ai.app.common.llm import get_openai_model, invoke_gemini_fallback
+from ai.app.quest_recommend.state import RecommendState
+
+
+logger: Final = logging.getLogger(__name__)
 
 class PlannerOutput(BaseModel):
     """유저 프로필과 실시간 기상/요일 상황을 융합 분석하여 도출한 추천 전략 및 쿼리 정보를 담는 Pydantic 스키마"""
@@ -26,8 +27,8 @@ class PlannerOutput(BaseModel):
     )
     llm_constraints: List[str] = Field(
         ...,
-        # "최종 퀘스트 추천 에이전트가 준수해야 할 2~4개의 엄격한 규칙/제약조건 리스트 (예: '반드시 실내여야 함', '소요 시간 1시간 미만')."
-        description="A list of 2 to 4 strict rules/constraints for the final quest recommendation agent to follow (e.g., 'must be indoor', 'duration under 1 hour')."
+        # "퀘스트가 이 사용자에게 맞는지 판정할 때 쓰는 2~4개의 조건 목록 (예: '사용자의 관심사나 요청 주제와 관련이 있어야 함', '레벨 1이 부담 없이 할 수 있어야 함'). 각 조건은 '수행할 명령'이 아니라 '확인할 속성' 형태로 작성."
+        description="A list of 2 to 4 conditions used to judge whether a quest fits this user (e.g., 'the quest topic must relate to the user's interests or request topic', 'must be achievable for a level 1 beginner'). Write each condition as a property to check, not as an order to carry out."
     )
 
 def analyze_strategy(state: RecommendState) -> Dict[str, Any]:
@@ -40,24 +41,54 @@ def analyze_strategy(state: RecommendState) -> Dict[str, Any]:
     situation_context = state.get("situation_context", {})
     request_context = state.get("request_context", {})
     retry_count = state.get("retry_count", 0)
-    rejection_reasons = state.get("rejection_reasons", [])
+    rejection_reasons_en = state.get("rejection_reasons_en", [])
 
-    model_name = "gpt-4o" if rejection_reasons else "gpt-4o-mini"
+    model_name = "gpt-4o" if rejection_reasons_en else "gpt-4o-mini"
 
     # Critic 반려 사유 피드백 지침 구성
     rejection_feedback = ""
-    if rejection_reasons:
-        logger.info(f"Critic 반려 피드백 수용 전략 보정 가동 (반려 건수: {len(rejection_reasons)}건)")
+    if rejection_reasons_en:
+        logger.info(f"Critic 반려 피드백 수용 전략 보정 가동 (반려 건수: {len(rejection_reasons_en)}건)")
         # \n- 치명적 반려 피드백: 이전 퀘스트 후보들이 다음 이유로 반려되었습니다: {rejection_reasons}. 이 반려 사유들을 극복할 수 있도록 search_query와 llm_constraints를 엄격하게 보정하십시오!
-        rejection_feedback = f"\n- CRITICAL REJECTION FEEDBACK: Previous quest candidates were rejected due to: {rejection_reasons}. Adjust search_query and llm_constraints strictly to overcome these rejections!"
+        rejection_feedback = f"\n- CRITICAL REJECTION FEEDBACK: Previous quest candidates were rejected due to: {rejection_reasons_en}. Adjust search_query and llm_constraints strictly to overcome these rejections!"
 
     """
-    ("system", ("당신은 전문적인 퀘스트 추천 기획자입니다. 사용자의 정보를 분석하고 추천 전략을 수립하십시오.
-        입력값을 바탕으로 다음 내용을 명시하는 상세한 PlannerOutput을 구성하십시오:
-        - 'strategy': 전반적인 방향성. 상황 컨텍스트의 'is_outdoor_feasible' 여부를 반드시 준수해야 하며(예: False인 경우 실내 활동으로 제한), 사용자의 커스텀 요청 컨텍스트를 존중해야 합니다.
-        - 'search_query': 벡터 데이터베이스에서 가장 연관성 높은 봉사활동을 찾기 위한 최적화된 검색 쿼리 키워드.
-        - 'llm_constraints': 퀘스트 추천 생성 에이전트가 반드시 준수해야 하는 2~4개의 실행 가능한 규칙 제약조건.
-        {rejection_feedback}")),
+    ("system", "당신은 전문 퀘스트 추천 플래너입니다. 사용자의 정보를 분석하여 추천 전략을 수립하세요.
+        입력된 정보를 바탕으로 다음 내용을 포함한 PlannerOutput을 생성하세요.
+        - 'strategy': 사용자의 관심사와 요청 내용을 기반으로 한 전체 추천 방향
+        - 'search_query': 벡터 데이터베이스에서 가장 적합한 봉사활동을 찾기 위한 최적화된 검색 키워드
+        - 'llm_constraints': 해당 퀘스트가 사용자에게 적합한지 판단하기 위한 조건 2~4개
+        'llm_constraints' 작성 방법 — 가장 오류가 많이 발생하는 부분이므로 반드시 숙지하세요.
+        
+        (a) 이 조건들은 두 가지 용도로 모두 사용됩니다.
+        - AI가 새로운 일일 선행 퀘스트를 생성할 때의 가이드
+        - 이미 존재하는 실제 봉사활동 공고를 평가하는 기준
+        실제 봉사 공고는 일정, 대상, 장소 등이 이미 정해져 있어 수정할 수 없습니다.
+        따라서 작성하는 모든 조건은 실제 공고도 만족할 수 있을 만큼 현실적이고 충분히 넓은 범위여야 합니다.
+        (b) 조건은 '수행해야 할 명령'이 아니라 '확인해야 할 속성' 형태로 작성해야 합니다.
+        예를 들어,
+        - "퀘스트 주제는 청소년 또는 지역사회와 관련되어야 한다." (O)
+        - "청소년과 함께 활동해야 한다." (X)
+        명령문 형태로 작성하면 실제 봉사 공고가 불필요하게 탈락하는 원인이 됩니다.
+        (c) 조건은 반드시 사용자가 실제로 요청한 내용에서만 도출해야 합니다.
+        사용자의 관심사나 요청 의도만 조건으로 사용할 수 있습니다.
+        상황 정보(날씨, 평일/주말, 날짜, 사용자 레벨)는 단순한 환경 정보일 뿐이며, 절대로 조건으로 바꾸면 안 됩니다.
+        예를 들어,
+        - is_outdoor_feasible=true
+        → 야외 활동이 가능하다는 의미일 뿐, 야외 활동을 반드시 해야 한다는 뜻이 아닙니다.
+        → 실내/실외 조건을 추가하지 마세요.
+        - is_weekend=true
+        → 오늘이 주말이라는 의미일 뿐, 주말 활동만 허용하는 조건을 만들면 안 됩니다.
+        - 사용자 레벨이 낮음
+        → 초보 사용자라는 의미일 뿐, 난이도 조건을 추가하면 안 됩니다.
+        유일한 예외:
+        - is_outdoor_feasible=False (비 또는 눈)
+        → 안전을 위해 '실내 활동' 조건을 반드시 추가해야 합니다.
+        (d) request_context.indoor_outdoor_preference에
+        'indoor' 또는 'outdoor'가 명시되어 있다면,
+        이는 사용자의 명시적인 요청이므로 해당 조건을 추가할 수 있습니다.
+        항상 실제 봉사 공고도 만족할 수 있도록,
+        조건은 너무 좁거나 과도하게 제한적이지 않게 작성하세요.{rejection_feedback}"),
     ("human", ("### 입력 정보
         1. 사용자 프로필: {user_profile}
         2. 상황 컨텍스트 (날짜, 평일/주말, 날씨, 야외 활동 가능 여부): {situation_context}
@@ -66,9 +97,19 @@ def analyze_strategy(state: RecommendState) -> Dict[str, Any]:
     planner_prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a professional Quest Recommendation Planner. Analyze the user's information and plan a recommendation strategy.
 Based on the inputs, construct a detailed PlannerOutput specifying:
-- 'strategy': The overall direction. Ensure it strictly respects 'is_outdoor_feasible' from the situation context (e.g., if False, restrict to indoors) and respects the user's custom request context.
+- 'strategy': The overall direction, grounded in the user's interests and their custom request context.
 - 'search_query': An optimized search query keyword to find the most relevant volunteer tasks from the vector database.
-- 'llm_constraints': 2 to 4 actionable rules that the quest recommendation generator must follow.{rejection_feedback}"""),
+- 'llm_constraints': 2 to 4 conditions used to judge whether a quest fits this user.
+HOW TO WRITE 'llm_constraints' — read carefully, this is the most error-prone part:
+(a) These conditions are applied twice: once as guidance when generating new AI daily good deed quests, and once as scoring criteria for real, already-published volunteer listings that cannot be rewritten. A real listing has a fixed schedule, a fixed audience and a fixed venue, so any condition you invent becomes a hard gate it may be unable to pass.
+(b) Write each condition as a property to check, not as an order to carry out. Write "the quest topic must relate to youth or the local community", not "engage youth in activities" — an order gets misread as a requirement about who performs the activity, and real listings get rejected for no good reason.
+(c) Only derive a condition from something the user actually asked for — their interests, or the intent of their request message. The situation context (weather, weekday/weekend, date, user level) describes circumstances, NOT requirements. Never convert a circumstance into a requirement:
+  - is_outdoor_feasible=true means outdoor is possible, NOT that outdoor is required. Add no indoor/outdoor condition.
+  - is_weekend=true means today happens to be a weekend, NOT that the user demands a weekend-only activity. Never add a scheduling or day-of-week condition based on it.
+  - A low user level means the user is new, NOT that difficult quests must be rejected. Never add a condition that gates on level or difficulty.
+  The only exception: if is_outdoor_feasible is False (rain or snow), an indoor-only condition IS required for safety.
+(d) If request_context.indoor_outdoor_preference explicitly says 'indoor' or 'outdoor', you may add the matching condition — that one came from the user.
+Keep the conditions broad enough that a genuinely relevant real-world volunteer listing can satisfy them.{rejection_feedback}"""),
         ("human", """### Input Information
 1. User Profile: {user_profile}
 2. Situation Context (Date, Weekday/Weekend, Weather, Outdoor Feasibility): {situation_context}
@@ -124,3 +165,19 @@ Based on the inputs, construct a detailed PlannerOutput specifying:
             "llm_constraints": []
         }
     }
+
+
+def route_after_planner(state: RecommendState) -> List[str]:
+    """
+    Planner 수립 직후 병렬 실행할 노드를 결정하는 라우터 함수입니다.
+    이전 회차에서 '주변 봉사 데이터 없음'이 확정(skip_volunteer_agent=True)된 경우,
+    결과가 동일할 것이 확실한 봉사 수색을 건너뛰고 일상 선행 생성만 수행합니다.
+    """
+    skip_volunteer_agent = state.get("skip_volunteer_agent", False)
+
+    if skip_volunteer_agent:
+        logger.info("주변 봉사 데이터 없음이 확정되어 봉사 수색 노드를 건너뛰고 일상 선행만 재생성합니다.")
+        return ["good_deed"]
+
+    return ["volunteer", "good_deed"]
+

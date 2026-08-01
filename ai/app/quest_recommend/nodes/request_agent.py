@@ -1,13 +1,13 @@
-from pydantic import BaseModel, Field
 import logging
-from typing import Dict, Any, Optional, List
-
-from ai.app.quest_recommend.state import RecommendState
-from ai.app.common.llm import get_openai_model
-
+from pydantic import BaseModel, Field
+from typing import Dict, Any, Optional, List, Final
 from langchain_core.prompts import ChatPromptTemplate
 
-logger = logging.getLogger(__name__)
+from ai.app.common.llm import get_openai_model
+from ai.app.quest_recommend.state import RecommendState
+
+
+logger: Final = logging.getLogger(__name__)
 
 class RequestAnalysis(BaseModel):
     """사용자 요청 메시지 분석결과(선호 시간, 소요 시간, 실내외 선호, 키워드)를 구조화하는 Pydantic 스키마"""

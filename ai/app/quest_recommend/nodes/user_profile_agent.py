@@ -18,7 +18,7 @@ def analyze_user_profile(state: RecommendState) -> Dict[str, Any]:
     preferred_difficulty = state.get("preferred_difficulty")
 
     # 난이도 정보 처리 (비어있거나 빈 문자열인 경우 "ANY"로 Fallback)
-    target_difficulty = preferred_difficulty if preferred_difficulty else "ANY"
+    target_difficulty = preferred_difficulty or "ANY"
 
     # 최근 추천 내역(exclusions)과 기존 완료 이력(completed_history) 분리 정의
     exclusions = recent_recommendations
