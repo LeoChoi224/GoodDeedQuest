@@ -8,7 +8,7 @@ from ai.app.quest_recommend.state import RecommendState
 from ai.app.quest_recommend.nodes.user_profile_agent import analyze_user_profile
 from ai.app.quest_recommend.nodes.situation_agent import analyze_situation
 from ai.app.quest_recommend.nodes.request_agent import analyze_request
-from ai.app.quest_recommend.nodes.planner_agent import analyze_strategy
+from ai.app.quest_recommend.nodes.planner_agent import analyze_strategy, route_after_planner
 from ai.app.quest_recommend.nodes.volunteer_agent import retrieve_volunteers
 from ai.app.quest_recommend.nodes.good_deed_agent import create_good_deeds
 from ai.app.quest_recommend.nodes.validation_agent import validate_candidates, route_validation
@@ -40,13 +40,18 @@ def create_recommendation_graph():
     workflow.add_edge("user_profile", "situation")
     workflow.add_edge("situation", "request")
     workflow.add_edge("request", "planner")
-    workflow.add_edge("planner", "volunteer")
-    workflow.add_edge("planner", "good_deed")
     workflow.add_edge("volunteer", "validation")
     workflow.add_edge("good_deed", "validation")
     workflow.add_edge("response", END)  # 최종 응답 후종착점(END) 연결
-    
-    # 4. 검증 에이전트: 조건부 분기 (추천 품질 낮음: planner / 검색 결과 부족 : volunteer / 통과, 재시도 횟수 초과: response)
+
+    # 4. 플래너 에이전트: 조건부 분기 (일반적인 로직: volunteer, good_deed / 사용자 주변 봉사 없음 확정 : good_deed)
+    workflow.add_conditional_edges(
+        "planner",
+        route_after_planner,
+        ["volunteer", "good_deed"]
+    )
+
+    # 5. 검증 에이전트: 조건부 분기 (추천 품질 낮음: planner / 검색 결과 부족 : volunteer / 통과, 재시도 횟수 초과: response)
     workflow.add_conditional_edges(
         "validation",
         route_validation,
@@ -57,7 +62,7 @@ def create_recommendation_graph():
         }
     )
 
-    # 5. 워크플로우 컴파일
+    # 6. 워크플로우 컴파일
     logger.info("AI 퀘스트 추천 8개 노드 및 병렬 에지 조립 StateGraph 컴파일 완료")
     return workflow.compile()
 
