@@ -57,7 +57,7 @@ def invoke_gemini_fallback(
     """
     logger.warning("OpenAI 통신 장애로 인해 2순위 Google Gemini 백업 모델로 페일오버를 수행합니다.")
     try:
-        gemini_llm = get_gemini_model(model_name="gemini-1.5-flash", temperature=temperature)
+        gemini_llm = get_gemini_model(temperature=temperature)
         structured_gemini_chain = prompt | gemini_llm.with_structured_output(structured_schema)
         
         response = structured_gemini_chain.invoke(input_data)
