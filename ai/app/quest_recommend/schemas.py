@@ -86,6 +86,31 @@ class QuestItemSchema(BaseModel):
         # "카테고리명 (VOLUNTEER, ENVIRONMENT 등)"
         description="Category name (e.g., VOLUNTEER, ENVIRONMENT, SHARING)"
     )
+    location: Optional[str] = Field(
+        default=None,
+        # "실제 봉사 장소 주소 (GOOD_DEED는 null)"
+        description="Real volunteer activity address. Null for GOOD_DEED quests."
+    )
+    quest_target: Optional[str] = Field(
+        default="SOLO",
+        # "참여 방식 (SOLO / TEAM)"
+        description="Participation mode: 'SOLO' or 'TEAM'"
+    )
+    difficulty: Optional[str] = Field(
+        default="NORMAL",
+        # "체감 난이도 (VERY_EASY, EASY, NORMAL, HARD, VERY_HARD)"
+        description="Quest difficulty: VERY_EASY, EASY, NORMAL, HARD, VERY_HARD"
+    )
+    estimated_duration: Optional[int] = Field(
+        default=15,
+        # "분 단위 예상 소요 시간"
+        description="Estimated duration in minutes"
+    )
+    priority_score: Optional[int] = Field(
+        default=10,
+        # "추천 적합도 점수 (1~10)"
+        description="Priority score from 1 to 10 indicating suitability"
+    )
 
 class QuestRecommendResponse(BaseModel):
     """AI 퀘스트 추천 응답 DTO"""
