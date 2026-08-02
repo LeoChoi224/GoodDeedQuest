@@ -34,6 +34,7 @@ import SpringButton from '../components/SpringButton';
 import GdqInput from '../components/GdqInput';
 import { MailIcon, LockIcon, SwordIcon, EyeOpen, EyeOff, HamburgerIcon, KakaoIcon, GoogleIcon } from '../components/PixelIcons';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../context/AuthContext';
 import { login } from '../api/auth';
 import * as Google from 'expo-auth-session/providers/google'
 import * as WebBrowser from 'expo-web-browser'
@@ -75,6 +76,7 @@ export default function LoginScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [showPw, setShowPw] = useState(false);
+  const { signIn } = useAuth();
 
   const toast = useToast();
 const [ email, setEmail ] = useState('');
@@ -96,8 +98,9 @@ const onLogin = async () => {
   }
   setLoading(true)
   try {
-    await login(email.trim(), password);
-    navigation.reset({ index:0, routes: [{ name: 'Main'}] });
+    // 【기능】 signIn 이 로그인 상태를 켜면 RootNavigator 가 로그인 후 화면
+    //        묶음으로 통째로 바뀐다. 화면을 직접 넘길 필요가 없다.
+    await signIn(await login(email.trim(), password));
   } catch (err: any) {
     const detail = err?.response?.data?.detail;
     toast.show(detail ?? '로그인에 실패했습니다. 다시 시도해 주세요.');
@@ -119,11 +122,13 @@ useEffect(() => {
 
 const handleGoogle = async (idToken: string) => {
   try {
-    const { isNewUser } = await socialLogin(idToken);
+    const { token, isNewUser } = await socialLogin(idToken);
     if (isNewUser) {
+      // 【판단】 신규 가입자는 아직 프로필을 안 채웠다. 여기서 로그인 상태를
+      //        켜버리면 화면 묶음이 바뀌면서 Profile 화면이 사라진다.
       navigation.navigate('Profile');
     } else {
-      navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+      await signIn(token);
     }
   } catch (err: any){
     toast.show('구글로그인에 실패했습니다')

@@ -4,10 +4,13 @@
  * iOS-standard slide+fade. Signup steps share state via SignupProvider.
  */
 import React from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SignupProvider } from '../context/SignupContext';
+import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ToastProvider } from '../components/Toast';
+import { colors } from '../theme';
 import LoginScreen from '../screens/LoginScreen';
 import TermsScreen from '../screens/TermsScreen';
 import AccountScreen from '../screens/AccountScreen';
@@ -28,35 +31,73 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-export default function RootNavigator() {
+/**
+ * 로그인 여부에 따라 아예 다른 화면 묶음을 그린다.
+ *
+ * 【판단】 화면을 다 등록해두고 "로그인 안 했으면 로그인으로 보내기"로 막지 않는다.
+ *        그러면 등록은 돼 있으니 어떤 경로로든 도달할 여지가 남는다. 아예 없는
+ *        화면은 도달할 방법이 없다. 로그아웃되면 로그인 후 화면들이 통째로
+ *        사라지므로 되돌아가기(뒤로가기)도 자동으로 막힌다.
+ */
+function Routes() {
+  const { token, booting } = useAuth();
+
+  // 토큰을 확인하는 동안. 여기서 로그인 화면을 먼저 보여주면 이미 로그인한
+  // 사용자에게도 로그인 화면이 깜빡 스친다.
+  if (booting) {
+    return (
+      <View style={styles.splash}>
+        <ActivityIndicator color={colors.gold} size="large" />
+      </View>
+    );
+  }
+
   return (
-    <SignupProvider>
-      <NavigationContainer>
-        <ToastProvider>
-          <Stack.Navigator
-            initialRouteName="Login"
-            screenOptions={{
-              headerShown: false,
-              animation: 'slide_from_right',
-              contentStyle: { backgroundColor: '#EEF6F0' },
-              gestureEnabled: true,
-            }}
-          >
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Terms" component={TermsScreen} />
-            <Stack.Screen name="Account" component={AccountScreen} />
-            <Stack.Screen name="Profile" component={ProfileScreen} />
-            <Stack.Screen
-              name="Complete"
-              component={CompleteScreen}
-              options={{ animation: 'fade', gestureEnabled: false }}
-            />
-            <Stack.Screen name="Main" component={AppDrawer} options={{ gestureEnabled: false }} />
-            {/* 어디서든 유저 클릭 시 도달하는 공용 상세 (Root 레벨에 등록) */}
-            <Stack.Screen name="UserDetail" component={UserDetailScreen} />
-          </Stack.Navigator>
-        </ToastProvider>
-      </NavigationContainer>
-    </SignupProvider>
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: 'slide_from_right',
+        contentStyle: { backgroundColor: '#EEF6F0' },
+        gestureEnabled: true,
+      }}
+    >
+      {token ? (
+        <>
+          <Stack.Screen name="Main" component={AppDrawer} options={{ gestureEnabled: false }} />
+          {/* 어디서든 유저 클릭 시 도달하는 공용 상세 (Root 레벨에 등록) */}
+          <Stack.Screen name="UserDetail" component={UserDetailScreen} />
+        </>
+      ) : (
+        <>
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Terms" component={TermsScreen} />
+          <Stack.Screen name="Account" component={AccountScreen} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen
+            name="Complete"
+            component={CompleteScreen}
+            options={{ animation: 'fade', gestureEnabled: false }}
+          />
+        </>
+      )}
+    </Stack.Navigator>
   );
 }
+
+export default function RootNavigator() {
+  return (
+    <AuthProvider>
+      <SignupProvider>
+        <NavigationContainer>
+          <ToastProvider>
+            <Routes />
+          </ToastProvider>
+        </NavigationContainer>
+      </SignupProvider>
+    </AuthProvider>
+  );
+}
+
+const styles = StyleSheet.create({
+  splash: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryDark },
+});

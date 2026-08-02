@@ -106,24 +106,40 @@ def get_all_quests(
     """전체 퀘스트 목록을 조회합니다. 내가 이미 완료한 퀘스트는 제외한다."""
     done_ids = _completed_quest_ids(submission_repository, current_user.user_id)
     hidden_ids = _hidden_quest_ids(hidden_repository, current_user.user_id)
+    started_ids = _started_quest_ids(submission_repository, current_user.user_id)
     quests = [q for q in quest_repository.filter(Quest.is_deleted == False) if q.quest_id not in done_ids and q.quest_id not in hidden_ids]
-    return APIResponse.ok(data=[QuestSchema.from_quest(q) for q in quests])
+    return APIResponse.ok(data=[
+        QuestSchema.from_quest(q, viewer_id=current_user.user_id,
+                               started_ids=started_ids, done_ids=done_ids)
+        for q in quests
+    ])
 
 
 @router.get("/{quest_id}", response_model=APIResponse[QuestSchema])
 def get_quest_detail(
     quest_id: int,
     quest_repository: QuestRepository,
-    user: dict = Depends(get_current_user),
+    submission_repository: SubmissionRepository,
+    current_user: User = Depends(get_current_db_user),
 ):
     """특정 퀘스트의 상세 정보를 조회합니다.
 
     완료한 퀘스트도 주소로 직접 열면 볼 수 있다. 목록에서 감추는 것과는 별개다.
+    상태는 보는 사람 기준으로 계산한다 — 내가 완료했으면 COMPLETED 로 보인다.
+
+    【판단】 get_current_user 는 토큰이 없으면 막지 않고 목업 사용자를 돌려준다
+           (common/auth.py:44). 그래서 이 엔드포인트만 토큰 없이 200 이 나왔다.
+           목록과 같은 get_current_db_user 로 맞춘다.
     """
     quest = quest_repository.get(quest_id)
     if quest is None or quest.is_deleted    :
         raise HTTPException(status_code=404, detail="Quest not found")
-    return APIResponse.ok(data=QuestSchema.from_quest(quest))
+    done_ids = _completed_quest_ids(submission_repository, current_user.user_id)
+    started_ids = _started_quest_ids(submission_repository, current_user.user_id)
+    return APIResponse.ok(data=QuestSchema.from_quest(
+        quest, viewer_id=current_user.user_id,
+        started_ids=started_ids, done_ids=done_ids,
+    ))
 
 
 def _load_category(category_repository: CategoryRepository, code: str) -> Category:
@@ -156,6 +172,18 @@ def _completed_quest_ids(submission_repository, user_id: int) -> set[int]:
             QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
         )
     }
+
+def _started_quest_ids(submission_repository, user_id: int) -> set[int]:
+    """내가 인증을 한 번이라도 낸 퀘스트. 상태는 가리지 않는다.
+
+    거절·보류도 "손을 댄" 것이므로 진행중으로 본다. 통과한 것은 호출부에서
+    done_ids 로 이미 목록에서 빠진다.
+    """
+    return {
+        s.quest_id
+        for s in submission_repository.filter(QuestSubmission.user_id == user_id)
+    }
+
 
 def _hidden_quest_ids(hidden_repository: HiddenRepository, user_id:int) -> set[int]:
     return {

@@ -31,7 +31,7 @@ export async function socialLogin(idToken: string): Promise<{ token: string; isN
     provider: 'google',
     id_token: idToken
   });
-  const token: string = response.data.data.access_toekn;
+  const token: string = response.data.data.access_token;
   const isNewUser: boolean = response.data.data.is_new_user
   await SecureStore.setItemAsync(TOKEN_KEY, token);
   return { token, isNewUser }

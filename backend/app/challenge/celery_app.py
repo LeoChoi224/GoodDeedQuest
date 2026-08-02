@@ -24,6 +24,7 @@ celery_app = Celery(
     # Worker가 인식해야 하는 Task 파일을 등록합니다.
     include=[
         "backend.app.challenge.tasks",
+        "backend.app.quest_verification.tasks",
     ],
 )
 
@@ -50,11 +51,19 @@ celery_app.conf.update(
     },
 
     # Celery Beat 정기 작업을 등록합니다.
-    beat_schedule={
+        beat_schedule={
         # 매시간 정각에 만료된 팀 초대를 처리합니다.
         "expire-pending-team-invites-every-hour": {
             "task": "challenge.expire_pending_invites",
             "schedule": crontab(minute=0),
+            "options": {
+                "queue": "maintenance",
+            },
+        },
+        # 10분마다 보류(ON_HOLD) 제출을 다시 판정합니다.
+        "retry-held-submissions-every-10min": {
+            "task": "quest_verification.retry_held_submissions",
+            "schedule": crontab(minute="*/10"),
             "options": {
                 "queue": "maintenance",
             },
