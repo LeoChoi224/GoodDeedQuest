@@ -62,6 +62,13 @@ class Quest(Base):
     )
     
     location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment="봉사 장소 및 주소 (일상 퀘스트는 None)")
+
+    volunteer_center_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("volunteer_center.center_id", ondelete="SET NULL"),
+        nullable=True,
+        comment="원본 봉사 공고 ID (VOLUNTEER 전용, GOOD_DEED는 None)"
+    )
     
     # AI 보상 산정 결과 나오기 전에 퀘스트 등록을 위해 null 허용 - 추후 코드 구현하다 변경사항은 직접 수정하시면 됩니다. @yangjungun05-prog
     reward_point: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="지급 보상 포인트")

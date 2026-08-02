@@ -12,6 +12,7 @@ from typing import Optional
 import imagehash
 from PIL import Image
 
+from backend.app.quest_verification.enums import SubmissionStatus
 from backend.app.quest_verification.models import QuestSubmission
 
 # pHash 거리 기준. 0이면 완전 동일이고, 값이 클수록 느슨하게 잡는다.
@@ -62,7 +63,9 @@ def find_nearest_submission(repository, phash: str) -> tuple[Optional[QuestSubmi
     nearest: Optional[QuestSubmission] = None
     nearest_distance: Optional[int] = None
     
-    for past in repository.filter():
+    for past in repository.filter(
+        QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
+    ):
         for value in past.media_embedding or []:
             
             if not isinstance(value, str):

@@ -91,6 +91,11 @@ class QuestItemSchema(BaseModel):
         # "실제 봉사 장소 주소 (GOOD_DEED는 null)"
         description="Real volunteer activity address. Null for GOOD_DEED quests."
     )
+    center_id: Optional[int] = Field(
+        default=None,
+        # "원본 봉사 공고 ID (GOOD_DEED는 null)"
+        description="Source VolunteerCenter ID used to open the original posting screen. Null for GOOD_DEED quests."
+    )
     quest_target: Optional[str] = Field(
         default="SOLO",
         # "참여 방식 (SOLO / TEAM)"

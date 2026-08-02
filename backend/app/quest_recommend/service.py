@@ -142,13 +142,23 @@ def save_recommendation_items(
         for rank, item in enumerate(recommended_quests, start=1):
             raw_type = item.get("quest_type")
             location_val = item.get("location")
+            center_id_val = item.get("center_id")
+
 
             # 1. 실제 봉사(VOLUNTEER), 일상 선행(GOOD_DEED) 판별 로직
             # quest_type이 VOLUNTEER이거나 장소 주소(location)가 존재하면 무조건 실제 봉사(VOLUNTEER)로 처리
-            if raw_type == "VOLUNTEER" or (location_val and location_val.strip()):
+            if raw_type == "VOLUNTEER":
                 mapped_quest_type = QuestType.VOLUNTEER
                 quest_type_str = "VOLUNTEER"
                 target_cat_name = "VOLUNTEER"  # 카테고리 무조건 'VOLUNTEER'(봉사) 강제 부여
+
+                # 타입은 VOLUNTEER인데 원본 공고 연결이 없는 경우는 데이터 이상이다.
+                # 저장은 진행하되(추천 자체는 유효), 버튼이 동작하지 않으므로 로그로 남긴다.
+                if not center_id_val:
+                    logger.warning(
+                        f"VOLUNTEER 퀘스트에 center_id가 없습니다. "
+                        f"'봉사활동 상세' 이동 버튼이 동작하지 않습니다. 제목: {item.get('quest_title')}"
+                    )
             else:
                 mapped_quest_type = QuestType.GOOD_DEED
                 quest_type_str = "GOOD_DEED"
@@ -173,6 +183,7 @@ def save_recommendation_items(
                     quest_type=mapped_quest_type,
                     quest_source=QuestSource.AI,
                     location=location_val if mapped_quest_type == QuestType.VOLUNTEER else None,
+                    volunteer_center_id=center_id_val if mapped_quest_type == QuestType.VOLUNTEER else None,
                     difficulty=Difficulty.NORMAL,
                     estimated_duration=item.get("estimated_duration", 15),
                     quest_status=QuestStatus.NOT_STARTED

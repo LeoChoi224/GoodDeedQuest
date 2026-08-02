@@ -53,7 +53,7 @@ class Purchase(Base):
         comment="구매 진행 상태 (COMPLETED / REFUNDED)"
     )
 
-    # ⭐ 수정: 유저별 장착 여부. Item.is_equipped는 카탈로그(전역) 컬럼이라 유저별 상태를
+    # 유저별 장착 여부. Item.is_equipped는 카탈로그(전역) 컬럼이라 유저별 상태를
     # 담을 수 없어서, 유저의 보유 기록인 Purchase에 둔다 (badge 도메인 UserBadge.is_equipped와 동일 패턴).
     is_equipped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false", comment="유저의 현재 장착 여부")
 
