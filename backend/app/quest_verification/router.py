@@ -26,6 +26,10 @@ from backend.app.auth.enums import TransactionType
 from backend.app.quest_verification.trust import (
     adjust_trust, TRUST_ON_COMPLETE, TRUST_ON_CHALLENGE, TRUST_ON_REJECT
 )
+from backend.app.quest.rate_limit import count_daily_use
+from backend.app.quest_verification.verdict import decide, settle, _grant_reward
+
+DAILY_SUBMIT_LIMIT = 5
 
 QuestRepository = Annotated[
     DatabaseRepository[Quest],
@@ -38,45 +42,6 @@ SubmissionRepository = Annotated[
 ]
 
 router = APIRouter(prefix="/quest-verification", tags=["Quest AI Verification"])
-
-def _grant_reward(
-    repository: DatabaseRepository[QuestSubmission],
-    user: User,
-    quest: Quest,
-    submission: QuestSubmission,
-) -> tuple[int, int]:
-    xp_gained = quest.reward_exp or 0
-    points_gained =  quest.reward_point or 0
-
-    # 【기능】 실제 지급. 이 3줄이 없으면 위에서 계산한 값은 화면에만 표시되고
-    #        잔액은 그대로 남는다. balance_after 를 아래에서 읽으므로 순서도 중요하다.
-    user.current_xp += xp_gained
-    user.point_balance += points_gained
-    adjust_trust(user, TRUST_ON_COMPLETE)
-
-    if points_gained:
-        repository.session.add(PointTransaction(
-            user_id=user.user_id,
-            submission_id=submission.submission_id,
-            amount=points_gained,
-            type=TransactionType.EARN,
-            balance_after=user.point_balance
-        ))
-    
-    repository.session.commit()
-    
-    try: 
-        check_and_award_badges(
-            db=repository.session,
-            user_id=user.user_id,
-            category_code=quest.category.code,
-        )
-    except Exception as error:
-        repository.session.rollback()
-        print((f"배지 지급 실패(인증은 정상 처리됨): user={user.user_id} "
-            f"quest={quest.quest_id} {type(error).__name__}: {error}"))
-
-    return xp_gained, points_gained
 
 @router.post("/presign", response_model=PresignResponse)
 def get_upload_url(req: PresignRequest, current_user: User = Depends(get_current_db_user)):
@@ -107,7 +72,10 @@ def submit_verification(
     stale_pendings = submission_respository.filter(
         QuestSubmission.user_id == current_user.user_id,
         QuestSubmission.quest_id == req.quest_id,
-        QuestSubmission.final_status == SubmissionStatus.PENDING,
+        QuestSubmission.final_status.in_([
+            SubmissionStatus.PENDING,
+            SubmissionStatus.ON_HOLD,
+        ])
     )
     for stale in stale_pendings:
         stale.final_status = SubmissionStatus.REJECTED
@@ -182,6 +150,12 @@ def submit_verification(
                 reason="이전에 제출된 자료와 너무 비슷합니다. 새로 촬영한 자료를 올려 주세요.",
             )
 
+    if not count_daily_use(f"quest_submit:{quest.quest_id}", current_user.user_id, DAILY_SUBMIT_LIMIT):
+        return SubmitResponse(
+            verified=False,
+            reason=f"이 퀘스트는 하루 {DAILY_SUBMIT_LIMIT}번까지 인증할 수 있어요. 내일 다시 시도해 주세요.",
+        )
+
     try:
         response = httpx.post(
             f"{get_setting().AI_SERVICE_URL}/ai/verify-quest",
@@ -196,61 +170,52 @@ def submit_verification(
         )
         response.raise_for_status()
         result: dict = response.json()['data']
-    except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="AI 검증 서버 호출에 실패했습니다.")
+    except httpx.HTTPError as error:
+        held = submission_respository.create({
+            "user_id": current_user.user_id,
+            "quest_id": quest.quest_id,
+            "media_url": req.s3_key,
+            "extra_media_urls": extra_keys,
+            "media_type": MediaType.PHOTO if quest.quest_type == QuestType.VOLUNTEER else MediaType.VIDEO,
+            "media_hash": media_hash,
+            "media_embedding": [primary_phash] if primary_phash else None,
+            "ai_verdict": {"reason": "ai_unavailable", "error": type(error).__name__},
+            "attempt_number": 1,
+            "final_status": SubmissionStatus.ON_HOLD,
+            })
+        print(f"보류 저장: submission_id={held.submission_id} {type(error).__name__}: {error}")
+        return SubmitResponse(
+            verified=False,
+            reason="지금 검증 서버가 응답하지 않아 접수만 해두었어요. 자동으로 다시 확인하고 결과를 알려드릴게요. 다시 올리지 않으셔도 됩니다.",
+            submission_id=held.submission_id,
+        )
+        
     
-    media_type = MediaType.PHOTO if quest.quest_type == QuestType.VOLUNTEER else MediaType.VIDEO
-    
-    related = result.get("related", [])
-    stored_extras = [key for key, ok in zip(extra_keys, related) if ok]
-    
-    suspicion = calculate_suspicion(
-        ai_generated=result.get("ai_generated", False),
-        capture_time_known=result.get("capture_time_known", False),
-        phash_distance=phash_distance,
-    )
-    challenge = result["verified"] and needs_challenge(suspicion)
-    challenge_code = generate_challenge_code() if challenge else None
+    verdict = decide(result, phash_distance, extra_keys)
 
-    if challenge:
-        final_status = SubmissionStatus.PENDING
-        adjust_trust(current_user, TRUST_ON_CHALLENGE)
-    elif result["verified"]:
-        final_status = SubmissionStatus.ACCEPTED
-    else:
-        final_status = SubmissionStatus.REJECTED
-        adjust_trust(current_user, TRUST_ON_REJECT)
-
+    # 【판단】 행을 먼저 만들고 settle 이 판정 결과를 채운다. 재시도 작업도
+    #        같은 settle 을 쓰므로 보상 규칙이 한 곳에만 있게 된다.
     submission = submission_respository.create({
         "user_id": current_user.user_id,
         "quest_id": quest.quest_id,
         "media_url": req.s3_key,
-        "extra_media_urls": stored_extras,
-        "media_type": media_type,
+        "media_type": MediaType.PHOTO if quest.quest_type == QuestType.VOLUNTEER else MediaType.VIDEO,
         "media_hash": media_hash,
         "media_embedding": [primary_phash] if primary_phash else None,
-        "ai_verdict": {**result, "suspicion_score": suspicion},
-        "ai_generated_suspicion": result.get("ai_generated", False),
-        "challenge_code": challenge_code,
         "attempt_number": 1,
-        "final_status": final_status,
-        })
-    
-    if challenge:
-        print(f"챌린지 발급: submission_id={submission.submission_id} 점수={suspicion}")
+    })
+    xp_gained, points_gained = settle(
+        submission_respository, current_user, quest, submission, verdict, result
+    )
+
+    if verdict.challenge:
+        print(f"챌린지 발급: submission_id={submission.submission_id} 점수={verdict.suspicion}")
         return SubmitResponse(
             verified=False,
-            reason=build_challenge_message(challenge_code),
+            reason=build_challenge_message(verdict.challenge_code),
             challenge_required=True,
-            challenge_code=challenge_code,
+            challenge_code=verdict.challenge_code,
             submission_id=submission.submission_id,
-        )
-        
-    xp_gained = 0
-    points_gained = 0
-    if result['verified']:
-        xp_gained, points_gained = _grant_reward(
-            submission_respository, current_user, quest, submission
         )
 
     return SubmitResponse(

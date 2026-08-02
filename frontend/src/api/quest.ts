@@ -84,3 +84,14 @@ export async function getQuest(questId: number): Promise<Quest> {
   const response = await api.get(`/quests/${questId}`);
   return response.data.data;
 }
+
+/**
+ * 퀘스트 포기.
+ *
+ * 내가 만든 커스텀 퀘스트면 모두에게서 사라지고, 그 외(관리자·남의 것)는
+ * 나에게만 안 보이게 된다. 어느 쪽인지는 서버가 정한다.
+ * 실제로 지우지 않고 표시만 남기므로 포인트 기록은 그대로 보존된다.
+ */
+export async function abandonQuest(questId: number): Promise<void> {
+  await api.delete(`/quests/${questId}`);
+}

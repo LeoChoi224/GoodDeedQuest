@@ -1,10 +1,11 @@
 /**
  * SCREEN 2 & 3 · 퀘스트 상세 (route QuestDetail) — 진행 전(idle)/진행 중(active).
- * RPG 퀘스트 카드(<QuestCard/> 재사용) + 진행 중일 때 목표 진행 바(PixelProgress).
+ * RPG 퀘스트 카드(<QuestCard/> 재사용).
  * "퀘스트 시작" → iris/scale 와이프 트랜지션 후 active 전환. "퀘스트 인증" → QuestVerify.
+ * "퀘스트 포기" → 확인 후 DELETE /quests/{id}.
  */
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, Pressable } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,9 +14,9 @@ import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import QuestCard from '../../components/QuestCard';
-import PixelProgress from '../../components/PixelProgress';
 import { SwordIcon } from '../../components/PixelIcons';
 import { CameraIcon, StartTransition } from './_parts';
+import { abandonQuest } from '../../api/quest';
 
 const DEFAULT_DESC =
   '집 근처 공원을 돌며 쓰레기를 주워 봉투에 담아 주세요. 30분 이상 활동하고 인증하면 보상을 받아요.';
@@ -30,16 +31,38 @@ export default function QuestDetailScreen({ navigation, route }: any) {
   const desc = p.desc ?? DEFAULT_DESC;
   const point = p.point ?? 250;
   const exp = p.exp ?? 100;
-  const goalLabel = p.goalLabel ?? '쓰레기 줍기';
-  const goalMax = p.goalMax ?? 10;
-
   const [active, setActive] = useState<boolean>(!!p.active);
   const [starting, setStarting] = useState(false);
-  const goalCur = active ? p.goalCur ?? 6 : 0;
+  const [abandoning, setAbandoning] = useState(false);
 
   const onStart = () => {
     if (starting || active) return;
     setStarting(true);
+  };
+
+  const onAbandon = () => {
+    if (abandoning || !questId) return;
+    Alert.alert(
+      '퀘스트를 포기할까요?',
+      '내가 만든 퀘스트면 모두에게서 사라지고, 그 외에는 내 목록에서만 사라져요.',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '포기하기',
+          style: 'destructive',
+          onPress: async () => {
+            setAbandoning(true);
+            try {
+              await abandonQuest(questId);
+              navigation.goBack();
+            } catch (err: any) {
+              setAbandoning(false);
+              Alert.alert('포기하지 못했어요', '잠시 후 다시 시도해 주세요.');
+            }
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -58,19 +81,6 @@ export default function QuestDetailScreen({ navigation, route }: any) {
           exp={exp}
           showDesc
         />
-
-        {active ? (
-          <View style={styles.progressCard}>
-            <View style={styles.progressHead}>
-              <Text style={styles.progressLabel}>{goalLabel}</Text>
-              <Text style={styles.progressCount}>
-                {goalCur}
-                <Text style={styles.progressMax}> / {goalMax}</Text>
-              </Text>
-            </View>
-            <PixelProgress progress={goalCur / goalMax} height={12} />
-          </View>
-        ) : null}
       </ScrollView>
 
       {/* pinned footer */}
@@ -97,6 +107,14 @@ export default function QuestDetailScreen({ navigation, route }: any) {
             </LinearGradient>
           </SpringButton>
         )}
+
+        {questId ? (
+          <Pressable onPress={onAbandon} disabled={abandoning} style={styles.abandonWrap} hitSlop={8}>
+            <Text style={[styles.abandonText, abandoning && styles.abandonTextOff]}>
+              {abandoning ? '포기하는 중…' : '퀘스트 포기'}
+            </Text>
+          </Pressable>
+        ) : null}
       </LinearGradient>
 
       {starting ? (
@@ -115,20 +133,9 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.screenBg },
   body: { paddingHorizontal: 16, paddingTop: 22 },
 
-  progressCard: {
-    marginTop: 22,
-    marginHorizontal: 6,
-    backgroundColor: colors.white,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: '#D6E7DC',
-    padding: 16,
-    gap: 12,
-  },
-  progressHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  progressLabel: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, fontFamily: fonts.bodyB },
-  progressCount: { fontSize: 16, fontWeight: '800', color: colors.xpGreen, fontFamily: fonts.bodyB },
-  progressMax: { fontSize: 13, color: colors.textMuted, fontFamily: fonts.bodyR },
+  abandonWrap: { alignItems: 'center', paddingTop: 14 },
+  abandonText: { fontSize: 14, color: colors.textMuted, fontFamily: fonts.bodyR, textDecorationLine: 'underline' },
+  abandonTextOff: { opacity: 0.5 },
 
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingTop: 16 },
   ctaWrap: {

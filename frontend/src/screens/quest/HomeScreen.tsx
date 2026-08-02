@@ -3,7 +3,8 @@
  * MainHeader (no back). 진행중 퀘스트 드래그 캐러셀(빈 상태 토글) · 오늘의 추천 리스트
  * (스태거 페이드업) · 다시 추천 받기 · 퀘스트 등록 / 커스텀 추천 액션.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -49,9 +50,14 @@ export default function HomeScreen({ navigation }: any) {
     }
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  // 【판단】 useEffect(.., []) 는 화면을 처음 만들 때 한 번만 돈다. 퀘스트를
+  //        포기하고 돌아와도 목록이 그대로 남아 사라진 퀘스트가 계속 보인다.
+  //        useFocusEffect 는 이 화면으로 돌아올 때마다 다시 부른다.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, []),
+  );
 
   const activeQuests = quests.filter((q) => q.quest_status === 'IN_PROGRESS');
   const empty = activeQuests.length === 0;

@@ -17,6 +17,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { colors, fonts, brand, heroGradient, radii, NAV_ICONS } from '../theme';
+import { useAuth } from '../context/AuthContext';
 
 type Child = { label: string; screen: string };
 type Section = {
@@ -77,6 +78,7 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
   const insets = useSafeAreaInsets();
   const { navigation } = props;
   const [open, setOpen] = useState<string | null>('home');
+  const { signOut } = useAuth();
 
   const toggle = (key: string) => setOpen((cur) => (cur === key ? null : key));
 
@@ -93,10 +95,12 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
     navigation.closeDrawer();
     navigation.navigate('Admin', { screen: 'Dashboard' });
   };
-  const logout = () => {
+  const logout = async () => {
     navigation.closeDrawer();
-    const root = navigation.getParent?.() ?? navigation;
-    root.reset({ index: 0, routes: [{ name: 'Login' }] });
+    // 【판단】 전에는 화면만 로그인으로 되돌리고 토큰은 SecureStore 에 그대로
+    //        남겨뒀다. 그러면 앱을 껐다 켜면 다시 로그인된 상태가 된다.
+    //        signOut 이 토큰을 지우면 화면 묶음도 자동으로 바뀐다.
+    await signOut();
   };
 
   return (
