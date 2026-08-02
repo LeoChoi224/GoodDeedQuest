@@ -144,7 +144,7 @@ def submit_verification(
             # 판정 근거가 되는 대표 증빙만 pHash를 계산한다
             primary_phash = compute_media_phash(image_bytes, is_video)
 
-        duplicate = submission_respository.get_by(media_hash = photo_hash)
+        duplicate = submission_respository.get_by(media_hash = photo_hash, final_status = SubmissionStatus.ACCEPTED)
         if duplicate is not None:
             adjust_trust(current_user, TRUST_ON_REJECT)
             submission_respository.create({
@@ -163,7 +163,7 @@ def submit_verification(
 
     # 편집해서 파일 해시만 바꾼 재탕 검사 (Gemini 호출 전이라 비용이 들지 않는다)
     phash_distance = None
-    if primary_phash:
+    if primary_phash and is_video:
         nearest, phash_distance = find_nearest_submission(submission_respository, primary_phash)
         if is_duplicate(phash_distance):
             print(f"pHash 재탕 거절: submission_id={nearest.submission_id} 과 거리 {phash_distance}")
