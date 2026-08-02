@@ -8,7 +8,7 @@
  */
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { TOKEN_KEY } from '../api/client';
+import { TOKEN_KEY, REFRESH_TOKEN_KEY } from '../api/client';
 import { setUnauthorizedHandler } from '../api/authEvents';
 
 type AuthValue = {
@@ -51,6 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     try {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
+      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
     } finally {
       // 【판단】 지우기에 실패해도 화면은 로그아웃으로 넘긴다. 토큰이 죽은 건
       //        이미 확정이라, 남겨두면 계속 401 만 받는 상태에 갇힌다.

@@ -21,7 +21,8 @@ class Settings(BaseSettings):
 
     # Security
     SECRET_KEY: SecretStr #env 파일에 있고 5행부터 16번 행이 환경변수 가져오는 코드리 이게 더 안전함 노출 x
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # Database
     DATABASE_URL: PostgresDsn #env 파일에 있고 5행부터 16번 행이 환경변수 가져오는 코드리 이게 더 안전함 노출 x
