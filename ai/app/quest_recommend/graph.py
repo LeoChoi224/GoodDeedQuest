@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Final
 
 from langgraph.graph import StateGraph, END
 from ai.app.quest_recommend.state import RecommendState
@@ -14,7 +14,7 @@ from ai.app.quest_recommend.nodes.good_deed_agent import create_good_deeds
 from ai.app.quest_recommend.nodes.validation_agent import validate_candidates, route_validation
 from ai.app.quest_recommend.nodes.response_agent import format_response
 
-logger = logging.getLogger(__name__)
+logger: Final = logging.getLogger(__name__)
 
 
 def create_recommendation_graph():

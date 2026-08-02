@@ -1,10 +1,11 @@
 import logging
+from typing import Final
 from fastapi import APIRouter, HTTPException, status
 
 from ai.app.quest_recommend.schemas import QuestRecommendRequest, QuestRecommendResponse
 from ai.app.quest_recommend.graph import run_recommendation_flow
 
-logger = logging.getLogger(__name__)
+logger: Final = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai/recommend", tags=["AI Quest Recommendation"])
 
