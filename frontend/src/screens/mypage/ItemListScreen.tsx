@@ -6,7 +6,7 @@
  * 칭호 탭 = 실 데이터(api/badge.ts). 카테고리별로 묶어서 전체 노출, 미보유는 장착버튼 비활성화,
  *          보유 칭호 장착 시 단일 슬롯(자동 해제) — 백엔드 PATCH /badges/{id}/equip이 이미 그렇게 동작함.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react'; // ⭐ 수정: useRef 추가
 import { View, Text, Image, StyleSheet, FlatList, SectionList, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +31,17 @@ export default function ItemListScreen({ navigation, route }: any) {
   const initialTab = route?.params?.initialTab === 'title' ? 1 : 0;
   const [tab, setTab] = useState(initialTab); // 0=아이템, 1=칭호
 
+  // ⭐ 수정(#213): 장착/해제 API 응답을 기다리는 동안 뒤로가기로 화면이 언마운트되면,
+  // 응답이 늦게 도착했을 때 이미 사라진 화면에 setState를 시도하게 된다. MyPageScreen의
+  // useFocusEffect(cancelled 플래그)와 동일한 패턴 — 이 화면에는 빠져 있었다.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      console.log('[ItemListScreen] 언마운트'); // ⭐ 수정(#213): 임시 진단 로그, 원인 확정되면 제거할 것
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // ⭐ 수정: 아이템 탭 상태 — 구매 내역(=보유 아이템)
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [itemsLoading, setItemsLoading] = useState(true);
@@ -41,11 +52,14 @@ export default function ItemListScreen({ navigation, route }: any) {
     if (showSpinner) setItemsLoading(true);
     setItemsError(false);
     try {
-      setPurchases(await getPurchaseHistory());
+      const data = await getPurchaseHistory();
+      if (!isMountedRef.current) return; // ⭐ 수정(#213): 언마운트 후 응답 도착 시 setState 스킵
+      setPurchases(data);
     } catch (err) {
+      if (!isMountedRef.current) return; // ⭐ 수정(#213)
       setItemsError(true);
     } finally {
-      if (showSpinner) setItemsLoading(false);
+      if (showSpinner && isMountedRef.current) setItemsLoading(false); // ⭐ 수정(#213)
     }
   };
 
@@ -59,17 +73,19 @@ export default function ItemListScreen({ navigation, route }: any) {
     try {
       if (purchase.is_equipped) {
         await unequipShopItem(purchase.item_id);
+        if (!isMountedRef.current) return; // ⭐ 수정(#213)
         toast.show('아이템을 해제했어요.');
       } else {
         await equipShopItem(purchase.item_id);
+        if (!isMountedRef.current) return; // ⭐ 수정(#213)
         toast.show(`"${purchase.item.name}" 아이템을 장착했어요.`);
       }
       // ⭐ 수정: 서버가 유저당 1개만 장착되도록 보장하므로, 로컬 조작 없이 서버 상태를 그대로 재조회
       await loadPurchases(false);
     } catch (err) {
-      toast.show('아이템 변경에 실패했어요.');
+      if (isMountedRef.current) toast.show('아이템 변경에 실패했어요.'); // ⭐ 수정(#213)
     } finally {
-      setPendingItemId(null);
+      if (isMountedRef.current) setPendingItemId(null); // ⭐ 수정(#213)
     }
   };
 
@@ -87,12 +103,14 @@ export default function ItemListScreen({ navigation, route }: any) {
     setBadgesError(false);
     try {
       const [all, mine] = await Promise.all([getAllBadges(), getMyBadges()]);
+      if (!isMountedRef.current) return; // ⭐ 수정(#213): 언마운트 후 응답 도착 시 setState 스킵
       const equippedIds = new Set(mine.filter((m) => m.is_equipped).map((m) => m.badge_id));
       setBadges(all.map((b) => ({ ...b, is_equipped: equippedIds.has(b.badge_id) })));
     } catch (err) {
+      if (!isMountedRef.current) return; // ⭐ 수정(#213)
       setBadgesError(true);
     } finally {
-      if (showSpinner) setBadgesLoading(false);
+      if (showSpinner && isMountedRef.current) setBadgesLoading(false); // ⭐ 수정(#213)
     }
   };
 
@@ -120,9 +138,11 @@ export default function ItemListScreen({ navigation, route }: any) {
     try {
       if (badge.is_equipped) {
         await unequipBadge(badge.badge_id);
+        if (!isMountedRef.current) return; // ⭐ 수정(#213)
         toast.show('칭호를 해제했어요.');
       } else {
         await equipBadge(badge.badge_id);
+        if (!isMountedRef.current) return; // ⭐ 수정(#213)
         toast.show(`"${badge.name}" 칭호를 장착했어요.`);
       }
       // ⭐ 수정: 로컬에서 직접 상태를 조작하지 않고 서버에서 다시 받아온다 — 해제로
@@ -130,9 +150,9 @@ export default function ItemListScreen({ navigation, route }: any) {
       // 그 결과를 그대로 반영해야 화면과 서버 상태가 항상 일치한다.
       await loadBadges(false);
     } catch (err) {
-      toast.show('칭호 변경에 실패했어요.');
+      if (isMountedRef.current) toast.show('칭호 변경에 실패했어요.'); // ⭐ 수정(#213)
     } finally {
-      setPendingBadgeId(null);
+      if (isMountedRef.current) setPendingBadgeId(null); // ⭐ 수정(#213)
     }
   };
 
@@ -214,7 +234,26 @@ export default function ItemListScreen({ navigation, route }: any) {
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      <MainHeader showBack title="아이템 목록" onBack={() => navigation.goBack()} />
+      <MainHeader
+        showBack
+        title="아이템 목록"
+        onBack={() => {
+          // ⭐ 수정: 상점의 "보유 아이템" 버튼은 navigation.navigate('My', { screen: 'ItemList', ... })로
+          // 다른 탭(ShopStack)에서 넘어온다. 이 MyStack 인스턴스가 이번 세션에서 한 번도 포커스된
+          // 적이 없으면 마이페이지(MyPage) 없이 ItemList 하나만 이 스택의 유일한 라우트가 될 수 있다
+          // (state.index === 0) — 이 상태에서 goBack()을 부르면 로컬 스택엔 pop할 게 없어서 상위
+          // 네비게이터(탭/드로어)로 액션이 버블링되어, 하필 직전에 보고 있던 다른 탭(예: 커뮤니티)으로
+          // 튕기는 버그가 있었다. 로컬 스택에 아무것도 없을 때는 goBack 대신 같은 스택 안에서
+          // 'MyPage'로 명시적으로 이동시켜 항상 마이페이지로 돌아가게 한다.
+          const state = navigation.getState?.();
+          console.log('[ItemListScreen] 뒤로가기 클릭', { tab, pendingItemId, pendingBadgeId, stackIndex: state?.index, routes: state?.routes?.map((r: any) => r.name) }); // ⭐ 수정(#213): 임시 진단 로그, 원인 확정되면 제거할 것
+          if (state && state.index === 0) {
+            navigation.navigate('MyPage');
+          } else {
+            navigation.goBack();
+          }
+        }}
+      />
 
       <Text style={styles.sub}>포인트를 모아 아이템을 구매하세요</Text>
       <View style={styles.tabsWrap}>

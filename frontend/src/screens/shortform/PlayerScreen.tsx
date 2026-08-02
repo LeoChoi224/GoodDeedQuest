@@ -94,7 +94,18 @@ export default function PlayerScreen({ navigation, route }: any) {
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      <MainHeader showBack onBack={() => navigation.goBack()} />
+      <MainHeader
+        showBack
+        onBack={() => {
+          // ⭐ 수정: 완성된 영상을 보고 나가면 사진 선택 화면(PhotoSelect)이 이전 선택/AI
+          // 대본/음악을 그대로 들고 있던 상태로 다시 보였다 - PhotoSelect는 스택 안에
+          // 계속 살아있어서(unmount 안 됨) 그냥 goBack()만으로는 초기화되지 않는다.
+          // params로 reset 신호를 실어 보내면, PhotoSelect가 그 신호를 보고 스스로
+          // 상태를 초기화한다(생성 실패로 Generating에서 돌아가는 경우엔 이 신호가
+          // 없어서 선택이 그대로 유지됨 - 재시도 편의를 위해 의도적으로 다르게 동작).
+          navigation.navigate('PhotoSelect', { reset: true });
+        }}
+      />
 
       <View style={[styles.body, { paddingBottom: insets.bottom + 16 }]}>
         <Text style={styles.done}>✓ 생성 완료</Text>

@@ -4,7 +4,7 @@
  * the render spinner, the AI-script GamePopup, and the dark music BottomSheet.
  * Motion = Reanimated (transform/opacity + progress-bar fill, matching PixelProgress).
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react'; // ⭐ 수정: useMemo 추가
 import {
   View,
   Text,
@@ -95,6 +95,40 @@ const spStyles = StyleSheet.create({
     borderWidth: 5,
     borderColor: '#E7EFE8',
     borderTopColor: colors.primaryDark,
+  },
+});
+
+// ⭐ 수정: 생성중 화면 — 폴링 틱(실제 상태 조회 주기)마다 한 단계씩 채워지는 진행 바.
+// 백엔드가 세부 단계(%)를 내려주지 않으므로 실제 진행률은 아니지만, 폴링이 돌 때마다
+// (=실제로 서버에 진행 상황을 물어볼 때마다) 조금씩 채워져서 "멈춰있지 않다"는 걸 보여준다.
+const PROGRESS_TRACK_WIDTH = 220;
+
+export function GeneratingProgressBar({ progress }: { progress: number }) {
+  const w = useSharedValue(0);
+  useEffect(() => {
+    w.value = withTiming(progress, { duration: 700, easing: Easing.out(Easing.cubic) });
+  }, [progress]);
+  const st = useAnimatedStyle(() => ({ width: w.value * PROGRESS_TRACK_WIDTH }));
+  return (
+    <View style={pbStyles.track}>
+      <Animated.View style={[pbStyles.fill, st]} />
+    </View>
+  );
+}
+
+const pbStyles = StyleSheet.create({
+  track: {
+    width: PROGRESS_TRACK_WIDTH,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E7EFE8',
+    overflow: 'hidden',
+    marginTop: 18,
+  },
+  fill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: colors.primaryDark,
   },
 });
 
@@ -383,8 +417,25 @@ export function MusicSheet({
   const [tracks, setTracks] = useState<BackgroundMusic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<number | null>(null); // index of expanded/previewing track
+  const [open, setOpen] = useState<number | null>(null); // ⭐ 수정: 이제 인덱스가 아니라 expanded/previewing 중인 track의 bgm_id
   const skipFirstFetch = useRef(true);
+
+  // ⭐ 수정: 카테고리(mood_tag)별로 묶어서 "카테고리 제목" 아래에 "카테고리 노래1, 노래2..."
+  // 형태로 나열 — 전체 탭에서는 신나는/발랄한/차분한 등 카테고리별 섹션으로 구분되고,
+  // 특정 카테고리 칩을 선택하면 그 카테고리 하나만 섹션으로 보인다.
+  const trackGroups = useMemo(() => {
+    const order: string[] = [];
+    const map = new Map<string, BackgroundMusic[]>();
+    for (const t of tracks) {
+      const category = t.mood_tag || '기타';
+      if (!map.has(category)) {
+        map.set(category, []);
+        order.push(category);
+      }
+      map.get(category)!.push(t);
+    }
+    return order.map((category) => ({ category, items: map.get(category)! }));
+  }, [tracks]);
 
   // 시트를 열 때마다 전체 목록을 다시 받아와 트랙 + mood_tag 카테고리 칩을 구성한다.
   // (이전에 특정 카테고리로 필터링한 채 닫았어도 다음에 열면 '전체'로 리셋)
@@ -497,32 +548,39 @@ export function MusicSheet({
           </View>
         ) : (
           <ScrollView style={{ flex: 1 }} contentContainerStyle={ms.listPad} showsVerticalScrollIndicator={false}>
-            {tracks.map((t, i) => {
-              const selected = t.bgm_id === selectedBgmId;
-              return (
-                <View key={t.bgm_id}>
-                  <Pressable
-                    style={ms.trackRow}
-                    onPress={() => {
-                      setOpen((cur) => (cur === i ? null : i));
-                      onSelect(t);
-                    }}
-                  >
-                    <MusicNoteIcon />
-                    <View style={{ flex: 1 }}>
-                      <Text style={ms.trackName}>{t.title}</Text>
-                      <Text style={ms.trackCat}>{t.mood_tag ?? ''}</Text>
+            {/* ⭐ 수정: 카테고리별 섹션 — "신나는 노래" 제목 아래에 신나는 노래1,2,3... 나열,
+                그다음 "발랄한 노래" 제목 아래에 발랄한 노래1,2,3... 나열하는 예전 형식 복원 */}
+            {trackGroups.map((group) => (
+              <View key={group.category}>
+                <Text style={ms.sectionHeader}>{group.category} 노래</Text>
+                {group.items.map((t, idx) => {
+                  const selected = t.bgm_id === selectedBgmId;
+                  const displayName = `${group.category} 노래${idx + 1}`; // ⭐ 수정
+                  return (
+                    <View key={t.bgm_id}>
+                      <Pressable
+                        style={ms.trackRow}
+                        onPress={() => {
+                          setOpen((cur) => (cur === t.bgm_id ? null : t.bgm_id));
+                          onSelect(t);
+                        }}
+                      >
+                        <MusicNoteIcon />
+                        <View style={{ flex: 1 }}>
+                          <Text style={ms.trackName}>{displayName}</Text>
+                        </View>
+                        {selected ? (
+                          <View style={ms.selectedBadge}>
+                            <Text style={ms.selectedBadgeText}>✓</Text>
+                          </View>
+                        ) : null}
+                      </Pressable>
+                      {open === t.bgm_id ? <PreviewBar name={displayName} previewUrl={t.preview_url} /> : null}
                     </View>
-                    {selected ? (
-                      <View style={ms.selectedBadge}>
-                        <Text style={ms.selectedBadgeText}>✓</Text>
-                      </View>
-                    ) : null}
-                  </Pressable>
-                  {open === i ? <PreviewBar name={t.title} previewUrl={t.preview_url} /> : null}
-                </View>
-              );
-            })}
+                  );
+                })}
+              </View>
+            ))}
           </ScrollView>
         )}
       </View>
@@ -555,6 +613,15 @@ const ms = StyleSheet.create({
   chipTextActive: { color: colors.parchment },
   chipTextInactive: { color: sf.cream },
   listPad: { paddingHorizontal: 20, paddingBottom: 8 },
+  // ⭐ 수정: 카테고리 섹션 제목 ("신나는 노래" 등)
+  sectionHeader: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: sf.trackSub,
+    fontFamily: fonts.bodyB,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
   trackRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -564,7 +631,6 @@ const ms = StyleSheet.create({
     borderBottomColor: sf.goldLine,
   },
   trackName: { fontSize: 15, fontWeight: '600', color: sf.cream, fontFamily: fonts.bodyM },
-  trackCat: { fontSize: 13, color: sf.trackSub, fontFamily: fonts.bodyR, marginTop: 2 },
   selectedBadge: {
     width: 22,
     height: 22,
