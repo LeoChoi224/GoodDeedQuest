@@ -33,6 +33,26 @@ import {
 } from './adminApi';
 
 const LIMIT = 20;
+const NEW_REPORT_DURATION_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * 신고 생성 후 72시간이 지나지 않은 PENDING 신고인지 확인합니다.
+ */
+function isNewReport(report: AdminReport): boolean {
+  if (report.status !== 'PENDING') {
+    return false;
+  }
+
+  const createdAt = new Date(report.created_at).getTime();
+
+  if (Number.isNaN(createdAt)) {
+    return false;
+  }
+
+  const elapsedTime = Date.now() - createdAt;
+
+  return elapsedTime >= 0 && elapsedTime < NEW_REPORT_DURATION_MS;
+}
 
 export default function ReportListScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -183,7 +203,7 @@ export default function ReportListScreen({ navigation }: any) {
 
                   <View style={styles.info}>
                     <View style={styles.nameRow}>
-                      {item.status === 'PENDING' ? <NewBadge /> : null}
+                      {isNewReport(item) ? <NewBadge /> : null}
                       <Text style={styles.name}>
                         신고 #{item.report_id}
                       </Text>

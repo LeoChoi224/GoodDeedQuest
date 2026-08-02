@@ -19,6 +19,7 @@ export type CommunityFeedItem = {
   post_id: number;
   submission_id: number;
   media_url: string;
+  media_type: 'PHOTO' | 'VIDEO';
   caption: string | null;
   created_at: string;
   updated_at: string;
@@ -33,20 +34,67 @@ export type RecentQuestSubmission = {
   submission_id: number;
   quest_id: number;
   media_url: string | null;
+  media_type: 'PHOTO' | 'VIDEO' | null;
   submitted_at: string;
 };
 
 export type CommunityPostCreateRequest = {
   submission_id: number;
-  media_url: string;
   caption?: string | null;
 };
+
+export type CommunityPostUpdateRequest = {
+  caption: string | null;
+};
+
+export type CommunityUserProfile = {
+  nickname: string;
+  title: string;
+  current_level: number;
+  daily_streak: number;
+  profile_image_url: string | null;
+  equipped_border_image_url: string | null;
+};
+
+export type CommunityUserQuestAchievement = {
+  submission_id: number;
+  quest_id: number;
+  title: string;
+  description: string;
+  category_code: string;
+  completed_at: string;
+  reward_point: number | null;
+  reward_exp: number | null;
+};
+
+/**
+ * 로그인한 사용자가 작성한 게시글의 본문을 수정합니다.
+ */
+export async function updateCommunityPost(
+  postId: number,
+  request: CommunityPostUpdateRequest,
+): Promise<CommunityPost> {
+  const response = await api.patch<CommunityPost>(
+    `/community/posts/${postId}`,
+    request,
+  );
+
+  return response.data;
+}
+
+/**
+ * 로그인한 사용자가 작성한 게시글을 삭제합니다.
+ */
+export async function deleteCommunityPost(postId: number): Promise<void> {
+  await api.delete(`/community/posts/${postId}`);
+}
 
 export type CommunityPost = {
   post_id: number;
   user_id: number;
   submission_id: number;
   media_url: string;
+  media_type: 'PHOTO' | 'VIDEO';
   caption: string | null;
   is_active: boolean;
   created_at: string;
@@ -105,6 +153,26 @@ export async function getMyCommunityPosts(
         limit,
       },
     },
+  );
+
+  return response.data;
+}
+
+export async function getCommunityUserProfile(
+  userId: number,
+): Promise<CommunityUserProfile> {
+  const response = await api.get<CommunityUserProfile>(
+    `/community/users/${userId}/profile`,
+  );
+
+  return response.data;
+}
+
+export async function getCommunityUserQuestAchievements(
+  userId: number,
+): Promise<CommunityUserQuestAchievement[]> {
+  const response = await api.get<CommunityUserQuestAchievement[]>(
+    `/community/users/${userId}/quests/achievements`,
   );
 
   return response.data;

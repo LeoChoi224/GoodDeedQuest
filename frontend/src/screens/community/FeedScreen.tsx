@@ -8,7 +8,13 @@
  * 4. 관심 없음 기록 후 현재 화면에서 게시글 숨김
  * 5. 게시글 신고 접수
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -23,6 +29,7 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useFocusEffect } from '@react-navigation/native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { colors, fonts, gamePopup } from '../../theme';
 import HazeBackground from '../../components/HazeBackground';
@@ -32,6 +39,7 @@ import BottomSheet from '../../components/BottomSheet';
 import GamePopup from '../../components/GamePopup';
 import Shimmer from '../../components/Shimmer';
 import { useToast } from '../../components/Toast';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   CommunityComment,
   CommunityFeedItem,
@@ -44,6 +52,7 @@ import {
   markCommunityPostNotInterested,
   reportCommunityPost,
   toggleCommunityPostLike,
+  deleteCommunityPost,
 } from '../../api/community';
 import {
   Avatar,
@@ -54,6 +63,8 @@ import {
   SheetTitle,
   SirenIcon,
   XCircleIcon,
+  EditIcon,
+  TrashIcon,
 } from './_parts';
 
 const AVS: [string, string][] = [
@@ -67,6 +78,35 @@ const AVS: [string, string][] = [
 const COMMENT_MAX_LENGTH = 500;
 const SHEET_PAGE_SIZE = 20;
 const RECOMMENDATION_ROTATION_SIZE = 3;
+
+function CommunityMedia({ feed }: { feed: CommunityFeedItem }) {
+  const isVideo = feed.media_type === 'VIDEO';
+  const player = useVideoPlayer(
+    isVideo ? feed.media_url : null,
+    (videoPlayer) => {
+      videoPlayer.loop = true;
+    },
+  );
+
+  if (isVideo) {
+    return (
+      <VideoView
+        player={player}
+        style={styles.photo}
+        contentFit="cover"
+        nativeControls
+      />
+    );
+  }
+
+  return (
+    <Image
+      source={{ uri: feed.media_url }}
+      style={styles.photo}
+      resizeMode="cover"
+    />
+  );
+}
 
 /**
  * Backend 추천 점수순 상위 후보는 유지하면서
@@ -134,12 +174,15 @@ export default function FeedScreen({ navigation, route }: any) {
   const [likeUsersHasMore, setLikeUsersHasMore] = useState(false);
   const [likeUsersOffset, setLikeUsersOffset] = useState(0);
 
-  const [morePostId, setMorePostId] = useState<number | null>(null);
-  const [hidingPostId, setHidingPostId] = useState<number | null>(null);
-  const [reportPostId, setReportPostId] = useState<number | null>(null);
+const [morePostId, setMorePostId] = useState<number | null>(null);
+const [hidingPostId, setHidingPostId] = useState<number | null>(null);
+const [reportPostId, setReportPostId] = useState<number | null>(null);
+const [deletePostId, setDeletePostId] = useState<number | null>(null);
+const [deletingPostId, setDeletingPostId] = useState<number | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+useFocusEffect(
+  useCallback(() => {
+    let cancelled = false;
 
     const loadFeed = async () => {
       try {
@@ -150,7 +193,7 @@ export default function FeedScreen({ navigation, route }: any) {
           ? await getMyCommunityPosts()
           : await getRecommendedCommunityFeed();
 
-        if (!mounted) {
+        if (cancelled) {
           return;
         }
 
@@ -175,7 +218,7 @@ export default function FeedScreen({ navigation, route }: any) {
           error,
         );
 
-        if (mounted) {
+        if (!cancelled) {
           setFeedError(
             isMyPostsView
               ? '내 게시물을 불러오지 못했습니다.'
@@ -183,7 +226,7 @@ export default function FeedScreen({ navigation, route }: any) {
           );
         }
       } finally {
-        if (mounted) {
+        if (!cancelled) {
           setLoading(false);
         }
       }
@@ -192,9 +235,10 @@ export default function FeedScreen({ navigation, route }: any) {
     loadFeed();
 
     return () => {
-      mounted = false;
+      cancelled = true;
     };
-  }, [isMyPostsView]);
+  }, [isMyPostsView]),
+);
 
   const handleRefresh = async () => {
     if (refreshing) {
@@ -545,6 +589,37 @@ export default function FeedScreen({ navigation, route }: any) {
     }
   };
 
+  const deletePost = async () => {
+    if (deletePostId === null || deletingPostId !== null) {
+      return;
+    }
+
+    const postId = deletePostId;
+
+    try {
+      setDeletingPostId(postId);
+      await deleteCommunityPost(postId);
+
+      setFeeds((currentFeeds) =>
+        currentFeeds.filter((feed) => feed.post_id !== postId),
+      );
+
+      setLikes((currentLikes) => {
+        const nextLikes = { ...currentLikes };
+        delete nextLikes[String(postId)];
+        return nextLikes;
+      });
+
+      setDeletePostId(null);
+      toast.show('게시물이 삭제되었습니다');
+    } catch (error) {
+      console.error('커뮤니티 게시글 삭제 실패:', error);
+      toast.show('게시글을 삭제하지 못했습니다');
+    } finally {
+      setDeletingPostId(null);
+    }
+  };
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -660,7 +735,9 @@ export default function FeedScreen({ navigation, route }: any) {
                     style={styles.authorBtn}
                     onPress={() =>
                       navigation.navigate('UserDetail', {
+                        userId: feed.author.user_id,
                         user: {
+                          user_id: feed.author.user_id,
                           name: feed.author.nickname,
                           grad: avatarGradient,
                         },
@@ -673,22 +750,18 @@ export default function FeedScreen({ navigation, route }: any) {
                     />
                     <Text style={styles.userName}>{feed.author.nickname}</Text>
                   </Pressable>
-                  {!isMyPostsView && (
-                    <Pressable
-                      onPress={() => setMorePostId(feed.post_id)}
-                      hitSlop={6}
-                      style={styles.dotsBtn}
-                    >
-                      <DotsIcon />
-                    </Pressable>
-                  )}
+                  
+                  <Pressable
+                    onPress={() => setMorePostId(feed.post_id)}
+                    hitSlop={6}
+                    style={styles.dotsBtn}
+                  >
+                    <DotsIcon />
+                  </Pressable>
+                  
                 </View>
 
-                <Image
-                  source={{ uri: feed.media_url }}
-                  style={styles.photo}
-                  resizeMode="cover"
-                />
+                <CommunityMedia feed={feed} />
 
                 <View style={styles.cardBody}>
                   <View style={styles.actionRow}>
@@ -786,8 +859,11 @@ export default function FeedScreen({ navigation, route }: any) {
                   style={styles.commentRow}
                   onPress={() => {
                     closeComments();
+
                     navigation.navigate('UserDetail', {
+                      userId: comment.author.user_id,
                       user: {
+                        user_id: comment.author.user_id,
                         name: comment.author.nickname,
                         grad: commentGradient,
                       },
@@ -891,8 +967,11 @@ export default function FeedScreen({ navigation, route }: any) {
                   style={styles.likerRow}
                   onPress={() => {
                     closeLikeUsers();
+
                     navigation.navigate('UserDetail', {
+                      userId: user.user_id,
                       user: {
+                        user_id: user.user_id,
                         name: user.nickname,
                         grad: userGradient,
                       },
@@ -917,30 +996,82 @@ export default function FeedScreen({ navigation, route }: any) {
         visible={morePostId !== null}
         onClose={() => setMorePostId(null)}
       >
-        <Pressable
-          disabled={hidingPostId !== null}
-          style={[styles.moreRow, styles.moreDivider]}
-          onPress={() => {
-            if (morePostId !== null) {
-              hideFeed(morePostId);
-            }
-          }}
-        >
-          <XCircleIcon />
-          <Text style={styles.moreText}>관심없음</Text>
-        </Pressable>
-        <Pressable
-          style={styles.moreRow}
-          onPress={() => {
-            const postId = morePostId;
-            setMorePostId(null);
-            setReportPostId(postId);
-          }}
-        >
-          <SirenIcon />
-          <Text style={[styles.moreText, styles.moreDanger]}>신고하기</Text>
-        </Pressable>
+        {isMyPostsView ? (
+          <>
+            <Pressable
+              style={[styles.moreRow, styles.moreDivider]}
+              onPress={() => {
+                const post = feeds.find(
+                  (feed) => feed.post_id === morePostId,
+                );
+
+                setMorePostId(null);
+
+                if (post) {
+                  navigation.navigate('NewPost', { post });
+                }
+              }}
+            >
+              <EditIcon />
+              <Text style={styles.moreText}>수정하기</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.moreRow}
+              onPress={() => {
+                const postId = morePostId;
+                setMorePostId(null);
+                setDeletePostId(postId);
+              }}
+            >
+              <TrashIcon />
+              <Text style={[styles.moreText, styles.moreDanger]}>
+                삭제하기
+              </Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Pressable
+              disabled={hidingPostId !== null}
+              style={[styles.moreRow, styles.moreDivider]}
+              onPress={() => {
+                if (morePostId !== null) {
+                  hideFeed(morePostId);
+                }
+              }}
+            >
+              <XCircleIcon />
+              <Text style={styles.moreText}>관심없음</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.moreRow}
+              onPress={() => {
+                const postId = morePostId;
+                setMorePostId(null);
+                setReportPostId(postId);
+              }}
+            >
+              <SirenIcon />
+              <Text style={[styles.moreText, styles.moreDanger]}>
+                신고하기
+              </Text>
+            </Pressable>
+          </>
+        )}
       </BottomSheet>
+
+      <DeletePostPopup
+        visible={deletePostId !== null}
+        submitting={deletingPostId !== null}
+        onClose={() => {
+          if (deletingPostId === null) {
+            setDeletePostId(null);
+          }
+        }}
+        onConfirm={deletePost}
+      />
 
       <ReportPopup
         visible={reportPostId !== null}
@@ -948,6 +1079,57 @@ export default function FeedScreen({ navigation, route }: any) {
         onSubmit={submitReport}
       />
     </View>
+  );
+}
+
+function DeletePostPopup({
+  visible,
+  submitting,
+  onClose,
+  onConfirm,
+}: {
+  visible: boolean;
+  submitting: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const { width } = useWindowDimensions();
+
+  return (
+    <GamePopup
+      visible={visible}
+      onClose={onClose}
+      dismissOnBackdrop={!submitting}
+      width={Math.min(345, width - 48)}
+      style={dp.frame}
+    >
+      <Text style={dp.title}>게시물을 삭제할까요?</Text>
+      <Text style={dp.description}>
+        삭제한 게시물은 다시 복구할 수 없습니다.
+      </Text>
+
+      <View style={dp.buttonRow}>
+        <Pressable
+          disabled={submitting}
+          onPress={onConfirm}
+          style={[dp.button, dp.deleteButton]}
+        >
+          {submitting ? (
+            <ActivityIndicator size="small" color={colors.white} />
+          ) : (
+            <Text style={dp.deleteText}>삭제하기</Text>
+          )}
+        </Pressable>
+
+        <Pressable
+          disabled={submitting}
+          onPress={onClose}
+          style={[dp.button, dp.cancelButton]}
+        >
+          <Text style={dp.cancelText}>취소</Text>
+        </Pressable>
+      </View>
+    </GamePopup>
   );
 }
 
@@ -1342,6 +1524,58 @@ const styles = StyleSheet.create({
   },
   moreDanger: {
     color: colors.danger,
+    fontWeight: '700',
+    fontFamily: fonts.bodyB,
+  },
+});
+
+const dp = StyleSheet.create({
+  frame: {
+    borderColor: colors.gold,
+  },
+  title: {
+    fontFamily: fonts.pixel,
+    fontSize: 17,
+    color: gamePopup.cream,
+    textAlign: 'center',
+  },
+  description: {
+    marginTop: 12,
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#B9C9BD',
+    textAlign: 'center',
+    fontFamily: fonts.bodyR,
+  },
+  buttonRow: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 22,
+  },
+  button: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteButton: {
+    backgroundColor: colors.danger,
+  },
+  deleteText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
+    fontFamily: fonts.bodyB,
+  },
+  cancelButton: {
+    borderWidth: 1,
+    borderColor: 'rgba(242,215,131,0.5)',
+  },
+  cancelText: {
+    color: gamePopup.cream,
+    fontSize: 14,
     fontWeight: '700',
     fontFamily: fonts.bodyB,
   },

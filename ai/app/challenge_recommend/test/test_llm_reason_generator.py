@@ -8,8 +8,9 @@ from __future__ import annotations
 #
 # 2. 테스트 범위
 #    - 실제 OpenAI API는 호출하지 않습니다.
-#    - 정상 JSON 파싱과 잘못된 JSON 예외 처리만 최소 검증합니다.
-#    - 실제 API 장애 시 Graph Fallback은 test_graph.py에서 추가 검증합니다.
+#    - 정상 배열 JSON과 user_id-key 객체 JSON을 모두 검증합니다.
+#    - 실제 API 장애 없이 LLM 이유가 Node에서 LLM 결과로 유지되는지 검증합니다.
+#    - 잘못된 JSON과 잘못된 reasons 값은 명확한 예외로 처리합니다.
 #
 # 3. 실행 명령어
 #    - python -m pytest /
@@ -24,6 +25,9 @@ import pytest
 from ai.app.challenge_recommend.llm_reason_generator import (
     OpenAIRecommendationReasonGenerator,
     RecommendationReasonLLMError,
+)
+from ai.app.challenge_recommend.nodes import (
+    create_recommendation_reason_node,
 )
 from ai.app.challenge_recommend.schemas import (
     TeamRecommendationRequest,
@@ -146,6 +150,121 @@ def test_generate_returns_valid_recommendation_reasons() -> None:
     assert fake_model.received_input is not None
 
 
+def test_generate_normalizes_user_id_keyed_reason_mapping() -> None:
+    """실제 오류 형태의 reasons 객체가 표준 배열로 변환되는지 확인합니다."""
+
+    fake_model = FakeChatModel(
+        '''{
+          "reasons": {
+            "2": "환경지킴이님은 환경 분야에 관심이 있고 서울에서 활동할 수 있어 공원 정화 퀘스트를 함께하기 좋은 친구예요."
+          }
+        }'''
+    )
+    generator = OpenAIRecommendationReasonGenerator(
+        chat_model=fake_model,
+    )
+    request = make_request()
+    state = create_initial_recommendation_state(request)
+    candidates = make_scored_candidates(request)
+
+    result = generator.generate(
+        state=state,
+        candidates=candidates,
+    )
+
+    assert len(result.reasons) == 1
+    assert result.reasons[0].user_id == 2
+    assert result.reasons[0].reason_source == "LLM"
+    assert "공원 정화" in result.reasons[0].recommendation_reason
+    assert result.reasons[0].highlights == []
+
+
+def test_generate_normalizes_user_id_keyed_reason_object() -> None:
+    """user_id-key 객체의 상세 이유 형식도 표준 배열로 변환합니다."""
+
+    generator = OpenAIRecommendationReasonGenerator(
+        chat_model=FakeChatModel(
+            '''{
+              "reasons": {
+                "2": {
+                  "recommendation_reason": "환경 관심사와 서울 지역 조건이 잘 맞아 공원 정화 활동을 함께하기 좋은 친구예요.",
+                  "highlights": ["환경 관심", "서울 지역"]
+                }
+              }
+            }'''
+        ),
+    )
+    request = make_request()
+
+    result = generator.generate(
+        state=create_initial_recommendation_state(request),
+        candidates=make_scored_candidates(request),
+    )
+
+    assert result.reasons[0].user_id == 2
+    assert result.reasons[0].highlights == [
+        "환경 관심",
+        "서울 지역",
+    ]
+
+
+def test_reason_node_keeps_normalized_mapping_as_llm_result() -> None:
+    """객체 응답이 전체 Fallback으로 바뀌지 않고 LLM 이유로 유지되는지 확인합니다."""
+
+    generator = OpenAIRecommendationReasonGenerator(
+        chat_model=FakeChatModel(
+            '''{
+              "reasons": {
+                "2": "환경지킴이님은 환경 관심사와 오전 활동 시간이 잘 맞아 공원 정화 퀘스트에 함께하기 좋은 친구예요."
+              }
+            }'''
+        ),
+    )
+    request = make_request()
+    state = create_initial_recommendation_state(request)
+    state["ranked_candidates"] = make_scored_candidates(request)
+
+    result = create_recommendation_reason_node(generator)(state)
+    reasons = result["recommendation_reasons"]
+
+    assert len(reasons) == 1
+    assert reasons[0].reason_source == "LLM"
+    assert result["metadata"]["generated_reason_count"] == 1
+    assert result["metadata"]["fallback_reason_count"] == 0
+    assert result["warnings"] == []
+
+
+def test_prompt_requires_reasons_array_output() -> None:
+    """Prompt가 reasons 배열과 후보별 user_id를 명확히 요구하는지 확인합니다."""
+
+    fake_model = FakeChatModel(
+        '''{
+          "reasons": [
+            {
+              "user_id": 2,
+              "recommendation_reason": "환경 관심사와 활동 시간이 잘 맞는 친구예요.",
+              "highlights": []
+            }
+          ]
+        }'''
+    )
+    generator = OpenAIRecommendationReasonGenerator(
+        chat_model=fake_model,
+    )
+    request = make_request()
+
+    generator.generate(
+        state=create_initial_recommendation_state(request),
+        candidates=make_scored_candidates(request),
+    )
+
+    user_prompt = fake_model.received_input[1].content
+
+    assert "reasons는 객체가 아니라 반드시" in user_prompt
+    assert '"reasons": [' in user_prompt
+    assert '"user_id": 2' in user_prompt
+
+
 def test_generate_raises_error_when_llm_returns_invalid_json() -> None:
     """잘못된 LLM 문자열은 Node가 Fallback할 수 있도록 예외가 발생해야 합니다."""
 
@@ -163,4 +282,28 @@ def test_generate_raises_error_when_llm_returns_invalid_json() -> None:
         generator.generate(
             state=state,
             candidates=candidates,
+        )
+
+
+def test_generate_raises_error_when_reason_mapping_value_is_invalid() -> None:
+    """문자열·객체가 아닌 reasons 값은 임의 보정하지 않고 차단합니다."""
+
+    generator = OpenAIRecommendationReasonGenerator(
+        chat_model=FakeChatModel(
+            '''{
+              "reasons": {
+                "2": 123
+              }
+            }'''
+        ),
+    )
+    request = make_request()
+
+    with pytest.raises(
+        RecommendationReasonLLMError,
+        match="Schema와 일치하지 않습니다",
+    ):
+        generator.generate(
+            state=create_initial_recommendation_state(request),
+            candidates=make_scored_candidates(request),
         )

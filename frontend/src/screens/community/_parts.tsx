@@ -63,6 +63,43 @@ export const XCircleIcon = ({ size = 24, color = '#9CA3AF' }: { size?: number; c
   </Svg>
 );
 
+export const EditIcon = ({
+  size = 24,
+  color = '#6B7280',
+}: {
+  size?: number;
+  color?: string;
+}) => (
+  <Stroke
+    d={[
+      'M12 20h9',
+      'M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z',
+    ]}
+    color={color}
+    size={size}
+  />
+);
+
+export const TrashIcon = ({
+  size = 24,
+  color = '#E53935',
+}: {
+  size?: number;
+  color?: string;
+}) => (
+  <Stroke
+    d={[
+      'M3 6h18',
+      'M8 6V4h8v2',
+      'M19 6l-1 14H6L5 6',
+      'M10 11v5',
+      'M14 11v5',
+    ]}
+    color={color}
+    size={size}
+  />
+);
+
 export const WhiteCheck = ({ size = 14, color = '#fff' }: { size?: number; color?: string }) => (
   <Stroke d="M5 13l4 4 10-11" color={color} w={3} size={size} />
 );

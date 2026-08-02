@@ -34,18 +34,56 @@ from backend.app.community.schema import (
     CommunityFeedItemResponse,
     CommunityPostCreate,
     CommunityPostResponse,
+    CommunityPostUpdate,
     FeedHiddenPreferenceResponse,
     PostLikeToggleResponse,
     PostLikeUserResponse,
     RecentQuestSubmissionResponse,
     CommunityReportCreate,
     CommunityReportResponse,
+    CommunityUserProfileResponse,
+    CommunityUserQuestAchievementResponse,
 )
 
 router = APIRouter(
     prefix="/community",
     tags=["Community"],
 )
+
+@router.get(
+    "/users/{user_id}/profile",
+    response_model=CommunityUserProfileResponse,
+    status_code=status.HTTP_200_OK,
+    summary="사용자 공개 프로필 조회",
+)
+def get_community_user_profile(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> CommunityUserProfileResponse:
+    return service.get_community_user_profile(
+        db=db,
+        user_id=user_id,
+        current_user=current_user,
+    )
+
+
+@router.get(
+    "/users/{user_id}/quests/achievements",
+    response_model=list[CommunityUserQuestAchievementResponse],
+    status_code=status.HTTP_200_OK,
+    summary="사용자 달성 퀘스트 타임라인 조회",
+)
+def get_community_user_quest_achievements(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> list[CommunityUserQuestAchievementResponse]:
+    return service.get_community_user_quest_achievements(
+        db=db,
+        user_id=user_id,
+        current_user=current_user,
+    )
 
 @router.get(
     "/quest-submissions/recent",
@@ -98,8 +136,45 @@ def create_community_post(
         current_user=current_user,
     )
 
-    return CommunityPostResponse.model_validate(post)
+@router.patch(
+    "/posts/{post_id}",
+    response_model=CommunityPostResponse,
+    status_code=status.HTTP_200_OK,
+    summary="내 커뮤니티 게시글 수정",
+)
+def update_community_post(
+    post_id: int,
+    request: CommunityPostUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> CommunityPostResponse:
+    """현재 로그인 사용자가 작성한 게시글 본문을 수정합니다."""
 
+    return service.update_community_post(
+        db=db,
+        post_id=post_id,
+        request=request,
+        current_user=current_user,
+    )
+
+
+@router.delete(
+    "/posts/{post_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="내 커뮤니티 게시글 삭제",
+)
+def delete_community_post(
+    post_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user),
+) -> None:
+    """현재 로그인 사용자가 작성한 게시글을 삭제합니다."""
+
+    service.delete_community_post(
+        db=db,
+        post_id=post_id,
+        current_user=current_user,
+    )
 
 # 로그인한 사용자에게 기본 커뮤니티 피드를 반환.
 @router.get(
