@@ -1,9 +1,11 @@
 import logging
+from typing import Final
+
 from ai.app.common.vector_adapter import get_vector_store_adapter, get_dummy_volunteer_data
 
 # 로그 출력 설정
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger: Final = logging.getLogger(__name__)
 
 
 def test_hybrid_search():
