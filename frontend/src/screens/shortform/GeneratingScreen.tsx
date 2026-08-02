@@ -11,10 +11,21 @@ import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import { colors, fonts } from '../../theme';
-import { Spinner } from './_parts';
+import { GeneratingProgressBar } from './_parts'; // ⭐ 수정: 원형 스피너 제거, 진행 바만 사용
 import { generateVideo, getShortformStatus, CaptionItem } from '../../api/shortform';
 
 const POLL_INTERVAL_MS = 4000;
+
+// ⭐ 수정: 백엔드가 세부 진행률(%)을 내려주지 않으므로, 폴링 틱마다 한 단계씩
+// 넘어가는 연출용 단계 문구. 실제 파이프라인 순서(자막/BGM 확정 → 장면 합성 →
+// 렌더링 → 업로드)를 대략적으로 따라간다.
+const GENERATING_STAGES = [
+  '요청을 접수하고 있어요...',
+  '자막과 배경음악을 확인하고 있어요...',
+  '장면을 이어붙이고 있어요...',
+  '영상을 렌더링하고 있어요...',
+  '마무리하고 있어요...',
+];
 
 export default function GeneratingScreen({ navigation, route }: any) {
   const shortsId: number | undefined = route?.params?.shortsId;
@@ -22,11 +33,13 @@ export default function GeneratingScreen({ navigation, route }: any) {
   const captions: CaptionItem[] | null = route?.params?.captions ?? null;
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [stageIndex, setStageIndex] = useState(0); // ⭐ 수정: 진행 연출용 단계 인덱스
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const stopped = useRef(false);
 
   useEffect(() => {
     stopped.current = false;
+    setStageIndex(0); // ⭐ 수정
 
     const stopPolling = () => {
       if (pollTimer.current) {
@@ -46,6 +59,9 @@ export default function GeneratingScreen({ navigation, route }: any) {
           } else if (result.status === 'FAILED') {
             stopPolling();
             setErrorMessage(result.error_message ?? '영상 생성에 실패했습니다.');
+          } else {
+            // ⭐ 수정: 아직 진행 중 — 폴링 틱마다 한 단계씩 진행 연출을 넘긴다
+            setStageIndex((i) => Math.min(i + 1, GENERATING_STAGES.length - 1));
           }
         } catch (error: any) {
           // ⭐ 임시 진단 로깅 (이슈 #196) - 원인 파악되면 제거
@@ -109,10 +125,11 @@ export default function GeneratingScreen({ navigation, route }: any) {
       <HazeBackground />
       <MainHeader />
 
+      {/* ⭐ 수정: 원형 스피너 제거 — 텍스트 + 진행 바만 화면 중앙에 배치 */}
       <Animated.View entering={FadeIn.duration(260)} style={styles.center}>
-        <Spinner />
         <Text style={styles.title}>영상을 생성하는 중입니다...</Text>
-        <Text style={styles.sub}>FFmpeg으로 렌더링하고 있어요. 잠시만 기다려주세요.</Text>
+        <Text style={styles.sub}>{GENERATING_STAGES[stageIndex]}</Text>
+        <GeneratingProgressBar progress={(stageIndex + 1) / GENERATING_STAGES.length} />
       </Animated.View>
     </View>
   );
@@ -121,7 +138,7 @@ export default function GeneratingScreen({ navigation, route }: any) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.screenBg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
-  title: { fontFamily: fonts.pixel, fontSize: 16, color: colors.primaryDark, marginTop: 20, marginBottom: 8 },
+  title: { fontFamily: fonts.pixel, fontSize: 16, color: colors.primaryDark, marginBottom: 8 }, // ⭐ 수정: 스피너 제거로 marginTop 불필요
   sub: { fontSize: 12, color: '#888', textAlign: 'center', fontFamily: fonts.bodyR },
 
   errorTitle: { fontFamily: fonts.pixel, fontSize: 16, color: colors.danger, marginBottom: 10, textAlign: 'center' },

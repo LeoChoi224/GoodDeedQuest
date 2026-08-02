@@ -80,6 +80,25 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
   const [autoBgmId, setAutoBgmId] = useState<number | null>(null);
   const questTitleCache = React.useRef<Map<number, string>>(new Map());
 
+  // ⭐ 수정: 생성 완료(PlayerScreen)를 보고 뒤로가기로 나오면 처음부터 다시 선택할 수 있도록
+  // 사진 선택/AI 대본/음악/기간 필터를 전부 초기 상태로 되돌린다. PlayerScreen이 뒤로가기 시
+  // navigation.navigate('PhotoSelect', { reset: true })로 이 신호를 실어 보낸다.
+  useEffect(() => {
+    if (!route?.params?.reset) return;
+    setPeriod(0);
+    setSelectedIds([]);
+    setScriptOpen(false);
+    setMusicOpen(false);
+    setShortsId(null);
+    setShortsIdBgmId(undefined);
+    setShortsIdTitle(undefined);
+    setSelectedBgm(null);
+    setCaptions(null);
+    setScriptTitle(null);
+    setAutoBgmId(null);
+    navigation.setParams({ reset: undefined });
+  }, [route?.params?.reset]);
+
   useEffect(() => {
     let mounted = true;
     (async () => {

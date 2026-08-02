@@ -17,6 +17,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { colors, fonts, brand, heroGradient, radii, NAV_ICONS } from '../theme';
+import { useProfile } from '../context/ProfileContext'; // ⭐ 수정: 마이페이지 프로필 헤더와 동일한 정보를 실시간으로 표시
 
 type Child = { label: string; screen: string };
 type Section = {
@@ -77,6 +78,7 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
   const insets = useSafeAreaInsets();
   const { navigation } = props;
   const [open, setOpen] = useState<string | null>('home');
+  const { profile } = useProfile(); // ⭐ 수정: 마이페이지 프로필 헤더와 같은 Context
 
   const toggle = (key: string) => setOpen((cur) => (cur === key ? null : key));
 
@@ -109,12 +111,15 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
         <Image source={brand.appIcon} style={styles.brandIcon} />
         <View style={{ flex: 1 }}>
           <Text style={styles.brand}>선행퀘스트</Text>
-          <Text style={styles.sub}>선한김철수 · 마을 수호자</Text>
+          {/* ⭐ 수정: 더미 텍스트 → 마이페이지 프로필 헤더와 동일한 Context 데이터 (실시간 동기화) */}
+          <Text style={styles.sub}>
+            {profile ? `${profile.nickname} · ${profile.title}` : '불러오는 중...'}
+          </Text>
           <View style={styles.metaRow}>
             <View style={styles.lvPill}>
-              <Text style={styles.lvText}>LV.12</Text>
+              <Text style={styles.lvText}>LV.{profile?.current_level ?? '-'}</Text>
             </View>
-            <Text style={styles.streak}>🔥 7일째 연속접속</Text>
+            <Text style={styles.streak}>🔥 {profile?.daily_streak ?? 0}일째 연속접속</Text>
           </View>
         </View>
       </LinearGradient>
