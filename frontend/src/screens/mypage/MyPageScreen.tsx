@@ -21,10 +21,9 @@ import { ConicAvatar, ChevronRight } from './_parts'; // ⭐ 수정: 더미 ACHI
 import {
   getMyQuestAchievements,
   type MyQuestAchievement,
-  getMyProfile,
   uploadProfileImage,
-  type MyProfile,
 } from '../../api/mypage'; // ⭐ 수정
+import { useProfile } from '../../context/ProfileContext'; // ⭐ 수정: 프로필 헤더를 드로어와 공유
 import { getFullImageUrl } from '../shop/_parts'; // ⭐ 수정: 장착 테두리 image_url이 상대경로(/static/...)라 base URL을 붙여야 함
 
 // ⭐ 수정: completed_at(ISO)을 리스트용 짧은 날짜 / 팝업용 상세 시각 문자열로 변환
@@ -51,51 +50,39 @@ export default function MyPageScreen({ navigation }: any) {
   const [achievements, setAchievements] = useState<MyQuestAchievement[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  // ⭐ 수정: 프로필 헤더(이름/칭호/레벨/연속접속일/이미지) 상태
-  const [profile, setProfile] = useState<MyProfile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [profileError, setProfileError] = useState(false);
+  // ⭐ 수정: 프로필 헤더(이름/칭호/레벨/연속접속일/이미지)는 드로어와 공유하는 Context에서 가져온다
+  const { profile, loading: profileLoading, error: profileError, refreshProfile, setProfile } = useProfile();
   const [uploadingImage, setUploadingImage] = useState(false);
   const toast = useToast();
 
-  // ⭐ 수정: 마운트 시 달성 퀘스트 타임라인 조회
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setLoadError(false);
-      try {
-        setAchievements(await getMyQuestAchievements());
-      } catch (err: any) {
-        setLoadError(true);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+  // ⭐ 수정: 달성 퀘스트 타임라인 조회 — 재시도 버튼과 포커스 재조회 둘 다에서 재사용
+  const loadAchievements = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      setAchievements(await getMyQuestAchievements());
+    } catch (err: any) {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // ⭐ 수정: 프로필 헤더 조회 — useFocusEffect로 변경 (마운트 + 아이템 목록에서 칭호 장착/해제하고
-  // 돌아올 때마다 재조회되어 화면의 칭호 표시가 실시간으로 갱신됨)
+  // ⭐ 수정: 마운트 + 포커스될 때마다 재조회 (예전엔 마운트 1회뿐이라, 한 번 실패(예: 백엔드
+  // 마이그레이션 미적용)하면 화면이 언마운트되기 전까진 계속 실패 문구만 보였음)
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
-      const loadProfile = async () => {
-        setProfileLoading(true);
-        setProfileError(false);
-        try {
-          const data = await getMyProfile();
-          if (!cancelled) setProfile(data);
-        } catch (err: any) {
-          if (!cancelled) setProfileError(true);
-        } finally {
-          if (!cancelled) setProfileLoading(false);
-        }
-      };
-      loadProfile();
-      return () => {
-        cancelled = true;
-      };
-    }, [])
+      loadAchievements();
+    }, [loadAchievements])
+  );
+
+  // ⭐ 수정: 프로필 헤더 조회 — 마운트 + 아이템 목록에서 칭호 장착/해제하고 돌아올 때마다
+  // Context의 refreshProfile()을 호출해 재조회한다. Context 상태이므로 이 화면뿐 아니라
+  // 드로어 상단도 같은 값으로 즉시 함께 갱신된다.
+  useFocusEffect(
+    useCallback(() => {
+      refreshProfile();
+    }, [refreshProfile])
   );
 
   // ⭐ 수정: 프로필 이미지 탭 → 갤러리 열기 → 업로드
@@ -190,6 +177,10 @@ export default function MyPageScreen({ navigation }: any) {
           ) : loadError ? (
             <View style={styles.timelineStateBox}>
               <Text style={styles.timelineStateText}>달성 내역을 불러오지 못했어요</Text>
+              {/* ⭐ 수정: 재시도 버튼 — 포커스 재조회를 놓쳤거나 일시적 오류일 때 수동으로 다시 시도 */}
+              <SpringButton style={styles.retryBtn} onPress={loadAchievements}>
+                <Text style={styles.retryBtnText}>다시 시도</Text>
+              </SpringButton>
             </View>
           ) : achievements.length === 0 ? (
             <View style={styles.timelineStateBox}>
@@ -330,6 +321,15 @@ const styles = StyleSheet.create({
   // ⭐ 수정: 로딩/에러/빈 목록 상태 표시용
   timelineStateBox: { paddingVertical: 32, alignItems: 'center', justifyContent: 'center' },
   timelineStateText: { fontSize: 13, color: '#888', fontFamily: fonts.bodyM },
+  // ⭐ 수정: 달성 내역 로드 실패 시 재시도 버튼
+  retryBtn: {
+    marginTop: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: colors.primaryDark,
+  },
+  retryBtnText: { fontSize: 13, color: colors.parchment, fontFamily: fonts.bodyM },
 
   // actions
   actions: { flexDirection: 'row', gap: 10 },

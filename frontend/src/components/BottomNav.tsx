@@ -3,7 +3,7 @@
  * #5C3D1E 2px. Tabs: 커뮤니티 | 지도 | 홈 | 상점 | 마이페이지. Active: gold #D4A017 +
  * highlight tile behind the icon (spring). Inactive: white 60%.
  */
-import React from 'react';
+import React, { useEffect } from 'react'; // ⭐ 수정: useEffect 추가
 import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -30,7 +30,11 @@ function TabButton({
   const meta = TABS[routeName];
   const tile = useSharedValue(focused ? 1 : 0);
   const press = useSharedValue(1);
-  tile.value = withSpring(focused ? 1 : 0, spring.pop);
+  // ⭐ 수정: 렌더 중에 shared value를 직접 write하고 있었음(Reanimated strict-mode 경고
+  // "Writing to `value` during component render") — focused가 바뀔 때만 useEffect에서 반영
+  useEffect(() => {
+    tile.value = withSpring(focused ? 1 : 0, spring.pop);
+  }, [focused]);
 
   const tileStyle = useAnimatedStyle(() => ({
     opacity: tile.value,

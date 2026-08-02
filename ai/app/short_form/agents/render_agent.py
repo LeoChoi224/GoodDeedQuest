@@ -24,6 +24,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import textwrap  # ⭐ 수정: 자막 줄바꿈(#213)을 위해 추가
 from pathlib import Path
 
 from sqlalchemy import select
@@ -39,6 +40,15 @@ logger = logging.getLogger(__name__)
 SCENE_DURATION_SECONDS = 3
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
+
+# ⭐ 수정(#213): 자막이 프레임 밖으로 밀려나던 버그 수정용 상수.
+# fontsize 48 기준 malgun.ttf/NanumGothic 한글 글자 폭이 대략 32px이므로,
+# 한 줄당 20자면 약 640px로 1080px 폭 안에 넉넉한 여백을 두고 들어간다.
+CAPTION_FONT_SIZE = 48
+CAPTION_MAX_CHARS_PER_LINE = 20
+CAPTION_LINE_SPACING = 20
+CAPTION_LINE_HEIGHT = CAPTION_FONT_SIZE + CAPTION_LINE_SPACING  # 줄 간 세로 피치(대략치)
+CAPTION_BOTTOM_MARGIN = 180  # 프레임 하단에서 자막까지의 여백(px)
 
 
 def render_agent(state: ShortFormState) -> ShortFormState:
@@ -138,14 +148,19 @@ def _build_ffmpeg_command(
     for idx in range(scene_count):
         # 방어 코드: captions 개수가 media_keys보다 적을 경우 빈 자막으로 처리
         caption = captions[idx] if idx < len(captions) else ""
-        caption_escaped = _escape_drawtext_text(caption)
+        # ⭐ 수정(#213): 자막을 줄바꿈하고, 줄 수만큼 y좌표를 위로 올려서 프레임 밖으로
+        # 밀려나지 않도록 함 (기존 y=h-th-120은 한 줄이 프레임 폭을 넘는 긴 자막에서
+        # 좌우로 잘려 나가는 문제가 있었음 - 줄바꿈 없이 단일 라인으로만 그려졌기 때문)
+        caption_lines = _wrap_caption(caption)
+        caption_escaped = _escape_drawtext_text("\n".join(caption_lines))
+        caption_y = OUTPUT_HEIGHT - CAPTION_BOTTOM_MARGIN - (len(caption_lines) * CAPTION_LINE_HEIGHT)
 
         scene_filters.append(
             f"[{idx}:v]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:force_original_aspect_ratio=decrease,"
             f"pad={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
             f"drawtext=fontfile='{font_path_escaped}':text='{caption_escaped}':"
-            f"fontsize=48:fontcolor=white:borderw=3:bordercolor=black:"
-            f"x=(w-text_w)/2:y=h-th-120[v{idx}]"
+            f"fontsize={CAPTION_FONT_SIZE}:fontcolor=white:borderw=3:bordercolor=black:"
+            f"line_spacing={CAPTION_LINE_SPACING}:x=(w-text_w)/2:y={caption_y}[v{idx}]"
         )
 
     concat_inputs = "".join(f"[v{idx}]" for idx in range(scene_count))
@@ -164,6 +179,21 @@ def _build_ffmpeg_command(
         output_path,
     ]
     return cmd
+
+
+def _wrap_caption(text: str) -> list[str]:  # ⭐ 수정(#213): 자막 줄바꿈
+    """자막을 CAPTION_MAX_CHARS_PER_LINE 기준으로 여러 줄로 줄바꿈.
+
+    공백 단위로 먼저 나누고, 한 단어(공백으로 구분되지 않는 덩어리)가 그 자체로
+    기준 길이를 넘으면 강제로 잘라서라도 줄바꿈한다(break_long_words=True) -
+    그렇지 않으면 긴 단어 하나가 여전히 프레임 폭을 넘어갈 수 있음.
+    """
+    if not text:
+        return [""]
+    lines = textwrap.wrap(
+        text, width=CAPTION_MAX_CHARS_PER_LINE, break_long_words=True, break_on_hyphens=False
+    )
+    return lines or [""]
 
 
 def _escape_drawtext_text(text: str) -> str:
