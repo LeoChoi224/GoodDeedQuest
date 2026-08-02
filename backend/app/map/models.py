@@ -33,6 +33,21 @@ class VolunteerCenter(Base):
     # 임베딩 벡터를 DB에 영구 저장하는 컬럼 (JSON 포맷)
     embedding: Mapped[dict] = mapped_column(JSON, nullable=True, comment="봉사 공고 텍스트 임베딩 벡터")
 
+    """
+    퀘스트 표시용 AI 요약 캐시 컬럼 2개 추가
+    크롤링 원문(vol_act)은 형식이 제각각이고 모집인원·혜택·연락처 같은 사무 정보가 섞여 있어
+    그대로 퀘스트에 넣으면 Critic 오판과 화면 품질 저하를 동시에 유발한다.
+    원문은 '봉사활동 상세' 화면이 그대로 보여주므로, 퀘스트에는 짧은 요약만 싣는다.
+    """
+    quest_title: Mapped[str] = mapped_column(
+        String(200), nullable=True,
+        comment="AI가 생성한 퀘스트용 정리 제목 (장식문자·모집·차수 제거, Quest.quest_title과 동일 길이)"
+    )
+    quest_summary: Mapped[str] = mapped_column(
+        Text, nullable=True,
+        comment="AI가 생성한 한 문장 활동 요약 (퀘스트 상세 화면 설명문)"
+    )
+
 class Region(Base):
     __tablename__ = "region"
 
