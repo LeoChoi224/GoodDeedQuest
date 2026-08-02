@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Integer, BigInteger, String, Text, TIMESTAMP, ForeignKey, JSON, Boolean,
-    Identity, UniqueConstraint, Enum as SQLEnum, func,
+    Identity, UniqueConstraint, Enum as SQLEnum, func
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
