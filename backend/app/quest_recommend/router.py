@@ -1,5 +1,5 @@
 import logging
-from typing import Final
+from typing import Final, List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends
@@ -9,6 +9,7 @@ from backend.app.common.auth import get_current_user
 from backend.app.common.config import get_setting
 from backend.app.common.database import get_db
 from backend.app.common.response import APIResponse
+from backend.app.quest.schemas import QuestSchema
 from backend.app.quest_recommend.schemas import BackendQuestRecommendRequest
 from backend.app.quest_recommend.service import (
     save_recommendation_log,
@@ -16,12 +17,37 @@ from backend.app.quest_recommend.service import (
     get_completed_quest_titles,
     get_recent_recommended_titles,
     get_user_coordinates,
+    get_today_recommendation,
+    build_quests_from_recommendations,
 )
 
 
 logger: Final = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/quest-recommend", tags=["Quest AI Recommendation & Coach"])
+
+@router.get("/today", response_model=APIResponse[Optional[List[QuestSchema]]])
+def get_today_recommended_quests(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    오늘 이미 생성된 추천 퀘스트 목록을 조회합니다.
+    아직 생성된 적이 없으면 data에 null을 담아 반환하며, 이는 오류가 아니라 신규 생성이 필요하다는 신호입니다.
+    """
+    user_id = user["id"]
+    quests = get_today_recommendation(db=db, user_id=user_id)
+
+    if quests is None:
+        logger.info(f"오늘 생성된 추천이 없습니다. User ID: {user_id}")
+        return APIResponse.ok(data=None, message="오늘 생성된 추천이 없습니다.")
+
+    logger.info(f"오늘의 추천 퀘스트 반환. User ID: {user_id}, 건수: {len(quests)}")
+    return APIResponse.ok(
+        data=[QuestSchema.from_quest(quest) for quest in quests],
+        message="오늘의 추천 퀘스트 조회 성공"
+    )
+
 
 @router.post("")
 async def recommend_quests(
@@ -86,15 +112,31 @@ async def recommend_quests(
                 )
                 
                 # 2. 추천 5개 항목 및 Quest 원본 DB 영속화 연동
+                saved_items = []
                 if ai_log_id and recommended_quests:
-                    save_recommendation_items(
+                    saved_items = save_recommendation_items(
                         db=db,
                         ai_log_id=ai_log_id,
                         user_id=user_id,
                         recommended_quests=recommended_quests
                     )
-                
-                return APIResponse.ok(data=recommended_quests, message="AI 맞춤 퀘스트 추천 성공")
+
+                # 3. AI 서버 응답 원본에는 quest_id가 항상 null이라 프론트가 상세 화면으로 이동할 수 없다.
+                # 영속화 과정에서 생성된 quest_id를 담아 GET /today와 동일한 형태로 반환한다.
+                persisted_quests = build_quests_from_recommendations(db=db, items=saved_items)
+
+                # 4. 저장 실패 시 AI 원본을 그대로 주면 프론트가 깨지므로 실패로 처리한다
+                if not persisted_quests:
+                    logger.warning(f"추천 결과 DB 영속화에 실패했습니다. User ID: {user_id}")
+                    return APIResponse.fail(
+                        message="추천 결과를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                        data=[]
+                    )
+
+                return APIResponse.ok(
+                    data=[QuestSchema.from_quest(quest) for quest in persisted_quests],
+                    message="AI 맞춤 퀘스트 추천 성공"
+                )
             else:
                 logger.warning(f"AI 모델 서버 응답 이상 (HTTP Status: {response.status_code}). User ID: {user_id}")
                 return APIResponse.fail(message="AI 모델 서버 응답에 실패했습니다.")

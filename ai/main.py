@@ -31,8 +31,6 @@ app.include_router(quest_create_router)
 # 숏폼 생성 API (Vision/RAG/LLM Story/Validation/FFmpeg Render 5-Agent 파이프라인)
 app.include_router(short_form_router)
 
-# 숏폼 생성 API (Vision/RAG/LLM Story/Validation/FFmpeg Render 5-Agent 파이프라인)
-app.include_router(short_form_router)
 app.include_router(user_router)
 
 @app.get("/")

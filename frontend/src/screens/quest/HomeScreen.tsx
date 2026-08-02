@@ -20,22 +20,31 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import * as Location from 'expo-location';
 import { colors, fonts, radii, CATEGORY_ICONS } from '../../theme';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import { Coin, Star, DiffChip, ChevRight, ChevLeft, EmptyScroll, FloatSpark, Bob } from './_parts';
-import { getQuests, difficultyLabel, type Quest } from '../../api/quest';
+import { getQuests, getTodayRecommendation, refreshRecommendation, difficultyLabel, type Quest } from '../../api/quest';
 
 const iconFor = (code: string) => CATEGORY_ICONS[code] ?? CATEGORY_ICONS.other;
 
 export default function HomeScreen({ navigation }: any) {
   const { width } = useWindowDimensions();
+  
+  // 진행중 캐러셀 전용. 전체 퀘스트 목록에서 IN_PROGRESS만 걸러 쓴다.
   const [quests, setQuests] = useState<Quest[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+
+  // 오늘의 추천 전용. 조회는 0.1초, 생성은 수십 초라 로딩과 생성 중을 따로 둔다.
+  const [recommended, setRecommended] = useState<Quest[]>([]);
+  const [recLoading, setRecLoading] = useState(true);
+  const [recError, setRecError] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
   const [idx, setIdx] = useState(0);
-  const [recRot, setRecRot] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
   const load = async () => {
@@ -50,20 +59,65 @@ export default function HomeScreen({ navigation }: any) {
     }
   };
 
-  // 【판단】 useEffect(.., []) 는 화면을 처음 만들 때 한 번만 돈다. 퀘스트를
-  //        포기하고 돌아와도 목록이 그대로 남아 사라진 퀘스트가 계속 보인다.
-  //        useFocusEffect 는 이 화면으로 돌아올 때마다 다시 부른다.
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, []),
-  );
+  // 좌표가 없으면 AI가 실시간 날씨 조회를 생략하고 'sunny'로 고정 진행한다.
+  // 실패해도 그냥 넘어간다. 백엔드가 User 테이블 저장 좌표로 대신 채운다.
+  const getCoords = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return null;
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+    } catch {
+      return null;
+    }
+  };
+
+  // 홈 진입용. 오늘 것이 있으면 읽기만 하고, 없을 때만 새로 만든다.
+  const loadRecommendation = async () => {
+    setRecLoading(true);
+    setRecError(false);
+    try {
+      const today = await getTodayRecommendation();
+      if (today) {
+        setRecommended(today);
+        return;
+      }
+      // 오늘 추천이 없을 때만 위치 권한을 묻는다. 이미 있으면 팝업으로 멈춰 세울 이유가 없다.
+      setGenerating(true);
+      const coords = await getCoords();
+      setRecommended(await refreshRecommendation(coords?.latitude, coords?.longitude));
+    } catch (err: any) {
+      setRecError(true);
+    } finally {
+      setGenerating(false);
+      setRecLoading(false);
+    }
+  };
+
+  // "다시 추천 받기" 전용. 오늘 것이 있어도 무조건 새로 만든다.
+  const forceRefresh = async () => {
+    // 수십 초짜리 작업이라 연타하면 파이프라인이 겹쳐 돌고 퀘스트가 중복 저장된다.
+    if (generating) return;
+    setGenerating(true);
+    setRecError(false);
+    try {
+      const coords = await getCoords();
+      setRecommended(await refreshRecommendation(coords?.latitude, coords?.longitude));
+    } catch (err: any) {
+      setRecError(true);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  useEffect(() => {
+    // 진행중 목록은 빠르고 추천은 느릴 수 있다. 따로 돌려야 캐러셀이 먼저 뜬다.
+    load();
+    loadRecommendation();
+  }, []);
 
   const activeQuests = quests.filter((q) => q.quest_status === 'IN_PROGRESS');
   const empty = activeQuests.length === 0;
-
-  const r = quests.length ? recRot % quests.length : 0;
-  const recList = [...quests.slice(r), ...quests.slice(0, r)];
 
   const INNER = width - 32; // ScrollView horizontal padding 16 each side
   const CARD_W = INNER * 0.84;
@@ -187,24 +241,30 @@ export default function HomeScreen({ navigation }: any) {
           <Text style={styles.sectionTitle}>오늘의 추천 퀘스트</Text>
         </View>
         <View style={styles.recList}>
-          {loading ? (
+          {generating ? (
+            <View style={styles.listStateBox}>
+              <ActivityIndicator color={colors.primaryDark} />
+              <Text style={styles.listStateText}>AI가 오늘의 추천을 만들고 있어요</Text>
+              <Text style={styles.listStateHint}>최대 1분 정도 걸릴 수 있어요</Text>
+            </View>
+          ) : recLoading ? (
             <View style={styles.listStateBox}>
               <ActivityIndicator color={colors.primaryDark} />
             </View>
-          ) : loadError ? (
+          ) : recError ? (
             <View style={styles.listStateBox}>
-              <Text style={styles.listStateText}>퀘스트를 불러오지 못했어요</Text>
-              <Pressable onPress={load} hitSlop={6}>
+              <Text style={styles.listStateText}>추천을 불러오지 못했어요</Text>
+              <Pressable onPress={loadRecommendation} hitSlop={6}>
                 <Text style={styles.emptyLink}>다시 시도</Text>
               </Pressable>
             </View>
-          ) : quests.length === 0 ? (
+          ) : recommended.length === 0 ? (
             <View style={styles.listStateBox}>
-              <Text style={styles.listStateText}>등록된 퀘스트가 없어요</Text>
+              <Text style={styles.listStateText}>추천된 퀘스트가 없어요</Text>
             </View>
           ) : (
-            recList.map((q, i) => (
-              <Animated.View key={`${q.quest_id}-${recRot}`} entering={FadeInDown.delay(60 + i * 80).duration(460)}>
+            recommended.map((q, i) => (
+              <Animated.View key={q.quest_id} entering={FadeInDown.delay(60 + i * 80).duration(460)}>
                 <SpringButton onPress={() => openDetail(q, false)} pressScale={0.97} style={styles.recCard}>
                   <Image source={iconFor(q.category_code)} style={styles.recIcon} />
                   <View style={{ flex: 1, minWidth: 0 }}>
@@ -228,8 +288,10 @@ export default function HomeScreen({ navigation }: any) {
           )}
         </View>
 
-        <SpringButton onPress={() => setRecRot((v) => v + 1)} style={styles.retryBtn}>
-          <Text style={styles.retryText}>다시 추천 받기</Text>
+        <SpringButton onPress={forceRefresh} style={styles.retryBtn}>
+          <Text style={[styles.retryText, generating && styles.retryTextDisabled]}>
+            {generating ? '추천을 만드는 중...' : '다시 추천 받기'}
+          </Text>
         </SpringButton>
 
         <View style={styles.actionRow}>
@@ -313,6 +375,7 @@ const styles = StyleSheet.create({
   recList: { gap: 10, marginBottom: 16 },
   listStateBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32, gap: 10 },
   listStateText: { fontSize: 13, color: colors.textMuted, fontFamily: fonts.bodyR },
+  listStateHint: { fontSize: 11, color: colors.textMuted, fontFamily: fonts.bodyR, opacity: 0.7 },
   recCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -343,6 +406,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   retryText: { fontSize: 14, fontWeight: '700', color: colors.primaryDark, fontFamily: fonts.bodyB },
+  retryTextDisabled: { color: colors.textMuted },
 
   actionRow: { flexDirection: 'row', gap: 10 },
   actionBtn: { flex: 1, height: 50, borderRadius: radii.button, alignItems: 'center', justifyContent: 'center' },
