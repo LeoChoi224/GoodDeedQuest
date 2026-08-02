@@ -1,76 +1,130 @@
-import unittest
-from ai.app.quest_recommend.state import RecommendState
-from ai.app.quest_recommend.nodes.situation_agent import analyze_situation
+from unittest.mock import patch, MagicMock
+
+from ai.app.quest_recommend.nodes.situation_agent import (
+    analyze_situation,
+    WEATHER_API_TIMEOUT_SECONDS,
+)
 
 
-class TestContextAgent(unittest.TestCase):
-    def test_analyze_situation_default_sunny(self):
-        """기본 좌표(서울) 기준 실시간 날씨 API 연동 및 결과 타입 검증"""
-        mock_state: RecommendState = {
-            "user_id": 1,
-            "interests": ["환경"],
-            "region_id": 1,
-            "latitude": 37.566,
-            "longitude": 126.978,
-            "level": 3,
-            "history_quests": [],
-            "recent_recommendations": [],
-            "preferred_difficulty": "NORMAL",
-            "request_message": None,
-            "user_profile": {},
-            "situation_context": {},
-            "request_context": {},
-            "recommendation_strategy": {},
-            "retrieved_volunteers": [],
-            "candidate_quests": [],
-            "retry_count": 0,
-            "recommended_quests": []
-        }
-
-        # 노드 실행
-        result = analyze_situation(mock_state)
-        situation_context = result.get("situation_context")
-
-        # 검증
-        self.assertIsNotNone(situation_context)
-        # 실시간 API 호출이므로 네 가지 기상 분류 중 하나가 반드시 매핑되어야 함
-        self.assertIn(situation_context["today_weather"], ["sunny", "cloudy", "rainy", "snowy"])
-        self.assertIn(situation_context["day_of_week_type"], ["weekday", "weekend"])
-        self.assertIsInstance(situation_context["is_weekend"], bool)
-        self.assertIsInstance(situation_context["is_outdoor_feasible"], bool)
-
-    def test_analyze_situation_fallback_jeju_mock(self):
-        """제주 임시 테스트 ID를 활용한 가상 기상 분기 및 예외 우회 검증"""
-        mock_state: RecommendState = {
-            "user_id": 2,
-            "interests": ["동물"],
-            "region_id": 999,  # 가상의 제주 지역 매핑용 코드
-            "latitude": None,
-            "longitude": None,
-            "level": 1,
-            "history_quests": [],
-            "recent_recommendations": [],
-            "preferred_difficulty": "NORMAL",
-            "request_message": None,
-            "user_profile": {},
-            "situation_context": {},
-            "request_context": {},
-            "recommendation_strategy": {},
-            "retrieved_volunteers": [],
-            "candidate_quests": [],
-            "retry_count": 0,
-            "recommended_quests": []
-        }
-
-        # 노드 실행
-        result = analyze_situation(mock_state)
-        situation_context = result.get("situation_context")
-
-        # 검증
-        self.assertIsNotNone(situation_context)
-        # 주석 해제 전이므로 999 ID에 기반해 제주 대표 좌표(위도 33.499)로 들어가 실시간 날씨를 긁어오는지 확인
-        self.assertIn(situation_context["today_weather"], ["sunny", "cloudy", "rainy", "snowy"])
+def build_state(latitude=None, longitude=None):
+    """날씨 분석에 필요한 최소 State를 구성하는 테스트 헬퍼"""
+    return {
+        "user_id": 1,
+        "latitude": latitude,
+        "longitude": longitude,
+        "user_profile": {}
+    }
 
 
-if __name__ == "__main__":
-    unittest.main()
+def build_weather_response(payload, status_code=200):
+    """httpx.get의 반환값을 흉내내는 Mock 응답 객체를 생성하는 테스트 헬퍼"""
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_response.json.return_value = payload
+    return mock_response
+
+
+def test_analyze_situation_without_coordinates():
+    """좌표가 없으면 날씨 API를 부르지 않고 맑음으로 진행한다"""
+    result = analyze_situation(build_state())
+    context = result.get("situation_context", {})
+
+    assert context.get("today_weather") == "sunny"
+    assert context.get("is_outdoor_feasible") is True
+    assert "current_date" in context
+    assert "day_of_week_type" in context
+
+
+@patch("ai.app.quest_recommend.nodes.situation_agent.httpx.get")
+def test_analyze_situation_rainy_weather(mock_get):
+    """비(weathercode 61) 응답이면 야외 활동 불가로 판정한다"""
+    mock_get.return_value = build_weather_response({"current_weather": {"weathercode": 61}})
+
+    result = analyze_situation(build_state(37.5665, 126.9780))
+    context = result.get("situation_context", {})
+
+    assert context.get("today_weather") == "rainy"
+    assert context.get("is_outdoor_feasible") is False
+
+
+@patch("ai.app.quest_recommend.nodes.situation_agent.httpx.get")
+def test_analyze_situation_snowy_weather(mock_get):
+    """눈(weathercode 73) 응답이면 야외 활동 불가로 판정한다"""
+    mock_get.return_value = build_weather_response({"current_weather": {"weathercode": 73}})
+
+    result = analyze_situation(build_state(37.5665, 126.9780))
+    context = result.get("situation_context", {})
+
+    assert context.get("today_weather") == "snowy"
+    assert context.get("is_outdoor_feasible") is False
+
+
+@patch("ai.app.quest_recommend.nodes.situation_agent.httpx.get")
+def test_analyze_situation_api_fallback_on_exception(mock_get):
+    """통신 예외가 나도 노드는 죽지 않고 맑음으로 폴백한다"""
+    mock_get.side_effect = Exception("Connection Timeout")
+
+    result = analyze_situation(build_state(37.5665, 126.9780))
+    context = result.get("situation_context", {})
+
+    assert context.get("today_weather") == "sunny"
+    assert context.get("is_outdoor_feasible") is True
+
+
+@patch("ai.app.quest_recommend.nodes.situation_agent.httpx.get")
+def test_analyze_situation_fallback_on_http_error(mock_get):
+    """200이 아닌 응답이면 맑음으로 폴백한다"""
+    mock_get.return_value = build_weather_response({}, status_code=500)
+
+    result = analyze_situation(build_state(37.5665, 126.9780))
+    context = result.get("situation_context", {})
+
+    assert context.get("today_weather") == "sunny"
+
+
+@patch("ai.app.quest_recommend.nodes.situation_agent.httpx.get")
+def test_analyze_situation_null_weathercode_falls_back_to_sunny(mock_get):
+    """
+    weathercode가 null로 오면 흐림이 아니라 맑음이어야 한다.
+    .get의 기본값은 키가 없을 때만 쓰이므로, None을 걸러내지 않으면 case _ 로 빠져 cloudy가 된다.
+    """
+    mock_get.return_value = build_weather_response({"current_weather": {"weathercode": None}})
+
+    result = analyze_situation(build_state(37.5665, 126.9780))
+    context = result.get("situation_context", {})
+
+    assert context.get("today_weather") == "sunny"
+    assert context.get("is_outdoor_feasible") is True
+
+
+@patch("ai.app.quest_recommend.nodes.situation_agent.httpx.get")
+def test_analyze_situation_missing_current_weather_falls_back_to_sunny(mock_get):
+    """current_weather 키 자체가 없어도 맑음으로 폴백한다"""
+    mock_get.return_value = build_weather_response({"latitude": 37.5, "longitude": 127.0})
+
+    result = analyze_situation(build_state(37.5665, 126.9780))
+    context = result.get("situation_context", {})
+
+    assert context.get("today_weather") == "sunny"
+
+
+@patch("ai.app.quest_recommend.nodes.situation_agent.httpx.get")
+def test_analyze_situation_non_dict_response_falls_back_to_sunny(mock_get):
+    """응답 본문이 dict가 아니어도 AttributeError 없이 맑음으로 폴백한다"""
+    mock_get.return_value = build_weather_response([{"weathercode": 61}])
+
+    result = analyze_situation(build_state(37.5665, 126.9780))
+    context = result.get("situation_context", {})
+
+    assert context.get("today_weather") == "sunny"
+
+
+@patch("ai.app.quest_recommend.nodes.situation_agent.httpx.get")
+def test_weather_api_called_with_configured_timeout(mock_get):
+    """날씨 API 호출에 설정된 타임아웃 상수가 그대로 적용되는지 확인한다"""
+    mock_get.return_value = build_weather_response({"current_weather": {"weathercode": 0}})
+
+    analyze_situation(build_state(37.5665, 126.9780))
+
+    _, kwargs = mock_get.call_args
+    assert kwargs.get("timeout") == WEATHER_API_TIMEOUT_SECONDS
