@@ -94,7 +94,8 @@ export async function getQuest(questId: number): Promise<Quest> {
  */
 export async function abandonQuest(questId: number): Promise<void> {
   await api.delete(`/quests/${questId}`);
-  
+}
+
 /** 오늘 이미 만들어진 추천. 아직 없으면 null이 온다. */
 export async function getTodayRecommendation(): Promise<Quest[] | null> {
   const response = await api.get('/quest-recommend/today');
