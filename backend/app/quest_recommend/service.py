@@ -9,6 +9,7 @@ from backend.app.common.enums import Difficulty
 from backend.app.quest_recommend.models import AiRecommendationLog, AiRecommendation
 from backend.app.quest.models import Quest, Category
 from backend.app.quest.enums import QuestTarget, QuestType, QuestSource, QuestStatus
+from backend.app.quest.rewards import reward_from_intensity
 
 
 logger: Final = logging.getLogger(__name__)
@@ -92,9 +93,24 @@ def save_recommendation_items(
                 category_obj = db.query(Category).first()
             category_id = category_obj.category_id if category_obj else 1
 
+            # 3. AI가 준 난이도 문자열을 enum으로 변환 (알 수 없는 값이면 NORMAL로 폴백)
+            #    변환에 실패해 예외가 나면 이 함수 전체가 롤백되어 추천 5개가 통째로 날아간다
+            raw_difficulty = item.get("difficulty") or "NORMAL"
+            try:
+                mapped_difficulty = Difficulty(raw_difficulty)
+            except ValueError:
+                logger.warning(f"알 수 없는 난이도 값으로 NORMAL을 적용합니다. 값: {raw_difficulty}")
+                mapped_difficulty = Difficulty.NORMAL
+
+            # 4. 난이도 구간 안에서 intensity 위치에 해당하는 포인트/경험치를 산정
+            #    intensity=0은 '해당 난이도의 최소'라는 유효한 값이므로 or 연산으로 기본값을 주면 안 된다
+            raw_intensity = item.get("intensity")
+            intensity = 50 if raw_intensity is None else raw_intensity
+            reward_point, reward_exp = reward_from_intensity(mapped_difficulty, intensity)
+
             target_quest_id = item.get("quest_id")
 
-            # 3. Quest 메인 원본 테이블 레코드 생성 (VOLUNTEER/GOOD_DEED 모두 quest_id 획득)
+            # 5. Quest 메인 원본 테이블 레코드 생성 (VOLUNTEER/GOOD_DEED 모두 quest_id 획득)
             if not target_quest_id or not db.query(Quest).filter_by(quest_id=target_quest_id).first():
                 new_quest = Quest(
                     category_id=category_id,
@@ -106,7 +122,9 @@ def save_recommendation_items(
                     quest_source=QuestSource.AI,
                     location=location_val if mapped_quest_type == QuestType.VOLUNTEER else None,
                     volunteer_center_id=center_id_val if mapped_quest_type == QuestType.VOLUNTEER else None,
-                    difficulty=Difficulty.NORMAL,
+                    difficulty=mapped_difficulty,
+                    reward_point=reward_point,
+                    reward_exp=reward_exp,
                     estimated_duration=item.get("estimated_duration", 15),
                     quest_status=QuestStatus.NOT_STARTED
                 )
@@ -114,7 +132,7 @@ def save_recommendation_items(
                 db.flush()  # 신규 생성된 quest_id 획득
                 target_quest_id = new_quest.quest_id
 
-            # 4. 추천 1:N 자식 테이블(AiRecommendation) 적재
+            # 6. 추천 1:N 자식 테이블(AiRecommendation) 적재
             rec_reason = item.get("recommendation_reason") or item.get("reason") or "AI 맞춤 추천"
             rec_entry = AiRecommendation(
                 ai_log_id=ai_log_id,
