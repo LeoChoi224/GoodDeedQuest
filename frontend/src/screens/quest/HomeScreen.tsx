@@ -3,7 +3,7 @@
  * MainHeader (no back). 진행중 퀘스트 드래그 캐러셀(빈 상태 토글) · 오늘의 추천 리스트
  * (스태거 페이드업) · 다시 추천 받기 · 퀘스트 등록 / 커스텀 추천 액션.
  */
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
