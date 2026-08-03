@@ -52,6 +52,7 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     is_new_user: bool = False
     # password_hash 등 유저 정보는 응답에 절대 포함하지 않음
@@ -171,3 +172,6 @@ class ProfileCompleteRequest(BaseModel):
     birthday: date
     category: Optional[list[str]] = None
     active_time: Optional[list[str]] = None
+    
+class RefreshRequest(BaseModel):
+    refresh_token: str

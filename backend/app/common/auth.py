@@ -3,6 +3,8 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import jwt
+import hashlib
+import secrets
 from passlib.context import CryptContext
 from backend.app.common.config import get_setting
 
@@ -61,3 +63,9 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         return {"id": user_id, "email": email, "name": payload.get("name", "사용자"), "level": payload.get("level", 1), "xp": payload.get("xp", 0)}
     except jwt.PyJWTError:
         raise credentials_exception
+    
+def create_refresh_token() -> str:
+    return secrets.token_urlsafe(32)
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()

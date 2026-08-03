@@ -7,7 +7,7 @@ from typing import Optional
 
 from sqlalchemy import (
     BigInteger, Integer, String, Boolean, Date, TIMESTAMP,
-    Numeric, JSON, UniqueConstraint, ForeignKey, func, Enum as SqlEnum,
+    Numeric, JSON, UniqueConstraint, ForeignKey, func, Enum as SqlEnum, Identity
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -98,3 +98,22 @@ class PointTransaction(Base):
     balance_after: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 거래 후 잔액
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
 
+class RefreshToken(Base):
+    __tablename__ = "refresh_token"
+    token_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.user_id", ondelete="CASCADE"),
+        nullable=False, index=True, comment="이 토큰의 주인",
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, comment="토큰 원문의 SHA-256")
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, comment="만료 시각",
+    )
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True, comment="회수된 시각. 값이 있으면 못 씀",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now(),
+    )
+    def __repr__(self):
+        return f"<RefreshToken id={self.token_id} user={self.user_id} revoked={self.revoked_at is not None}>"
