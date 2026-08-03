@@ -230,12 +230,18 @@ const handleKakao = async () => {
   <Text style={styles.primaryBtnText}>{loading ? '로그인 중...' : '로그인하기'}</Text>
 </SpringButton>
 
-          <Text style={styles.signupHint}>
-            아직 영웅이 아니신가요?{'  '}
-            <Text style={styles.signupLink} onPress={() => navigation.navigate('Terms')}>
-              회원가입
-            </Text>
-          </Text>
+          {/*
+            【판단】 원래는 부모 <Text> 안에 <Text onPress>를 중첩해 링크를 만들었다.
+            iOS 실기기/시뮬레이터에서 이 방식은 탭이 간헐적으로 무시된다(안드로이드는
+            정상). 눌리는 영역을 Pressable 이라는 진짜 뷰로 만들어야 확실히 잡힌다.
+            hitSlop 은 글자가 작아 손가락으로 정확히 짚기 어려운 것을 보완한다.
+          */}
+          <View style={styles.signupRow}>
+            <Text style={styles.signupHint}>아직 영웅이 아니신가요?</Text>
+            <Pressable onPress={() => navigation.navigate('Terms')} hitSlop={10}>
+              <Text style={styles.signupLink}>회원가입</Text>
+            </Pressable>
+          </View>
 
           <View style={styles.dividerRow}>
             <View style={styles.divider} />
@@ -319,7 +325,8 @@ const styles = StyleSheet.create({
     ...shadow.button,
   },
   primaryBtnText: { color: colors.white, fontSize: 16, fontWeight: '700', fontFamily: fonts.bodyB },
-  signupHint: { textAlign: 'center', fontSize: 13, color: colors.textSecondary, marginTop: 14, fontFamily: fonts.bodyR },
+  signupRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 14 },
+  signupHint: { textAlign: 'center', fontSize: 13, color: colors.textSecondary, fontFamily: fonts.bodyR },
   signupLink: { color: colors.primaryDark, fontWeight: '700', textDecorationLine: 'underline', fontFamily: fonts.bodyB },
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 16 },
   divider: { flex: 1, height: 1, backgroundColor: colors.divider },

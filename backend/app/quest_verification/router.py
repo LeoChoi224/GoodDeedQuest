@@ -166,7 +166,7 @@ def submit_verification(
                 "media_urls": media_urls,
                 "is_video": is_video
                 },
-            timeout=90.0
+            timeout=150.0
         )
         response.raise_for_status()
         result: dict = response.json()['data']

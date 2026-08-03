@@ -16,3 +16,11 @@ class EvaluateQuestResponse(BaseModel):
     difficulty: Optional[str] = None
     intensity: Optional[int] = None
     embedding: Optional[list[float]] = None
+
+class EmbedQuestRequest(BaseModel):
+    quest_title: str
+    quest_description: str
+    category_name: str
+    
+class EmbedQuestResponse(BaseModel):
+    embedding: list[float] = []

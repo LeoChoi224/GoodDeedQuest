@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query
+from pydantic import EmailStr, TypeAdapter, ValidationError
+from sqlalchemy.exc import IntegrityError
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import create_access_token, get_password_hash, verify_password
-from backend.app.auth.schemas import UserResponse, UserCreate, LoginResponse, LoginRequest, SocialLoginRequest, ProfileCompleteRequest, LocationUpdateRequest, RefreshRequest
+from backend.app.auth.schemas import UserResponse, UserCreate, LoginResponse, LoginRequest, SocialLoginRequest, ProfileCompleteRequest, LocationUpdateRequest, RefreshRequest, AvailabilityResponse
 from typing import Annotated
 from backend.app.auth.models import User
 from backend.app.common.deps import get_repository
@@ -24,14 +26,63 @@ UserRepository = Annotated[
 @router.post('/register', response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register(user_in: UserCreate, repository: UserRepository):
     if repository.get_by(email=user_in.email):
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    data = user_in.model_dump(exclude={'password'})
-    data['password_hash'] = get_password_hash(user_in.password)
-    
-    return repository.create(data)
+        raise HTTPException(status_code=400, detail="이미 가입된 이메일입니다.")
 
-    
+    # 【판단】 중복확인 버튼을 눌러 통과했더라도 여기서 다시 센다. 확인 시점과 가입
+    # 시점 사이에 남이 같은 닉네임으로 가입할 수 있어서다. 버튼은 안내용이고,
+    # 실제로 막는 곳은 이 줄이다.
+    nickname = user_in.nickname.strip()
+    if repository.get_by(nickname=nickname):
+        raise HTTPException(status_code=400, detail="이미 사용 중인 닉네임입니다.")
+
+    data = user_in.model_dump(exclude={'password'})
+    data['nickname'] = nickname
+    data['password_hash'] = get_password_hash(user_in.password)
+
+    try:
+        return repository.create(data)
+    except IntegrityError:
+        # 【기능】 위의 두 검사를 통과한 뒤, 저장하기 직전에 남이 같은 이메일/닉네임으로
+        # 먼저 가입한 경우다. DB 의 uq_user_email / uq_user_nickname 이 잡아낸다.
+        # 그냥 두면 500 이 나가서 사용자는 서버 장애인 줄 안다.
+        repository.session.rollback()
+        raise HTTPException(status_code=400, detail="이미 사용 중인 이메일 또는 닉네임입니다.")
+
+
+@router.get('/check-email', response_model=APIResponse[AvailabilityResponse])
+def check_email(repository: UserRepository, email: str = Query(..., description="가입에 쓸 이메일")):
+    """【기능】 이메일을 쓸 수 있는지 미리 확인한다. 중복이어도 200 으로 답한다."""
+    value = email.strip()
+
+    try:
+        # 【문법】 TypeAdapter 는 pydantic 모델을 만들지 않고 타입 하나만 따로
+        # 검증하고 싶을 때 쓴다. 여기선 EmailStr(이메일 형식) 규칙만 빌려 쓴다.
+        TypeAdapter(EmailStr).validate_python(value)
+    except ValidationError:
+        return APIResponse.ok(data={"available": False}, message="이메일 형식을 확인해 주세요.")
+
+    if repository.get_by(email=value):
+        return APIResponse.ok(data={"available": False}, message="이미 가입된 이메일입니다.")
+
+    return APIResponse.ok(data={"available": True}, message="사용 가능한 이메일입니다.")
+
+
+@router.get('/check-nickname', response_model=APIResponse[AvailabilityResponse])
+def check_nickname(repository: UserRepository, nickname: str = Query(..., description="가입에 쓸 닉네임")):
+    """【기능】 닉네임을 쓸 수 있는지 미리 확인한다. 중복이어도 200 으로 답한다."""
+    value = nickname.strip()
+
+    # 【판단】 길이 하한/상한은 UserCreate(2~50자)와 같은 값을 쓴다. 여기만 다르게
+    # 잡으면 '중복확인은 통과했는데 가입에서 422' 가 나온다.
+    if not (2 <= len(value) <= 50):
+        return APIResponse.ok(data={"available": False}, message="닉네임은 2자 이상 50자 이하여야 합니다.")
+
+    if repository.get_by(nickname=value):
+        return APIResponse.ok(data={"available": False}, message="이미 사용 중인 닉네임입니다.")
+
+    return APIResponse.ok(data={"available": True}, message="사용 가능한 닉네임입니다.")
+
+
 @router.post("/login", response_model=APIResponse[LoginResponse])
 def login(req: LoginRequest, repository: UserRepository, background_tasks: BackgroundTasks):
     user = repository.get_by(email = req.email)

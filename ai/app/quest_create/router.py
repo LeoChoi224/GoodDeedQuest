@@ -2,8 +2,9 @@ import logging
 
 from fastapi import APIRouter
 
-from ai.app.quest_create.schemas import EvaluateQuestRequest, EvaluateQuestResponse
+from ai.app.quest_create.schemas import EvaluateQuestRequest, EvaluateQuestResponse, EmbedQuestRequest, EmbedQuestResponse
 from ai.app.quest_create.graph import run_quest_evaluation
+from ai.app.quest_create.similarity import embed_quest
 
 logger = logging.getLogger(__name__)
 
@@ -20,3 +21,8 @@ def ai_evaluate_quest(req: EvaluateQuestRequest):
         category_name=req.category_name,
     )
     return {"success": True, "data": EvaluateQuestResponse(**result).model_dump()}
+
+@router.post('/embed', response_model=dict)
+def ai_embed_quest(req: EmbedQuestRequest):
+    vector = embed_quest(req.quest_title, req.quest_description, req.category_name)
+    return {"success": True, "data": EmbedQuestResponse(embedding=vector).model_dump()}

@@ -41,8 +41,8 @@ export default function ProfileScreen({ navigation }: Props) {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const onCheckNick = () => {
-    const ok = s.checkNick();
+  const onCheckNick = async () => {
+    const ok = await s.checkNick();
     if (!ok) setNickShake((v) => v + 1);
   };
 
@@ -52,7 +52,7 @@ export default function ProfileScreen({ navigation }: Props) {
   };
 
   const onNext = async () => {
-    const ok = s.nickOk || s.checkNick();
+    const ok = s.nickOk || (await s.checkNick());
     if (!ok) {
       setNickShake((v) => v + 1);
       return;
@@ -104,8 +104,8 @@ export default function ProfileScreen({ navigation }: Props) {
               <View style={{ flex: 1 }}>
                 <GdqInput value={s.nickname} onChangeText={s.setNickname} placeholder="닉네임을 입력하세요" />
               </View>
-              <SpringButton style={styles.dupBtn} onPress={onCheckNick}>
-                <Text style={styles.dupText}>중복확인</Text>
+              <SpringButton style={styles.dupBtn} onPress={onCheckNick} disabled={s.nickChecking}>
+                <Text style={styles.dupText}>{s.nickChecking ? '확인 중' : '중복확인'}</Text>
               </SpringButton>
             </View>
             {s.nickMsg ? <Text style={[styles.fieldMsg, { color: s.nickMsg.color }]}>{s.nickMsg.text}</Text> : null}
@@ -114,13 +114,27 @@ export default function ProfileScreen({ navigation }: Props) {
           {/* birth */}
           <Text style={[styles.label, { marginTop: 14 }]}>생년월일</Text>
           <Pressable onPress={() => setShowDatePicker(true)}>
-            <GdqInput
-              editable={false}
-              placeholder="생년월일을 선택하세요"
-              value={s.birthday ? formatDate(s.birthday) : ''}
-              style={{ color: s.birthday ? colors.textPrimary : colors.textMuted }}
-              rightAccessory={<CalIcon />}
-            />
+            {/*
+              【판단】 pointerEvents="none" 이 없으면 iOS 에서 달력이 열리지 않는다.
+              이유가 두 겹이다.
+              ① editable={false} 인 TextInput 은 글자를 못 고칠 뿐, 터치는 그대로
+                 받아먹는다. 안드로이드는 이때 부모에게 넘겨주지만 iOS 는 안 넘긴다.
+              ② GdqInput 은 rightAccessory 를 받으면 그 자리에 Pressable 을 만든다.
+                 여기서는 onRightPress 를 안 넘겨서 눌러도 하는 일이 없는데,
+                 터치는 이미 그 Pressable 이 가져간 뒤다. 달력 아이콘이 특히 안 눌린
+                 이유가 이것이다.
+              이 View 가 "안쪽은 전부 터치를 받지 마라"고 막아, 탭이 바깥 Pressable
+              까지 그대로 올라간다. 어차피 직접 입력하는 칸이 아니라 잃는 기능은 없다.
+            */}
+            <View pointerEvents="none">
+              <GdqInput
+                editable={false}
+                placeholder="생년월일을 선택하세요"
+                value={s.birthday ? formatDate(s.birthday) : ''}
+                style={{ color: s.birthday ? colors.textPrimary : colors.textMuted }}
+                rightAccessory={<CalIcon />}
+              />
+            </View>
           </Pressable>
           {Platform.OS === 'android' && showDatePicker && (
             <DateTimePicker
@@ -170,7 +184,13 @@ export default function ProfileScreen({ navigation }: Props) {
         </ScrollView>
               <Modal visible={Platform.OS === 'ios' && showDatePicker} transparent animationType="slide">
         <Pressable style={styles.dateBackdrop} onPress={() => setShowDatePicker(false)} />
-        <View style={styles.dateSheet}>
+        {/*
+          【판단】 paddingBottom 에 insets.bottom 을 더한다. 홈 버튼이 없는 아이폰은
+          화면 맨 아래 약 34pt 가 홈 인디케이터(가로 막대) 자리다. 그 위에 버튼을
+          놓으면 눈에는 보여도 터치를 시스템이 먼저 가져가서 눌리지 않는다.
+          insets.bottom 이 기기마다 다른 그 높이를 알려준다.
+        */}
+        <View style={[styles.dateSheet, { paddingBottom: insets.bottom + 24 }]}>
           <DateTimePicker
             value={s.birthday ?? new Date(2000, 0, 1)}
             mode="date"
@@ -178,6 +198,16 @@ export default function ProfileScreen({ navigation }: Props) {
             maximumDate={new Date()}
             onChange={onChangeBirthday}
           />
+          {/*
+            🔴 미해결: iOS 에서 이 "완료" 버튼이 눌리지 않는다. 시뮬레이터로 확인함.
+            달력을 닫으려면 지금은 위쪽 어두운 배경을 눌러야 한다(그건 정상 동작하고,
+            고른 날짜도 정상 저장된다). 아래는 시도했지만 원인이 아니었던 것들이다.
+              · SpringButton → 맨 Pressable 로 교체 (Modal 안 reanimated 의심)
+              · 버튼을 시트 너비로 확대 (너무 작아서 빗나가는지 의심)
+              · DateTimePicker 에 height 명시 (휠이 아래를 덮는지 의심)
+            같은 Modal 안에서 배경 Pressable 과 네이티브 휠은 정상 동작하므로,
+            "Modal 전체가 안 먹는" 문제는 아니다.
+          */}
           <SpringButton style={styles.dateDoneBtn} onPress={() => setShowDatePicker(false)}>
             <Text style={styles.dateDoneText}>완료</Text>
           </SpringButton>
@@ -190,8 +220,10 @@ export default function ProfileScreen({ navigation }: Props) {
         locations={[0, 0.3]}
         style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}
       >
-        <SpringButton onPress={onNext} style={[styles.nextBtn, shadow.button]} disabled={submitting}>
-          <Text style={styles.nextText}>{submitting ? '가입 처리 중...' : '다음'}</Text>
+        <SpringButton onPress={onNext} style={[styles.nextBtn, shadow.button]} disabled={submitting || s.nickChecking}>
+          <Text style={styles.nextText}>
+            {submitting ? '가입 처리 중...' : s.nickChecking ? '확인 중...' : '다음'}
+          </Text>
         </SpringButton>
       </LinearGradient>
     </View>
@@ -211,7 +243,10 @@ const styles = StyleSheet.create({
   fieldMsg: { marginTop: 8, marginLeft: 2, fontSize: 12, fontWeight: '600', fontFamily: fonts.bodyM },
   dateBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
   dateSheet: { backgroundColor: colors.white, paddingBottom: 24, paddingHorizontal: 20 },
-  dateDoneBtn: { alignSelf: 'flex-end', marginTop: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: radii.input, backgroundColor: colors.primaryDark },
+  // 【판단】 원래는 alignSelf:'flex-end' 로 오른쪽 끝에 붙은 작은 칩이었다.
+  // 손가락으로 누르기엔 너무 작아서(가로 약 60pt) 빗나가기 쉬웠다. 시트 너비만큼
+  // 늘리고 높이도 키운다. 화면 맨 아래 확인 버튼은 크게 두는 편이 안전하다.
+  dateDoneBtn: { alignSelf: 'stretch', marginTop: 12, paddingVertical: 14, borderRadius: radii.input, backgroundColor: colors.primaryDark, alignItems: 'center' },
   dateDoneText: { color: colors.white, fontSize: 13, fontWeight: '600', fontFamily: fonts.bodyM },
   section: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, marginTop: 22, marginBottom: 12, fontFamily: fonts.bodyB },
   grid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -CELL_GAP / 2 },

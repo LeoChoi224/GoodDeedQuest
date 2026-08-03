@@ -20,6 +20,7 @@ from backend.app.auth.models import User
 from backend.app.quest_verification.models import QuestSubmission
 from backend.app.quest_verification.enums import SubmissionStatus
 from backend.app.quest.rate_limit import count_daily_use
+from backend.app.quest.similarity import find_similar_quest
 
 # 하루에 만들 수 있는 커스텀 퀘스트 수.
 # 같은 활동을 여러 개 만드는 것 자체는 막지 않는다. 인증 단계에서 사진·영상
@@ -77,18 +78,31 @@ def _evaluate(quest_title: str, quest_description: str, category_name: str) -> d
         raise HTTPException(status_code=502, detail="AI 심사 서버 호출에 실패했습니다.")
 
 
-def _judge(req: CreateQuestRequest, category: Category) -> tuple[CreateQuestResponse, dict]:
+def _judge(req: CreateQuestRequest, category: Category, quest_repository) -> tuple[CreateQuestResponse, dict]:
     """심사 한 번. 미리보기와 등록이 같은 판단을 쓰도록 여기로 모았다.
 
     돌려주는 dict에는 저장에 필요한 재료(난이도·보상·임베딩)가 들어 있다.
     """
+    embedding = _embed(req.quest_title, req.quest_description, category.name)
+    
+    twin, score = find_similar_quest(quest_repository, embedding)
+    if twin is not None:
+        print(f"유사 퀘스트 승계: #{twin.quest_id} '{twin.quest_title}' (유사도 {score:.3f})")
+        response = CreateQuestResponse(
+            accepted=True,
+            reason="이미 등록된 비슷한 퀘스트와 같은 보상을 적용했어요.",
+            difficulty=twin.difficulty,
+            reward_point=twin.reward_point,
+            reward_exp=twin.reward_exp,
+        )
+        
+        return response, {"difficulty": twin.difficulty, "point": twin.reward_point,
+                        "exp": twin.reward_exp, "embedding": embedding}
+
     result = _evaluate(req.quest_title, req.quest_description, category.name)
 
     if not result.get("accepted"):
-        return CreateQuestResponse(accepted=False, reason=result.get("reason", "")), {}
-
-    # 임베딩은 막는 데 쓰지 않고, 나중에 유사 퀘스트 추천 등에 쓰도록 저장만 해둔다.
-    embedding = result.get("embedding")
+        return CreateQuestResponse(accepted=False, reason=result.get("reason", "")), {}    
 
     difficulty = Difficulty(result["difficulty"])
     point, exp = reward_from_intensity(difficulty, result["intensity"])
@@ -236,6 +250,7 @@ def _hidden_quest_ids(hidden_repository: HiddenRepository, user_id:int) -> set[i
 @router.post("/preview", response_model=APIResponse[CreateQuestResponse])
 def preview_quest(
     req: CreateQuestRequest,
+    quest_repository: QuestRepository,
     category_repository: CategoryRepository,
     current_user: User = Depends(get_current_db_user),
 ):
@@ -248,7 +263,7 @@ def preview_quest(
             reason=f"미리보기는 하루 {DAILY_PREVIEW_LIMIT}번까지 쓸 수 있어요. 내일 다시 시도해 주세요.",
         ))
 
-    response, _ = _judge(req, category)
+    response, _ = _judge(req, category, quest_repository)
     return APIResponse.ok(data=response)
 
 
@@ -270,7 +285,7 @@ def create_quest(
             reason=f"퀘스트는 하루에 {DAILY_CREATE_LIMIT}개까지 만들 수 있어요. 내일 다시 시도해 주세요.",
         ))
 
-    response, material = _judge(req, category)
+    response, material = _judge(req, category, quest_repository)
 
     if not response.accepted:
         return APIResponse.ok(data=response)
@@ -334,3 +349,19 @@ def delete_quest(
         data=DeleteQuestResponse(deleted=False),
         message="목록에서 치웠습니다.",
     )
+
+def _embed(quest_title: str, quest_description: str, category_name: str) -> list[float]:
+    try:
+        response = httpx.post(
+            f"{get_setting().AI_SERVICE_URL}/ai/quest-create/embed",
+            json={
+                "quest_title": quest_title,
+                "quest_description": quest_description,
+                "category_name": category_name,
+            },
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        return response.json()["data"]["embedding"] or []
+    except httpx.HTTPError:
+        return []
