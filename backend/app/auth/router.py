@@ -1,13 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import create_access_token, get_password_hash, verify_password
-from backend.app.auth.schemas import UserResponse, UserCreate, LoginResponse, LoginRequest, SocialLoginRequest, ProfileCompleteRequest, LocationUpdateRequest
+from backend.app.auth.schemas import UserResponse, UserCreate, LoginResponse, LoginRequest, SocialLoginRequest, ProfileCompleteRequest, LocationUpdateRequest, RefreshRequest
 from typing import Annotated
 from backend.app.auth.models import User
 from backend.app.common.deps import get_repository
 from backend.app.common.repository import DatabaseRepository    
 from backend.app.common.auth import create_access_token, get_password_hash, verify_password, verify_token, oauth2_scheme
-from backend.app.auth.service import trigger_embedding_if_needed, verify_google_id_token, find_or_create_social_user, record_daily_user_activity
+from backend.app.auth.service import (
+    trigger_embedding_if_needed, verify_google_id_token, find_or_create_social_user,
+    record_daily_user_activity, issue_refresh_token, consume_refresh_token,
+    revoke_all_refresh_tokens,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -43,7 +47,8 @@ def login(req: LoginRequest, repository: UserRepository, background_tasks: Backg
         "level": user.current_level,
         "xp": user.current_xp
     })
-    return APIResponse.ok(data={"access_token": token, "token_type": "bearer"}, message="Login successful")
+    refresh = issue_refresh_token(repository, user.user_id)
+    return APIResponse.ok(data={"access_token": token, "refresh_token": refresh, "token_type": "bearer"}, message="Login successful")
 
 @router.post('/social-login', response_model=APIResponse[LoginResponse])
 def social_login(req: SocialLoginRequest, repository: UserRepository, background_tasks: BackgroundTasks):
@@ -69,7 +74,8 @@ def social_login(req: SocialLoginRequest, repository: UserRepository, background
         "level": user.current_level,
         "xp": user.current_xp
     })
-    return APIResponse.ok(data={"access_token": token, "token_type": "bearer", "is_new_user": is_new_user}, message="Social login successful")
+    refresh = issue_refresh_token(repository, user.user_id)
+    return APIResponse.ok(data={"access_token": token, "refresh_token": refresh, "token_type": "bearer", "is_new_user": is_new_user}, message="Social login successful")
 
 
 
@@ -115,3 +121,37 @@ def update_my_location(
     repository.session.commit()
     repository.session.refresh(current_user)
     return current_user
+
+@router.post("/refresh")
+def refresh_access_token(
+    req: RefreshRequest,
+    repository: UserRepository,
+):
+    
+    row = consume_refresh_token(repository, req.refresh_token)
+    user = repository.get(row.user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="다시 로그인해 주세요.")
+
+    token = create_access_token(data={
+        "sub": user.email,
+        "id": user.user_id,
+        "name": user.nickname,
+        "level": user.current_level,
+        "xp": user.current_xp,
+    })
+    refresh = issue_refresh_token(repository, user.user_id)
+    return APIResponse.ok(
+        data={"access_token": token, "refresh_token": refresh, "token_type": "bearer"},
+        message="Token refreshed",
+    )
+
+
+@router.post("/logout")
+def logout(
+    repository: UserRepository,
+    current_user: User = Depends(get_current_db_user),
+):
+    
+    count = revoke_all_refresh_tokens(repository, current_user.user_id)
+    return APIResponse.ok(data={"revoked": count}, message="Logged out")

@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.app.quest_verification.enums import MediaType
 
 
 class CommunityPostCreate(BaseModel):
@@ -15,29 +16,37 @@ class CommunityPostCreate(BaseModel):
         description="게시글과 연결할 승인된 퀘스트 인증 ID",
     )
 
-    media_url: str = Field(
-        ...,
-        min_length=1,
-        max_length=500,
-        description="게시글 이미지 또는 영상 URL",
-    )
-
     caption: str | None = Field(
         default=None,
         max_length=5000,
         description="게시글 내용",
     )
 
-    @field_validator("media_url")
+    @field_validator("caption")
     @classmethod
-    def validate_media_url_not_blank(cls, value: str) -> str:
+    def validate_caption_not_blank(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+
         stripped_value = value.strip()
 
         if not stripped_value:
-            raise ValueError("미디어 URL은 공백일 수 없습니다.")
+            raise ValueError("게시글 내용은 공백일 수 없습니다.")
 
         return stripped_value
-    
+
+class CommunityPostUpdate(BaseModel):
+    """커뮤니티 게시글 수정 요청."""
+
+    caption: str | None = Field(
+        ...,
+        max_length=5000,
+        description="수정할 게시글 내용. null이면 내용을 비웁니다.",
+    )
+
     @field_validator("caption")
     @classmethod
     def validate_caption_not_blank(
@@ -62,6 +71,7 @@ class RecentQuestSubmissionResponse(BaseModel):
     submission_id: int
     quest_id: int
     media_url: str | None
+    media_type: MediaType | None
     submitted_at: datetime
 
 
@@ -77,13 +87,13 @@ class CommunityPostStatusUpdate(BaseModel):
 class CommunityPostResponse(BaseModel):
     """커뮤니티 게시글 조회 응답."""
 
-    # SQLAlchemy 모델 객체의 속성을 읽어 Pydantic 응답으로 변환한다.
     model_config = ConfigDict(from_attributes=True)
 
     post_id: int
     user_id: int
     submission_id: int
     media_url: str
+    media_type: MediaType
     caption: str | None
     is_active: bool
     created_at: datetime
@@ -95,6 +105,29 @@ class CommunityAuthorResponse(BaseModel):
     user_id: int
     nickname: str
     profile_image_url: str | None
+
+class CommunityUserProfileResponse(BaseModel):
+    """다른 사용자 상세 화면에 표시할 공개 프로필 응답."""
+
+    nickname: str
+    title: str
+    current_level: int
+    daily_streak: int
+    profile_image_url: str | None
+    equipped_border_image_url: str | None = None
+
+
+class CommunityUserQuestAchievementResponse(BaseModel):
+    """다른 사용자의 공개 퀘스트 달성 타임라인 응답."""
+
+    submission_id: int
+    quest_id: int
+    title: str
+    description: str
+    category_code: str
+    completed_at: datetime
+    reward_point: int | None
+    reward_exp: int | None
 
 class CommunityCommentDetailResponse(BaseModel):
     """작성자 정보가 포함된 댓글 응답."""
@@ -112,6 +145,7 @@ class CommunityFeedItemResponse(BaseModel):
     post_id: int
     submission_id: int
     media_url: str
+    media_type: MediaType
     caption: str | None
     created_at: datetime
     updated_at: datetime

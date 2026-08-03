@@ -19,6 +19,7 @@ import Animated, {
 import { colors, fonts, brand, heroGradient, radii, NAV_ICONS } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useProfile } from '../context/ProfileContext'; // ⭐ 수정: 마이페이지 프로필 헤더와 동일한 정보를 실시간으로 표시
+import { logout as logoutApi } from '../api/auth';
 
 type Child = { label: string; screen: string };
 type Section = {
@@ -99,9 +100,12 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
   };
   const logout = async () => {
     navigation.closeDrawer();
-    // 【판단】 전에는 화면만 로그인으로 되돌리고 토큰은 SecureStore 에 그대로
-    //        남겨뒀다. 그러면 앱을 껐다 켜면 다시 로그인된 상태가 된다.
-    //        signOut 이 토큰을 지우면 화면 묶음도 자동으로 바뀐다.
+    // 【판단】 서버의 logout 을 먼저 부른다. 이게 없으면 refresh 토큰이 서버에
+    //        살아남아 30일간 유효하다. 로컬만 지우는 건 회수가 아니다.
+    //        실패해도 아래 signOut 은 돈다 — 인터넷이 끊겼다고 로그아웃을
+    //        못 하면 안 되기 때문이다(logout 내부에서 이미 try/catch).
+    await logoutApi();
+    // signOut 이 로컬 토큰을 지우면 화면 묶음도 자동으로 바뀐다.
     await signOut();
   };
 

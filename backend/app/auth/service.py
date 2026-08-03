@@ -1,9 +1,11 @@
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
+from fastapi import HTTPException
 import httpx
 import secrets
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
+from datetime import timedelta, timezone, datetime
 from sqlalchemy.dialects.postgresql import insert
 from backend.app.common.auth import get_password_hash
 from fastapi import BackgroundTasks
@@ -12,6 +14,9 @@ from backend.app.community.models import UserActivityLog
 from backend.app.common.config import get_setting
 from backend.app.common.database import SessionLocal
 from backend.app.common.repository import DatabaseRepository
+from backend.app.auth.models import RefreshToken
+from backend.app.common.auth import create_refresh_token, hash_refresh_token
+from backend.app.common.config import get_setting
 
 #--------------------민재 추가 코드 (관리자페이지 7일 접속 추이)---------------------
 KST = ZoneInfo("Asia/Seoul")
@@ -108,3 +113,46 @@ async def embed_user_profile_task(user_id: int):
 def trigger_embedding_if_needed(user: User, background_tasks: BackgroundTasks):
   if user.last_embedded_at is None or user.last_embedded_at.date() < date.today():
     background_tasks.add_task(embed_user_profile_task, user.user_id)
+    
+def issue_refresh_token(repository: DatabaseRepository[User], user_id: int) -> str:
+  raw = create_refresh_token()
+  expires = datetime.now(timezone.utc) + timedelta(get_setting().REFRESH_TOKEN_EXPIRE_DAYS)
+  repository.session.add(RefreshToken(
+        user_id=user_id,
+        token_hash=hash_refresh_token(raw),
+        expires_at=expires,
+  ))
+  repository.session.commit()
+  return raw
+
+def consume_refresh_token(repository: DatabaseRepository[User], raw: str) -> RefreshToken:
+  row = repository.session.query(RefreshToken).filter(
+    RefreshToken.token_hash == hash_refresh_token(raw)
+  ).first()
+  
+  invalid = HTTPException(status_code=401, detail="다시 로그인해 주세요.")
+  if row is None or row.revoked_at is not None:
+        raise invalid
+  
+  expires_at = row.expires_at
+  if expires_at.tzinfo is None:
+      expires_at = expires_at.replace(tzinfo=timezone.utc)
+  if expires_at <= datetime.now(timezone.utc):
+      raise invalid
+    
+  row.revoked_at = datetime.now(timezone.utc)
+  repository.session.commit()
+  return row
+
+def revoke_all_refresh_tokens(repository: DatabaseRepository[User], user_id: int) -> int:
+    
+    rows = repository.session.query(RefreshToken).filter(
+        RefreshToken.user_id == user_id,
+        RefreshToken.revoked_at.is_(None),
+    ).all()
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        row.revoked_at = now
+    repository.session.commit()
+    return len(rows)
+  

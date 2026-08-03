@@ -252,6 +252,15 @@ export function ChevronRight({ size = 22, color = colors.primaryDark }: { size?:
   );
 }
 
+export function SearchIcon({ size = 18, color = colors.primaryDark }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round">
+      <Circle cx={11} cy={11} r={7} />
+      <Path d="M21 21l-4-4" />
+    </Svg>
+  );
+}
+
 /* ------------------------------------------------------------------ *
  *  useCountUp — ease-in-out count-up (count-up motion)                 *
  * ------------------------------------------------------------------ */
@@ -277,21 +286,14 @@ export function useCountUp(target: number, duration = 1100) {
 export const comma = (n: number) => n.toLocaleString('en-US');
 
 /* ------------------------------------------------------------------ *
- *  DATA — verbatim from 06_mypage_flow.dc.html                         *
+ *  DATA — verbatim from 06_mypage_flow.dc.html (실데이터 연동된 부분은 제거됨)  *
  * ------------------------------------------------------------------ */
 // ⭐ 수정: 퀘스트 달성 타임라인 더미데이터(Achievement/ACHIEVEMENTS) 제거 —
 // 실 데이터는 api/mypage.ts::getMyQuestAchievements()로 대체 (MyPageScreen.tsx 참고)
+// ⭐ 수정: 레벨 랭킹 더미데이터(RANKS_LEVEL) 제거 — 실 데이터는 api/growth.ts::getLeaderboard()로 대체
+// (RankingScreen.tsx 참고). "랭킹전"(팀 챌린지 점수)은 아직 백엔드가 없어 RANKS_BATTLE만 유지.
 
 export type RankRow = { rank: string; name: string; val: string };
-
-export const RANKS_LEVEL: RankRow[] = [
-  { rank: '1위', name: 'user1', val: '100lv' },
-  { rank: '2위', name: 'user2', val: '92lv' },
-  { rank: '3위', name: '사용자 (나)', val: '79lv' },
-  { rank: '4위', name: 'user4', val: '71lv' },
-  { rank: '5위', name: 'user5', val: '64lv' },
-  { rank: '6위', name: 'user6', val: '58lv' },
-];
 
 export const RANKS_BATTLE: RankRow[] = [
   { rank: '🥇', name: 'quest_king', val: '2,480pt' },
@@ -302,27 +304,35 @@ export const RANKS_BATTLE: RankRow[] = [
   { rank: '6위', name: 'sunny', val: '1,180pt' },
 ];
 
-// weekly EXP chart (line chart) — verbatim
-export const CHART = {
-  W: 300,
-  H: 130,
-  pad: 24,
-  maxV: 140,
-  days: ['월', '화', '수', '목', '금', '토', '일'],
-  thisW: [20, 45, 40, 80, 70, 110, 130],
-  lastW: [10, 30, 55, 50, 60, 75, 95],
-  grid: [0, 35, 70, 105, 140],
-};
-export const chartX = (i: number) => CHART.pad + (CHART.W - CHART.pad * 2) * (i / 6);
-export const chartY = (v: number) => CHART.H - 20 - (CHART.H - 34) * (v / CHART.maxV);
-export function chartLine(arr: number[]) {
-  return arr.map((v, i) => (i ? 'L' : 'M') + chartX(i).toFixed(1) + ' ' + chartY(v).toFixed(1)).join(' ');
+// weekly EXP chart — 레이아웃 상수만 유지, 실제 값/축 범위는 MyLevelScreen에서
+// /growth/status 응답(weekly_xp_graph) 기준으로 동적 계산한다.
+export const CHART_LAYOUT = { W: 300, H: 130, pad: 24 };
+
+export const chartX = (i: number, count: number) =>
+  CHART_LAYOUT.pad + (CHART_LAYOUT.W - CHART_LAYOUT.pad * 2) * (count <= 1 ? 0 : i / (count - 1));
+
+export const chartY = (v: number, maxV: number) =>
+  CHART_LAYOUT.H - 20 - (CHART_LAYOUT.H - 34) * (maxV <= 0 ? 0 : v / maxV);
+
+// ⭐ 수정: 아직 지나지 않은 요일(null)은 건너뛰되, x좌표는 원래 인덱스(i) 기준을 그대로 써서
+// 요일 라벨과 위치가 어긋나지 않게 한다. 배열 길이(arr.length)는 항상 7 그대로 유지.
+export function chartLine(arr: (number | null)[], maxV: number) {
+  const known = arr
+    .map((v, i) => (v === null ? null : { i, v }))
+    .filter((p): p is { i: number; v: number } => p !== null);
+  return known
+    .map((p, idx) => (idx ? 'L' : 'M') + chartX(p.i, arr.length).toFixed(1) + ' ' + chartY(p.v, maxV).toFixed(1))
+    .join(' ');
 }
-export function pathLength(arr: number[]) {
+
+export function pathLength(arr: (number | null)[], maxV: number) {
+  const known = arr
+    .map((v, i) => (v === null ? null : { i, v }))
+    .filter((p): p is { i: number; v: number } => p !== null);
   let len = 0;
-  for (let i = 1; i < arr.length; i++) {
-    const dx = chartX(i) - chartX(i - 1);
-    const dy = chartY(arr[i]) - chartY(arr[i - 1]);
+  for (let k = 1; k < known.length; k++) {
+    const dx = chartX(known[k].i, arr.length) - chartX(known[k - 1].i, arr.length);
+    const dy = chartY(known[k].v, maxV) - chartY(known[k - 1].v, maxV);
     len += Math.hypot(dx, dy);
   }
   return len;

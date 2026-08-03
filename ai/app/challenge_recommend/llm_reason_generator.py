@@ -136,6 +136,52 @@ def _strip_json_code_fence(raw_response: str) -> str:
 
     return "\n".join(lines).strip()
 
+def _normalize_reason_collection(
+    parsed_json: Any,
+) -> Any:
+    """user_id-key 객체 응답을 표준 reasons 배열로 변환합니다."""
+
+    if not isinstance(parsed_json, dict):
+        return parsed_json
+
+    reasons = parsed_json.get("reasons")
+
+    if not isinstance(reasons, dict):
+        return parsed_json
+
+    normalized_reasons: list[dict[str, Any]] = []
+
+    for raw_user_id, raw_reason in reasons.items():
+        if isinstance(raw_reason, str):
+            normalized_reasons.append(
+                {
+                    "user_id": raw_user_id,
+                    "recommendation_reason": raw_reason,
+                    "highlights": [],
+                }
+            )
+            continue
+
+        if isinstance(raw_reason, dict):
+            normalized_reason = dict(raw_reason)
+            normalized_reason.setdefault("user_id", raw_user_id)
+            normalized_reason.setdefault("highlights", [])
+            normalized_reasons.append(normalized_reason)
+            continue
+
+        normalized_reasons.append(
+            {
+                "user_id": raw_user_id,
+                "recommendation_reason": raw_reason,
+                "highlights": [],
+            }
+        )
+
+    return {
+        **parsed_json,
+        "reasons": normalized_reasons,
+    }
+
 
 def _parse_reason_response(
     raw_response: str,
@@ -146,6 +192,7 @@ def _parse_reason_response(
 
     try:
         parsed_json = json.loads(normalized)
+        parsed_json = _normalize_reason_collection(parsed_json)
     except json.JSONDecodeError as exc:
         raise RecommendationReasonLLMError(
             "LLM 추천 이유 응답이 유효한 JSON이 아닙니다."

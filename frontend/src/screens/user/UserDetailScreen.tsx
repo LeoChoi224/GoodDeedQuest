@@ -1,125 +1,399 @@
 /**
- * UserDetailScreen (route: UserDetail) — 스토리보드 #48. 어느 화면에서든 유저를 누르면
- * 오는 공용 프로필. Root 스택에 등록되어 모든 중첩 네비게이터에서 도달.
- * ① 프로필 카드(아바타·닉네임·칭호·LV·연속접속) ② 퀘스트 달성 타임라인(FlatList).
- * params.moderation=true 면 관리자용 차단 버튼(리스트 푸터) 노출.
+ * UserDetailScreen (route: UserDetail)
+ * 마이페이지와 동일한 UI로 다른 사용자의 공개 정보를 표시합니다.
+ * 관리자 목록에서 진입한 경우 활성·비활성 전환 버튼을 추가로 표시합니다.
  */
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Image } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import GamePopup, { PopupButtons } from '../../components/GamePopup';
 import { useToast } from '../../components/Toast';
-import { colors, fonts, radii, shadow, CATEGORY_ICONS } from '../../theme';
+import {
+  getCommunityUserProfile,
+  getCommunityUserQuestAchievements,
+  type CommunityUserProfile,
+  type CommunityUserQuestAchievement,
+} from '../../api/community';
+import {
+  colors,
+  fonts,
+  radii,
+  CATEGORY_ICONS,
+  brand,
+} from '../../theme';
+import { ConicAvatar } from '../mypage/_parts';
+import { getFullImageUrl } from '../shop/_parts';
+import { adminApi, getAdminErrorMessage } from '../admin/adminApi';
 
-const DEFAULT_GRAD: [string, string] = ['#0E4F40', '#033236'];
+function formatShortDate(iso: string): string {
+  const date = new Date(iso);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
 
-// 이름 기반 안정적 목업 값 (실서비스에선 API)
-function hashNum(s: string, mod: number, base: number) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffff;
-  return base + (h % mod);
+  return `${year}-${month}-${day}`;
 }
 
-const USER_QUESTS = [
-  { category: 'volunteer', name: '무료 급식 봉사', date: '2026-07-01' },
-  { category: 'environment', name: '한강 플로깅', date: '2026-06-30' },
-  { category: 'sharing', name: '헌혈 캠페인 참여', date: '2026-06-25' },
-  { category: 'animal', name: '유기견 임시보호', date: '2026-06-20' },
-  { category: 'community', name: '마을 청소 활동', date: '2026-06-15' },
-];
+function formatCompletedAt(iso: string): string {
+  const date = new Date(iso);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  return `${year}.${month}.${day} ${hours}:${minutes}`;
+}
 
 export default function UserDetailScreen({ navigation, route }: any) {
   const toast = useToast();
-  const user = route?.params?.user ?? {};
-  const name: string = user.name ?? '선한 영웅';
-  const title: string = user.title ?? '마을 수호자';
-  const level = user.level ?? user.lv ?? hashNum(name, 40, 5);
-  const streak = hashNum(name + 's', 20, 3);
-  const grad: [string, string] =
-    Array.isArray(user.grad) && user.grad.length >= 2 ? [user.grad[0], user.grad[1]] : DEFAULT_GRAD;
-  const moderation: boolean = !!route?.params?.moderation;
-  const blocked: boolean = !!user.blocked;
+
+  const initialUser = route?.params?.user ?? {};
+  const userId = Number(route?.params?.userId ?? initialUser.user_id);
+  const moderation = Boolean(route?.params?.moderation);
+
+  const [profile, setProfile] = useState<CommunityUserProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState(false);
+
+  const [achievements, setAchievements] = useState<
+    CommunityUserQuestAchievement[]
+  >([]);
+  const [achievementsLoading, setAchievementsLoading] = useState(true);
+  const [achievementsError, setAchievementsError] = useState(false);
+
+  const [selected, setSelected] =
+    useState<CommunityUserQuestAchievement | null>(null);
 
   const [confirmBlock, setConfirmBlock] = useState(false);
+  const [moderationSubmitting, setModerationSubmitting] = useState(false);
+  const [isActive, setIsActive] = useState(initialUser.is_active ?? true);
 
-  const header = (
-    <View>
-      <Animated.View entering={FadeInDown.duration(360)} style={styles.card}>
-        <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatar}>
-          <Text style={styles.avatarInitial}>{name.slice(0, 1)}</Text>
-        </LinearGradient>
-        <Text style={styles.name}>{name}</Text>
-        <Text style={styles.title}>{title}</Text>
-        <View style={styles.metaRow}>
-          <View style={styles.lvPill}>
-            <Text style={styles.lvText}>LV.{level}</Text>
-          </View>
-          <Text style={styles.streak}>🔥 {streak}일째 연속접속</Text>
-        </View>
-      </Animated.View>
+  useEffect(() => {
+    let cancelled = false;
 
-      <Text style={styles.sectionTitle}>퀘스트 달성업적 및 타임라인</Text>
-    </View>
-  );
+    if (!Number.isInteger(userId) || userId <= 0) {
+      setProfileLoading(false);
+      setProfileError(true);
+      setAchievementsLoading(false);
+      setAchievementsError(true);
+      return;
+    }
 
-  const footer = moderation ? (
-    <SpringButton
-      style={[styles.modBtn, blocked ? styles.unblockBtn : styles.blockBtn]}
-      onPress={() => setConfirmBlock(true)}
-    >
-      <Text style={[styles.modText, { color: blocked ? colors.primaryDark : colors.danger }]}>
-        {blocked ? '차단 해제하기' : '차단하기'}
-      </Text>
-    </SpringButton>
-  ) : (
-    <View style={{ height: 20 }} />
-  );
+    const loadProfile = async () => {
+      setProfileLoading(true);
+      setProfileError(false);
+
+      try {
+        const data = await getCommunityUserProfile(userId);
+
+        if (!cancelled) {
+          setProfile(data);
+        }
+      } catch (error) {
+        console.error('사용자 공개 프로필 조회 실패:', error);
+
+        if (!cancelled) {
+          setProfileError(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setProfileLoading(false);
+        }
+      }
+    };
+
+    const loadAchievements = async () => {
+      setAchievementsLoading(true);
+      setAchievementsError(false);
+
+      try {
+        const data = await getCommunityUserQuestAchievements(userId);
+
+        if (!cancelled) {
+          setAchievements(data);
+        }
+      } catch (error) {
+        console.error('사용자 달성 퀘스트 조회 실패:', error);
+
+        if (!cancelled) {
+          setAchievementsError(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setAchievementsLoading(false);
+        }
+      }
+    };
+
+    void loadProfile();
+    void loadAchievements();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const updateActiveStatus = async () => {
+    if (
+      moderationSubmitting ||
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      return;
+    }
+
+    const nextIsActive = !isActive;
+
+    try {
+      setModerationSubmitting(true);
+
+      const updatedUser = await adminApi.updateUserActiveStatus(
+        userId,
+        nextIsActive,
+      );
+
+      setIsActive(updatedUser.is_active);
+      setConfirmBlock(false);
+
+      toast.show(
+        updatedUser.is_active
+          ? '차단이 해제되었습니다'
+          : `${
+              profile?.nickname ??
+              initialUser.nickname ??
+              initialUser.name ??
+              '사용자'
+            }님을 차단했어요`,
+      );
+
+      navigation.goBack();
+    } catch (error) {
+      toast.show(getAdminErrorMessage(error));
+    } finally {
+      setModerationSubmitting(false);
+    }
+  };
 
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      <MainHeader showBack title="유저 정보" onBack={() => navigation.goBack()} />
 
-      <FlatList
-        data={USER_QUESTS}
-        keyExtractor={(_, i) => String(i)}
-        ListHeaderComponent={header}
-        renderItem={({ item, index }) => (
-          <Animated.View entering={FadeInDown.delay(50 + index * 60).duration(400)}>
-            <View style={styles.achRow}>
-              <Image source={CATEGORY_ICONS[item.category]} style={styles.achIcon} />
-              <Text style={styles.achName}>{item.name}</Text>
-              <Text style={styles.achDate}>{item.date}</Text>
-            </View>
-          </Animated.View>
-        )}
-        ItemSeparatorComponent={() => <View style={styles.divider} />}
-        ListFooterComponent={footer}
-        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
-        showsVerticalScrollIndicator={false}
+      <MainHeader
+        showBack
+        title="유저 정보"
+        onBack={() => navigation.goBack()}
       />
 
-      {/* 차단/해제 확인 (관리자) — 게임 팝업 */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 마이페이지와 동일한 가로형 프로필 카드 */}
+        <Animated.View
+          entering={FadeInDown.duration(360)}
+          style={styles.profileCard}
+        >
+          <ConicAvatar
+            size={64}
+            imageUri={profile?.profile_image_url ?? null}
+            borderImageUrl={
+              profile?.equipped_border_image_url
+                ? getFullImageUrl(profile.equipped_border_image_url)
+                : null
+            }
+          />
+
+          <View style={styles.profileInfo}>
+            {profileLoading ? (
+              <ActivityIndicator
+                color={colors.primaryDark}
+                style={styles.profileInfoLoading}
+              />
+            ) : profileError || !profile ? (
+              <Text style={styles.name}>프로필을 불러오지 못했어요</Text>
+            ) : (
+              <>
+                <Text style={styles.name}>{profile.nickname}</Text>
+
+                <Text style={styles.title}>{profile.title}</Text>
+
+                <View style={styles.metaRow}>
+                  <Text style={styles.lv}>LV.{profile.current_level}</Text>
+
+                  <Text style={styles.streak}>
+                    🔥 {profile.daily_streak}일째 연속접속
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+        </Animated.View>
+
+        <Text style={styles.sectionTitle}>퀘스트 달성업적 및 타임라인</Text>
+
+        {/* 마이페이지와 동일한 타임라인 카드 */}
+        <View style={styles.timelineCard}>
+          {achievementsLoading ? (
+            <View style={styles.timelineStateBox}>
+              <ActivityIndicator color={colors.primaryDark} />
+            </View>
+          ) : achievementsError ? (
+            <View style={styles.timelineStateBox}>
+              <Text style={styles.timelineStateText}>
+                달성 내역을 불러오지 못했어요
+              </Text>
+            </View>
+          ) : achievements.length === 0 ? (
+            <View style={styles.timelineStateBox}>
+              <Text style={styles.timelineStateText}>
+                달성한 퀘스트가 없습니다
+              </Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.timelineScroll}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              {achievements.map((achievement, index) => (
+                <Animated.View
+                  key={achievement.submission_id}
+                  entering={FadeInDown.delay(50 + index * 70).duration(450)}
+                >
+                  <SpringButton
+                    style={[
+                      styles.achievementRow,
+                      index === achievements.length - 1 &&
+                        styles.achievementRowLast,
+                    ]}
+                    onPress={() => setSelected(achievement)}
+                    pressScale={0.99}
+                  >
+                    <Image
+                      source={
+                        CATEGORY_ICONS[achievement.category_code] ??
+                        CATEGORY_ICONS.other
+                      }
+                      style={styles.achievementIcon}
+                    />
+
+                    <Text style={styles.achievementName}>
+                      {achievement.title}
+                    </Text>
+
+                    <Text style={styles.achievementDate}>
+                      {formatShortDate(achievement.completed_at)}
+                    </Text>
+                  </SpringButton>
+                </Animated.View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* 관리자 목록에서 진입했을 때만 표시 */}
+        {moderation ? (
+          <SpringButton
+            disabled={moderationSubmitting}
+            style={[
+              styles.moderationButton,
+              isActive ? styles.blockButton : styles.unblockButton,
+            ]}
+            onPress={() => setConfirmBlock(true)}
+          >
+            {moderationSubmitting ? (
+              <ActivityIndicator
+                color={isActive ? colors.danger : colors.primaryDark}
+              />
+            ) : (
+              <Text
+                style={[
+                  styles.moderationText,
+                  {
+                    color: isActive ? colors.danger : colors.primaryDark,
+                  },
+                ]}
+              >
+                {isActive ? '차단하기' : '차단 해제하기'}
+              </Text>
+            )}
+          </SpringButton>
+        ) : null}
+      </ScrollView>
+
+      {/* 달성 퀘스트 상세 팝업 */}
+      <GamePopup visible={selected !== null} onClose={() => setSelected(null)}>
+        <Image source={brand.appIconCheck} style={styles.popupCheck} />
+
+        {selected ? (
+          <>
+            <Text style={styles.popupTitle}>{selected.title}</Text>
+
+            <Text style={styles.popupDescription}>
+              {selected.description}
+            </Text>
+
+            <Text style={styles.popupTime}>
+              퀘스트 완료 시간 : {formatCompletedAt(selected.completed_at)}
+            </Text>
+
+            <View style={styles.chipRow}>
+              <Text style={[styles.chip, styles.experienceChip]}>
+                경험치 +{selected.reward_exp ?? 0}
+              </Text>
+
+              <Text style={[styles.chip, styles.pointChip]}>
+                포인트 +{selected.reward_point ?? 0}
+              </Text>
+            </View>
+
+            <SpringButton
+              style={styles.popupButton}
+              onPress={() => setSelected(null)}
+            >
+              <Text style={styles.popupButtonText}>확인 완료</Text>
+            </SpringButton>
+          </>
+        ) : null}
+      </GamePopup>
+
+      {/* 관리자 차단·해제 확인 팝업 */}
       <GamePopup
         visible={confirmBlock}
-        onClose={() => setConfirmBlock(false)}
-        title={blocked ? '차단을 해제하시겠습니까?' : '차단하시겠습니까?'}
+        onClose={() => {
+          if (!moderationSubmitting) {
+            setConfirmBlock(false);
+          }
+        }}
+        dismissOnBackdrop={!moderationSubmitting}
+        title={isActive ? '차단하시겠습니까?' : '차단을 해제하시겠습니까?'}
       >
         <PopupButtons
-          primaryLabel="예"
+          primaryLabel={moderationSubmitting ? '처리 중...' : '예'}
           onPrimary={() => {
-            setConfirmBlock(false);
-            toast.show(blocked ? '차단이 해제되었습니다' : `${name}님을 차단했어요`);
-            navigation.goBack();
+            void updateActiveStatus();
           }}
           secondaryLabel="아니오"
-          onSecondary={() => setConfirmBlock(false)}
+          onSecondary={() => {
+            if (!moderationSubmitting) {
+              setConfirmBlock(false);
+            }
+          }}
         />
       </GamePopup>
     </View>
@@ -127,36 +401,224 @@ export default function UserDetailScreen({ navigation, route }: any) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.screenBg },
-  card: {
-    backgroundColor: colors.white,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    alignItems: 'center',
-    paddingVertical: 26,
-    marginBottom: 16,
-    ...shadow.card,
+  root: {
+    flex: 1,
+    backgroundColor: colors.screenBg,
   },
-  avatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.gold, marginBottom: 14 },
-  avatarInitial: { fontFamily: fonts.pixel, fontSize: 34, color: colors.parchment },
-  name: { fontFamily: fonts.pixel, fontSize: 22, color: colors.primaryDark },
-  title: { fontSize: 14, color: colors.gold, fontFamily: fonts.bodyM, marginTop: 4 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
-  lvPill: { backgroundColor: 'rgba(212,160,23,0.16)', borderWidth: 1, borderColor: 'rgba(212,160,23,0.6)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2 },
-  lvText: { fontFamily: fonts.pixel, fontSize: 12, color: '#8A6A1E' },
-  streak: { fontSize: 12, color: colors.xpGreen, fontFamily: fonts.bodyM },
+  scroll: {
+    flex: 1,
+  },
+  body: {
+    padding: 16,
+    paddingBottom: 28,
+  },
 
-  sectionTitle: { fontFamily: fonts.pixel, fontSize: 16, color: colors.primaryDark, marginBottom: 10 },
+  profileCard: {
+    backgroundColor: colors.parchment,
+    borderWidth: 2,
+    borderColor: colors.pixelBorder,
+    borderRadius: radii.card,
+    paddingTop: 18,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    shadowColor: '#5C3D1E',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  profileInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileInfoLoading: {
+    alignSelf: 'flex-start',
+  },
+  name: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.primaryDark,
+    fontFamily: fonts.bodyM,
+  },
+  title: {
+    fontSize: 13,
+    color: colors.gold,
+    fontWeight: '600',
+    marginTop: 1,
+    marginBottom: 3,
+    fontFamily: fonts.bodyM,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  lv: {
+    fontFamily: fonts.pixel,
+    fontSize: 15,
+    color: colors.primaryDark,
+  },
+  streak: {
+    fontSize: 12,
+    color: colors.xpGreen,
+    fontWeight: '600',
+    fontFamily: fonts.bodyM,
+  },
 
-  achRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: colors.white },
-  achIcon: { width: 40, height: 40, borderRadius: 9 },
-  achName: { flex: 1, fontSize: 15, fontFamily: fonts.bodyM, color: colors.primaryDark },
-  achDate: { fontSize: 12, fontFamily: fonts.bodyR, color: colors.textMuted },
-  divider: { height: 1, backgroundColor: colors.divider, marginHorizontal: 16 },
+  sectionTitle: {
+    fontFamily: fonts.pixel,
+    fontSize: 16,
+    color: colors.primaryDark,
+    marginBottom: 12,
+  },
 
-  modBtn: { height: 52, borderRadius: radii.button, backgroundColor: colors.white, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
-  blockBtn: { borderColor: colors.danger },
-  unblockBtn: { borderColor: colors.primaryDark },
-  modText: { fontFamily: fonts.bodyB, fontSize: 15, fontWeight: '700' },
+  timelineCard: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    marginBottom: 14,
+    overflow: 'hidden',
+    shadowColor: '#033236',
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  timelineScroll: {
+    maxHeight: 320,
+  },
+  timelineStateBox: {
+    paddingVertical: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineStateText: {
+    fontSize: 13,
+    color: '#888',
+    fontFamily: fonts.bodyM,
+  },
+  achievementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF1F0',
+    backgroundColor: colors.white,
+  },
+  achievementRowLast: {
+    borderBottomWidth: 0,
+  },
+  achievementIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 9,
+  },
+  achievementName: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.primaryDark,
+    fontFamily: fonts.bodyM,
+  },
+  achievementDate: {
+    fontSize: 12,
+    color: '#888',
+    fontFamily: fonts.bodyR,
+  },
+
+  moderationButton: {
+    height: 52,
+    borderRadius: radii.button,
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  blockButton: {
+    borderColor: colors.danger,
+  },
+  unblockButton: {
+    borderColor: colors.primaryDark,
+  },
+  moderationText: {
+    fontFamily: fonts.bodyB,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  popupCheck: {
+    width: 72,
+    height: 72,
+    marginBottom: 14,
+  },
+  popupTitle: {
+    fontFamily: fonts.pixel,
+    fontSize: 20,
+    color: '#F5ECCB',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  popupDescription: {
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#B9C9BD',
+    lineHeight: 21,
+    marginBottom: 14,
+    fontFamily: fonts.bodyR,
+  },
+  popupTime: {
+    textAlign: 'center',
+    fontSize: 13,
+    color: '#8FA79A',
+    marginBottom: 16,
+    fontFamily: fonts.bodyR,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 20,
+  },
+  chip: {
+    borderRadius: 24,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    fontSize: 13,
+    fontWeight: '700',
+    overflow: 'hidden',
+    fontFamily: fonts.bodyB,
+  },
+  experienceChip: {
+    backgroundColor: colors.xpGreen,
+    color: colors.white,
+  },
+  pointChip: {
+    backgroundColor: colors.gold,
+    color: colors.primaryDark,
+  },
+  popupButton: {
+    alignSelf: 'stretch',
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: colors.primaryDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popupButtonText: {
+    color: colors.parchment,
+    fontFamily: fonts.pixel,
+    fontSize: 16,
+  },
 });
