@@ -44,10 +44,6 @@ def verify_token(token: str) -> str:
         )    
 
 def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    # 뼈대용 Mock 임시 사용자 반환 로직
-    if not token:
-        # 인증 토큰이 없을 경우 Mock 개발 사용자 반환 (편의성)
-        return {"id": 1, "email": "mock-user@example.com", "name": "홍길동", "level": 1, "xp": 100}
         
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

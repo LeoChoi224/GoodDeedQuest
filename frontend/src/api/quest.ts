@@ -94,4 +94,21 @@ export async function getQuest(questId: number): Promise<Quest> {
  */
 export async function abandonQuest(questId: number): Promise<void> {
   await api.delete(`/quests/${questId}`);
+  
+/** 오늘 이미 만들어진 추천. 아직 없으면 null이 온다. */
+export async function getTodayRecommendation(): Promise<Quest[] | null> {
+  const response = await api.get('/quest-recommend/today');
+  return response.data.data ?? null;
+}
+
+/** 추천 파이프라인을 실제로 실행한다. 좌표가 없으면 서버가 User 테이블 저장 좌표를 쓴다. */
+export async function refreshRecommendation(
+  latitude?: number | null, longitude?: number | null, requestMessage?: string | null
+): Promise<Quest[]> {
+  const response = await api.post('/quest-recommend', {
+    latitude: latitude ?? null,
+    longitude: longitude ?? null,
+    request_message: requestMessage ?? null,
+  }, { timeout: AI_TIMEOUT });
+  return response.data.data ?? [];
 }

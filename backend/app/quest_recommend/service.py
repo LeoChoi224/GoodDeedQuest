@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List, Final
 
 from sqlalchemy.orm import Session
@@ -12,89 +13,8 @@ from backend.app.quest.enums import QuestTarget, QuestType, QuestSource, QuestSt
 
 logger: Final = logging.getLogger(__name__)
 
-# ===================== 추가: AI 추천 요청 시 함께 전달할 사용자 컨텍스트 조회 함수 =====================
-# 기존에는 완료 이력 / 최근 추천 이력 / 저장 좌표가 AI 서버에 전혀 전달되지 않아
-# 중복 추천 차단(exclusions)과 완료 이력 기반 추천(completed_history)이 동작하지 않았음
-def get_completed_quest_titles(db: Session, user_id: int, limit: int = 20) -> List[str]:
-    """
-    사용자가 완료한 퀘스트 제목 목록을 조회합니다.
-    AI 추천 시 completed_history로 전달되어 선호 활동 강화 추천에 사용됩니다.
-    Args:
-        db (Session): DB 세션
-        user_id (int): 사용자 ID
-        limit (int): 최대 조회 건수
-    Returns:
-        List[str]: 완료 퀘스트 제목 목록
-    """
-    try:
-        rows = (
-            db.query(Quest.quest_title)
-            .filter(
-                Quest.creator_id == user_id,
-                Quest.quest_status == QuestStatus.COMPLETED
-            )
-            .order_by(Quest.quest_id.desc())
-            .limit(limit)
-            .all()
-        )
-        return [row[0] for row in rows if row[0]]
-    except Exception as e:
-        logger.warning(f"완료 퀘스트 이력 조회 실패. User ID: {user_id}, 사유: {str(e)}")
-        return []
-
-
-def get_recent_recommended_titles(db: Session, user_id: int, limit: int = 20) -> List[str]:
-    """
-    사용자에게 최근 추천되었던 퀘스트 제목 목록을 조회합니다.
-    AI 추천 시 exclusions(제외 목록)로 전달되어 동일 퀘스트의 연속 중복 추천을 차단합니다.
-    Args:
-        db (Session): DB 세션
-        user_id (int): 사용자 ID
-        limit (int): 최대 조회 건수
-    Returns:
-        List[str]: 최근 추천 퀘스트 제목 목록
-    """
-    try:
-        rows = (
-            db.query(AiRecommendation.title)
-            .join(
-                AiRecommendationLog,
-                AiRecommendation.ai_log_id == AiRecommendationLog.ai_log_id
-            )
-            .filter(AiRecommendationLog.user_id == user_id)
-            .order_by(AiRecommendation.ai_rec_id.desc())
-            .limit(limit)
-            .all()
-        )
-        return [row[0] for row in rows if row[0]]
-    except Exception as e:
-        logger.warning(f"최근 추천 이력 조회 실패. User ID: {user_id}, 사유: {str(e)}")
-        return []
-
-
-def get_user_coordinates(db: Session, user_id: int) -> tuple[Optional[float], Optional[float]]:
-    """
-    User 테이블에 저장된 사용자의 마지막 위치 좌표를 조회합니다.
-    프론트엔드가 실시간 좌표를 전달하지 못한 경우의 폴백 값으로 사용됩니다.
-    Args:
-        db (Session): DB 세션
-        user_id (int): 사용자 ID
-    Returns:
-        tuple[Optional[float], Optional[float]]: (위도, 경도). 저장된 값이 없으면 (None, None)
-    """
-    try:
-        user = db.query(User).filter(User.user_id == user_id).first()
-        if not user:
-            return None, None
-
-        # DB 컬럼이 Numeric 타입이라 Decimal로 반환되므로 JSON 직렬화를 위해 float으로 변환
-        lat = float(user.current_latitude) if user.current_latitude is not None else None
-        lng = float(user.current_longitude) if user.current_longitude is not None else None
-        return lat, lng
-    except Exception as e:
-        logger.warning(f"사용자 좌표 조회 실패. User ID: {user_id}, 사유: {str(e)}")
-        return None, None
-# ==========================================================================================================
+# created_at은 DB 서버 시계(UTC)로 저장되는데 사용자가 느끼는 '오늘'은 한국 시간이다
+KST: Final = timezone(timedelta(hours=9))
 
 def save_recommendation_log(
     db: Session,
@@ -121,6 +41,8 @@ def save_recommendation_log(
         return log_entry.ai_log_id
             
     except Exception as e:
+        # flush 실패 시 세션이 롤백 대기 상태가 되어 get_db()의 commit에서 다시 터진다
+        db.rollback()
         logger.error(f"AI 추천 로그 DB 등록 중 예외 발생. User ID: {user_id}, 에러: {str(e)}")
         return None
 
@@ -212,6 +134,8 @@ def save_recommendation_items(
         return saved_items
 
     except Exception as e:
+        # 위와 동일. 예외를 삼키고 넘어가려면 세션도 함께 정리해야 한다
+        db.rollback()
         logger.error(f"추천 퀘스트 항목 DB 영속화 중 예외 발생. Log ID: {ai_log_id}, 에러: {str(e)}")
         return []
 
@@ -220,12 +144,6 @@ def get_completed_quest_titles(db: Session, user_id: int, limit: int = 20) -> Li
     """
     사용자가 완료한 퀘스트 제목 목록을 조회합니다.
     AI 추천 시 completed_history로 전달되어 선호 활동 강화 추천에 사용됩니다.
-    Args:
-        db (Session): DB 세션
-        user_id (int): 사용자 ID
-        limit (int): 최대 조회 건수
-    Returns:
-        List[str]: 완료 퀘스트 제목 목록
     """
     try:
         rows = (
@@ -244,16 +162,10 @@ def get_completed_quest_titles(db: Session, user_id: int, limit: int = 20) -> Li
         return []
 
 
-def get_recent_recommended_titles(db: Session, user_id: int, limit: int = 20) -> List[str]:
+def get_recent_recommended_titles(db: Session, user_id: int, limit: int = 10) -> List[str]:
     """
     사용자에게 최근 추천되었던 퀘스트 제목 목록을 조회합니다.
     AI 추천 시 exclusions(제외 목록)로 전달되어 동일 퀘스트 중복 추천을 차단합니다.
-    Args:
-        db (Session): DB 세션
-        user_id (int): 사용자 ID
-        limit (int): 최대 조회 건수
-    Returns:
-        List[str]: 최근 추천 퀘스트 제목 목록
     """
     try:
         rows = (
@@ -277,11 +189,6 @@ def get_user_coordinates(db: Session, user_id: int) -> tuple:
     """
     User 테이블에 저장된 사용자의 마지막 위치 좌표를 조회합니다.
     프론트엔드가 실시간 좌표를 보내지 못한 경우의 폴백 값으로 사용됩니다.
-    Args:
-        db (Session): DB 세션
-        user_id (int): 사용자 ID
-    Returns:
-        tuple: (위도, 경도). 저장된 값이 없으면 (None, None)
     """
     try:
         user = db.query(User).filter(User.user_id == user_id).first()
@@ -297,3 +204,81 @@ def get_user_coordinates(db: Session, user_id: int) -> tuple:
         return None, None
 
 
+def build_quests_from_recommendations(db: Session, items: List[AiRecommendation]) -> List[Quest]:
+    """
+    추천 항목(AiRecommendation)에 연결된 Quest 원본을 추천 순위 그대로 조회하는 헬퍼 함수입니다.
+    오늘의 추천 조회(GET)와 신규 추천 생성(POST)이 동일한 응답 형태를 반환하도록 두 곳에서 함께 사용합니다.
+    """
+    # 1. quest_id는 ondelete="SET NULL"이라 원본 퀘스트가 지워지면 비어 있을 수 있어 걸러낸다
+    quest_ids = [item.quest_id for item in items if item.quest_id is not None]
+    if not quest_ids:
+        return []
+
+    # 2. 항목마다 조회하면 5회 왕복하므로 IN 절로 한 번에 가져온다
+    rows = (
+        db.query(Quest)
+        .filter(
+            Quest.quest_id.in_(quest_ids),
+            Quest.is_deleted == False,
+        )
+        .all()
+    )
+
+    # 3. IN 절 조회는 순서를 보장하지 않아 1순위가 3번째에 나올 수 있으므로 순위대로 다시 정렬한다
+    quest_map = {row.quest_id: row for row in rows}
+    return [quest_map[quest_id] for quest_id in quest_ids if quest_id in quest_map]
+
+
+def get_today_recommendation(db: Session, user_id: int) -> Optional[List[Quest]]:
+    """
+    오늘 생성된 추천 결과를 조회합니다. LLM은 호출하지 않고 DB 조회만 수행합니다.
+    홈 화면 진입 시 사용되며, 오늘 생성된 결과가 없으면 None을 반환하여 프론트가 신규 생성을 요청하도록 합니다.
+    """
+    try:
+        # 1. 가장 최근 로그 1건 조회 (created_at은 초 단위라 동시 생성 시 순서가 흔들리므로 PK 기준 정렬)
+        latest_log = (
+            db.query(AiRecommendationLog)
+            .filter(AiRecommendationLog.user_id == user_id)
+            .order_by(AiRecommendationLog.ai_log_id.desc())
+            .first()
+        )
+        if not latest_log:
+            logger.info(f"추천 이력이 없는 사용자입니다. User ID: {user_id}")
+            return None
+
+        # 2. 오늘(한국 시간 기준) 생성된 로그인지 판정 (어제 것이면 새로 만들어야 한다)
+        start_kst = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
+        start_utc = start_kst.astimezone(timezone.utc).replace(tzinfo=None)
+        if not latest_log.created_at or latest_log.created_at < start_utc:
+            logger.info(f"마지막 추천이 오늘 생성된 것이 아닙니다. User ID: {user_id}")
+            return None
+
+        # 3. 딸린 추천 항목을 순위대로 조회 (rank는 nullable이라 ai_rec_id를 2차 정렬 키로 고정)
+        items = (
+            db.query(AiRecommendation)
+            .filter(AiRecommendation.ai_log_id == latest_log.ai_log_id)
+            .order_by(
+                AiRecommendation.rank.asc(),
+                AiRecommendation.ai_rec_id.asc(),
+            )
+            .all()
+        )
+
+        # 4. Quest 원본 조회 및 순위 정렬
+        quests = build_quests_from_recommendations(db=db, items=items)
+
+        # 5. 오늘 로그는 있으나 퀘스트가 전부 사라진 경우(AI 빈 응답 / 전량 삭제)
+        #    빈 목록 대신 None을 반환해야 프론트가 새로 생성한다
+        if not quests:
+            logger.warning(f"오늘 추천 로그는 있으나 유효한 퀘스트가 없습니다. User ID: {user_id}")
+            return None
+
+        logger.info(f"오늘의 추천 퀘스트 조회 완료. User ID: {user_id}, 건수: {len(quests)}")
+        return quests
+
+    except Exception as e:
+        logger.warning(f"오늘의 추천 조회 실패. User ID: {user_id}, 사유: {str(e)}")
+        return None
+
+
+    
