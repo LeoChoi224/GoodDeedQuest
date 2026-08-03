@@ -5,6 +5,9 @@
  * "내 주변 둘러보기" · "팀 변경하기"는 이 화면엔 아예 없음(전국 화면 전용 기능).
  * 시군구 탭(2회) → RegionDetails로 이동. 이미 불러온 랭킹 목록에서 이름 매칭으로 region_id를 찾아 같이 넘김.
  * 뒤로가기는 네비게이션 스택(헤더 back/스와이프) 사용.
+ * ⭐ 수정: 랭킹 정렬 기준을 총점(score)에서 참여인원 1인당 평균 점수(average_score)로 변경 -
+ * 인구/참여자가 많은 시군구가 총점만으로 무조건 유리해지는 문제를 막기 위함. 목록에
+ * "n명 참여" 보조 텍스트 추가.
  */
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
@@ -54,7 +57,8 @@ export default function SiDoMapScreen({ navigation, route }: any) {
     };
   }, [province]);
 
-  const maxScore = ranking.length > 0 ? Math.max(ranking[0].score, 1) : 1;
+  // ⭐ 수정: 막대 그래프 기준도 총점(score)이 아니라 평균(average_score)으로
+  const maxScore = ranking.length > 0 ? Math.max(ranking[0].average_score, 1) : 1;
 
   const goToRegionDetails = (sigunguName: string, provinceName: string) => {
     const match = ranking.find((r) => r.region_name === sigunguName);
@@ -83,7 +87,7 @@ export default function SiDoMapScreen({ navigation, route }: any) {
           />
         </View>
 
-        <Text style={styles.sectionTitle}>🏆 {province} 시군구별 랭킹</Text>
+        <Text style={styles.sectionTitle}>🏆 {province} 시군구별 랭킹 (1인당 평균)</Text>
 
         {loading ? (
           <View style={styles.centerBox}>
@@ -104,8 +108,9 @@ export default function SiDoMapScreen({ navigation, route }: any) {
                 key={r.region_id}
                 index={i}
                 name={r.region_name}
-                score={r.score.toLocaleString()}
-                pct={r.score / maxScore}
+                score={r.average_score.toLocaleString()}
+                subtitle={`${r.participant_count.toLocaleString()}명 참여`}
+                pct={r.average_score / maxScore}
                 onPress={() =>
                   navigation.navigate('RegionDetails', {
                     region: province,

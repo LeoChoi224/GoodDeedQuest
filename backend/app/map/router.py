@@ -146,7 +146,13 @@ def get_national_ranking(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    """대항전전국지도 - 시/도별 순위 (시군구 점수 합산). 정산 중(토요일까지 결과 고정)에도 조회 가능"""
+    """대항전전국지도 - 시/도별 순위 (시군구 점수 합산). 정산 중(토요일까지 결과 고정)에도 조회 가능.
+
+    ⭐ 수정: CompetitionParticipant.score는 실제 기여(CompetitionContribution)가 생겨도
+    같이 갱신되는 곳이 코드 어디에도 없어서(시드 스크립트만 채워둔 캐시값) 실제 활동과
+    무관하게 어긋날 수 있었다. personal_ranking과 동일하게 CompetitionContribution.points를
+    그때그때 합산해서 항상 최신 값을 보여주도록 바꿈 - 별도 캐시가 없으니 "안 맞는" 상태 자체가
+    생길 수 없다. CompetitionParticipant는 "이 지역이 이번 대회에 참여 중인지"만 판단하는 용도로 유지."""
     competition = _get_current_competition(db, include_settling=True)
     if competition is None:
         return APIResponse.fail(message="진행 중이거나 정산 중인 대항전이 없습니다")
@@ -155,13 +161,18 @@ def get_national_ranking(
         db.query(
             City.city_id,
             City.city_name,
-            func.coalesce(func.sum(CompetitionParticipant.score), 0).label("total_score"),
+            func.coalesce(func.sum(CompetitionContribution.points), 0).label("total_score"),
         )
         .join(Region, Region.city_id == City.city_id)
         .join(CompetitionParticipant, CompetitionParticipant.region_id == Region.region_id)
+        .outerjoin(
+            CompetitionContribution,
+            (CompetitionContribution.region_id == Region.region_id)
+            & (CompetitionContribution.competition_id == competition.competition_id),
+        )
         .filter(CompetitionParticipant.competition_id == competition.competition_id)
         .group_by(City.city_id, City.city_name)
-        .order_by(func.sum(CompetitionParticipant.score).desc())
+        .order_by(func.coalesce(func.sum(CompetitionContribution.points), 0).desc())
         .all()
     )
 
@@ -178,26 +189,70 @@ def get_city_ranking(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    """시군구 랭킹페이지 - 특정 시/도 하위 시군구 순위. 정산 중(토요일까지 결과 고정)에도 조회 가능"""
+    """시군구 랭킹페이지 - 특정 시/도 하위 시군구 순위. 정산 중(토요일까지 결과 고정)에도 조회 가능.
+
+    ⭐ 수정 (1): 기존엔 CompetitionParticipant.score(누적 총점) 그대로 정렬해서, 등록 인원이
+    많은 시군구가 1인당 기여와 무관하게 무조건 유리했다(예: 인구 많은 시가 항상 1등).
+    그래서 그 지역에 참여 등록된 인원 수(User.region_id 기준)로 총점을 나눈
+    1인당 평균 점수(average_score)로 순위를 매기도록 바꿈. 참여 인원이 0명인 지역은
+    평균이 무의미하므로 맨 뒤로 밀려나게 정렬한다.
+
+    ⭐ 수정 (2): 총점 자체도 CompetitionParticipant.score(실제 기여와 연동 안 되는 캐시값,
+    시드 스크립트만 채움) 대신 CompetitionContribution.points를 그때그때 합산해서 계산 -
+    personal_ranking과 같은 소스를 쓰므로 두 랭킹의 합계가 항상 서로 맞게 된다."""
     competition = _get_current_competition(db, include_settling=True)
     if competition is None:
         return APIResponse.fail(message="진행 중이거나 정산 중인 대항전이 없습니다")
 
-    results = (
-        db.query(Region.region_id, Region.region_name, CompetitionParticipant.score)
+    # "참여 중인" 지역 목록은 여전히 CompetitionParticipant로 판단 (팀선택으로 생성됨)
+    participating_regions = (
+        db.query(Region.region_id, Region.region_name)
         .join(CompetitionParticipant, CompetitionParticipant.region_id == Region.region_id)
         .filter(
             Region.city_id == city_id,
             CompetitionParticipant.competition_id == competition.competition_id,
         )
-        .order_by(CompetitionParticipant.score.desc())
         .all()
     )
+    region_ids = [r.region_id for r in participating_regions]
 
-    ranking = [
-        {"rank": idx + 1, "region_id": r.region_id, "region_name": r.region_name, "score": r.score or 0}
-        for idx, r in enumerate(results)
-    ]
+    contribution_totals = dict(
+        db.query(
+            CompetitionContribution.region_id,
+            func.coalesce(func.sum(CompetitionContribution.points), 0),
+        )
+        .filter(
+            CompetitionContribution.competition_id == competition.competition_id,
+            CompetitionContribution.region_id.in_(region_ids),
+        )
+        .group_by(CompetitionContribution.region_id)
+        .all()
+    ) if region_ids else {}
+
+    participant_counts = dict(
+        db.query(User.region_id, func.count(User.user_id))
+        .filter(User.region_id.in_(region_ids))
+        .group_by(User.region_id)
+        .all()
+    ) if region_ids else {}
+
+    scored = []
+    for r in participating_regions:
+        participant_count = participant_counts.get(r.region_id, 0)
+        score = contribution_totals.get(r.region_id, 0)
+        average_score = round(score / participant_count, 1) if participant_count > 0 else 0
+        scored.append({
+            "region_id": r.region_id,
+            "region_name": r.region_name,
+            "score": score,
+            "participant_count": participant_count,
+            "average_score": average_score,
+        })
+
+    # 평균 내림차순, 평균이 같으면(둘 다 0명 등) 참여 인원 많은 순으로 보조 정렬
+    scored.sort(key=lambda x: (x["average_score"], x["participant_count"]), reverse=True)
+
+    ranking = [{"rank": idx + 1, **item} for idx, item in enumerate(scored)]
     return APIResponse.ok(data={"city_id": city_id, "competition_id": competition.competition_id, "ranking": ranking})
 
 

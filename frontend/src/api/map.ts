@@ -5,6 +5,8 @@ export type CityRankingEntry = {
   region_id: number;
   region_name: string;
   score: number;
+  participant_count: number;
+  average_score: number;
 };
 
 export type CityRankingResponse = {

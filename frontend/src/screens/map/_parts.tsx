@@ -222,12 +222,15 @@ export function RankRow({
   score,
   pct,
   index,
+  subtitle,
   onPress,
 }: {
   name: string;
   score: string;
   pct: number;
   index: number;
+  /** ⭐ 추가: 이름 아래 보조 텍스트 (예: "52명 참여") - 없으면 안 그림 */
+  subtitle?: string;
   onPress?: () => void;
 }) {
   return (
@@ -235,7 +238,10 @@ export function RankRow({
       <Pressable onPress={onPress} style={({ pressed }) => [styles.rankRow, pressed && styles.rowPressed]}>
         <View style={styles.rankTop}>
           <Text style={[styles.medal, { color: rankColor(index), fontSize: index < 3 ? 18 : 15 }]}>{index + 1}</Text>
-          <Text style={styles.rankName}>{name}</Text>
+          <View style={styles.rankNameWrap}>
+            <Text style={styles.rankName}>{name}</Text>
+            {subtitle ? <Text style={styles.rankSubtitle}>{subtitle}</Text> : null}
+          </View>
           <Text style={styles.rankScore}>{score}점</Text>
         </View>
         <View style={styles.barWrap}>
@@ -455,7 +461,9 @@ const styles = StyleSheet.create({
   rowPressed: { backgroundColor: '#F4F9F5' },
   rankTop: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
   medal: { width: 30, textAlign: 'center', fontFamily: fonts.pixel, fontSize: 18, color: colors.primaryDark },
-  rankName: { flex: 1, fontWeight: '600', fontSize: 15, color: colors.primaryDark, fontFamily: fonts.bodyM },
+  rankNameWrap: { flex: 1 },
+  rankName: { fontWeight: '600', fontSize: 15, color: colors.primaryDark, fontFamily: fonts.bodyM },
+  rankSubtitle: { fontSize: 11, color: colors.textSecondary, fontFamily: fonts.bodyR, marginTop: 2 },
   rankScore: { fontFamily: fonts.pixel, fontSize: 13, color: colors.gold },
   barWrap: { paddingLeft: 42 },
   /* user rows */
