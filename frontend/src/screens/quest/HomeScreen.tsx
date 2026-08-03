@@ -20,13 +20,13 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import * as Location from 'expo-location';
 import { colors, fonts, radii, CATEGORY_ICONS } from '../../theme';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import { Coin, Star, DiffChip, ChevRight, ChevLeft, EmptyScroll, FloatSpark, Bob } from './_parts';
 import { getQuests, getTodayRecommendation, refreshRecommendation, difficultyLabel, type Quest } from '../../api/quest';
+import { getCurrentCoords } from '../../utils/location';
 
 const iconFor = (code: string) => CATEGORY_ICONS[code] ?? CATEGORY_ICONS.other;
 
@@ -59,19 +59,6 @@ export default function HomeScreen({ navigation }: any) {
     }
   };
 
-  // 좌표가 없으면 AI가 실시간 날씨 조회를 생략하고 'sunny'로 고정 진행한다.
-  // 실패해도 그냥 넘어간다. 백엔드가 User 테이블 저장 좌표로 대신 채운다.
-  const getCoords = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return null;
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-    } catch {
-      return null;
-    }
-  };
-
   // 홈 진입용. 오늘 것이 있으면 읽기만 하고, 없을 때만 새로 만든다.
   const loadRecommendation = async () => {
     setRecLoading(true);
@@ -84,7 +71,7 @@ export default function HomeScreen({ navigation }: any) {
       }
       // 오늘 추천이 없을 때만 위치 권한을 묻는다. 이미 있으면 팝업으로 멈춰 세울 이유가 없다.
       setGenerating(true);
-      const coords = await getCoords();
+      const coords = await getCurrentCoords();
       setRecommended(await refreshRecommendation(coords?.latitude, coords?.longitude));
     } catch (err: any) {
       setRecError(true);
@@ -101,7 +88,7 @@ export default function HomeScreen({ navigation }: any) {
     setGenerating(true);
     setRecError(false);
     try {
-      const coords = await getCoords();
+      const coords = await getCurrentCoords();
       setRecommended(await refreshRecommendation(coords?.latitude, coords?.longitude));
     } catch (err: any) {
       setRecError(true);
@@ -112,19 +99,13 @@ export default function HomeScreen({ navigation }: any) {
 
   // 상세 화면에서 퀘스트를 시작하고 돌아오면 캐러셀과 추천 목록이 함께 바뀌어야 한다.
   // useEffect는 화면이 처음 만들어질 때 한 번만 돌아서 복귀 시 갱신되지 않는다.
+  // 진행중 목록은 돌아올 때마다 다시 받는다. 안 그러면 포기·완료한 퀘스트가 남는다. -양정운-
   useFocusEffect(
     useCallback(() => {
       // 진행중 목록은 빠르고 추천은 느릴 수 있다. 따로 돌려야 캐러셀이 먼저 뜬다.
       load();
       loadRecommendation();
     }, [])
-  );
-
-  // 진행중 목록은 돌아올 때마다 다시 받는다. 안 그러면 포기·완료한 퀘스트가 남는다.
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, []),
   );
 
   const activeQuests = quests.filter((q) => q.quest_status === 'IN_PROGRESS');

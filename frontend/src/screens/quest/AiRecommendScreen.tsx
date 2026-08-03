@@ -1,10 +1,10 @@
 /**
  * SCREEN 7 · AI 커스텀 추천 (route AiRecommend, back) — 챗봇 메시지 버블 + 타이핑
- * 인디케이터(3-dot wave). 추천 응답에는 「퀘스트」 + "퀘스트 상세" 칩 → QuestDetail.
- * 전송 시 유저 말풍선 + 타이핑 → 추천 응답. 입력이 비면 전송 비활성.
+ * 인디케이터(3-dot wave). 요청을 보내면 추천 그래프를 돌리고, 완료되면
+ * "퀘스트 목록 보러가기" 버튼으로 홈에 돌아가 새 추천 5개를 확인한다.
  */
 import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -12,18 +12,15 @@ import { colors, fonts } from '../../theme';
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
-import { BotAvatar, TypingBubble, ChevRight } from './_parts';
+import { BotAvatar, ChevRight } from './_parts';
+import { refreshRecommendation } from '../../api/quest';
+import { getCurrentCoords } from '../../utils/location';
 
-type Quest = { title: string; category: string; point: number; exp: number };
-type Msg = { who: 'bot' | 'user' | 'reco'; text: string; quest?: Quest };
+type Msg = { who: 'bot' | 'user' | 'reco'; text: string };
 
-const PLOGGING: Quest = { title: '공원 플로깅', category: 'environment', point: 250, exp: 100 };
-const ELDERLY: Quest = { title: '독거 어르신 안부 전화', category: 'community', point: 300, exp: 120 };
-
+// 화면에 들어올 때마다 새로 만들어지므로 매번 이 안내부터 시작한다.
 const INITIAL: Msg[] = [
   { who: 'bot', text: '원하는 요청을 입력하시면 맞춤 선행을 추천해 드립니다.' },
-  { who: 'user', text: '퇴근 30분 전! 퇴근하고 할만한 선행 추천해줘' },
-  { who: 'reco', text: '「공원 플로깅」 을 추천해 드립니다.', quest: PLOGGING },
 ];
 
 export default function AiRecommendScreen({ navigation }: any) {
@@ -35,21 +32,28 @@ export default function AiRecommendScreen({ navigation }: any) {
 
   const scrollDown = () => requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
 
-  const openDetail = (q: Quest) =>
-    navigation.navigate('QuestDetail', { title: q.title, category: q.category, point: q.point, exp: q.exp, active: false });
-
-  const send = () => {
+  const send = async () => {
     const v = input.trim();
     if (!v) return;
+    // 한 번에 20~30초가 걸린다. 그 사이에 또 보내면 파이프라인이 겹쳐 돌고
+    // 퀘스트가 5개씩 두 벌 저장된다.
+    if (typing) return;
+
     setInput('');
     setMsgs((m) => [...m, { who: 'user', text: v }]);
     setTyping(true);
     scrollDown();
-    setTimeout(() => {
+
+    try {
+      const coords = await getCurrentCoords();
+      const quests = await refreshRecommendation(coords?.latitude, coords?.longitude, v);
       setTyping(false);
-      setMsgs((m) => [...m, { who: 'reco', text: '「독거 어르신 안부 전화」 를 추천해 드립니다.', quest: ELDERLY }]);
-      scrollDown();
-    }, 1300);
+      setMsgs((m) => [...m, { who: 'reco', text: `요청에 맞는 선행 ${quests.length}개를 찾았어요.` }]);
+    } catch (err: any) {
+      setTyping(false);
+      setMsgs((m) => [...m, { who: 'bot', text: '추천을 만들지 못했어요. 잠시 후 다시 시도해 주세요.' }]);
+    }
+    scrollDown();
   };
 
   return (
@@ -78,9 +82,9 @@ export default function AiRecommendScreen({ navigation }: any) {
                   <BotAvatar />
                   <View style={styles.botBubble}>
                     <Text style={styles.botText}>{m.text}</Text>
-                    {m.who === 'reco' && m.quest ? (
-                      <Pressable onPress={() => openDetail(m.quest!)} style={styles.detailChip}>
-                        <Text style={styles.detailChipText}>퀘스트 상세</Text>
+                    {m.who === 'reco' ? (
+                      <Pressable onPress={() => navigation.navigate('QuestHome')} style={styles.detailChip}>
+                        <Text style={styles.detailChipText}>퀘스트 목록 보러가기</Text>
                         <ChevRight size={16} color="#033236" />
                       </Pressable>
                     ) : null}
@@ -89,7 +93,18 @@ export default function AiRecommendScreen({ navigation }: any) {
               )}
             </Animated.View>
           ))}
-          {typing ? <TypingBubble /> : null}
+          {/* 추천 생성은 20~30초가 걸린다. 점 세 개만으로는 얼마나 기다려야 하는지
+              알 수 없어, 홈 화면과 같은 안내를 말풍선 안에 넣는다. */}
+          {typing ? (
+            <View style={styles.botRow}>
+              <BotAvatar />
+              <View style={[styles.botBubble, styles.loadingBubble]}>
+                <ActivityIndicator color={colors.primaryDark} />
+                <Text style={styles.botText}>AI가 맞춤 선행을 찾고 있어요</Text>
+                <Text style={styles.loadingHint}>최대 1분 정도 걸릴 수 있어요</Text>
+              </View>
+            </View>
+          ) : null}
         </ScrollView>
 
         <View style={[styles.inputBar, { paddingBottom: insets.bottom + 14 }]}>
@@ -102,7 +117,11 @@ export default function AiRecommendScreen({ navigation }: any) {
             returnKeyType="send"
             onSubmitEditing={send}
           />
-          <SpringButton onPress={send} disabled={!input.trim()} style={[styles.sendBtn, { opacity: input.trim() ? 1 : 0.5 }]}>
+          <SpringButton
+            onPress={send}
+            disabled={!input.trim() || typing}
+            style={[styles.sendBtn, { opacity: input.trim() && !typing ? 1 : 0.5 }]}
+          >
             <Text style={styles.sendText}>전송</Text>
           </SpringButton>
         </View>
@@ -142,6 +161,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   botText: { fontSize: 14, color: colors.textPrimary, lineHeight: 21, fontFamily: fonts.bodyR },
+  loadingBubble: { alignItems: 'center', gap: 8 },
+  loadingHint: { fontSize: 11, color: colors.textMuted, lineHeight: 16, fontFamily: fonts.bodyR },
   detailChip: {
     flexDirection: 'row',
     alignItems: 'center',
