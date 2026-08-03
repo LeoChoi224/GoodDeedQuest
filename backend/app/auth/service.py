@@ -156,3 +156,31 @@ def revoke_all_refresh_tokens(repository: DatabaseRepository[User], user_id: int
     repository.session.commit()
     return len(rows)
   
+def verify_kakao_access_token(token: str) -> dict:
+  try:
+        response = httpx.get(
+            "https://kapi.kakao.com/v2/user/me",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+  except httpx.HTTPError as error:
+        print(f"카카오 토큰 검증 실패: {type(error).__name__}: {error}")
+        raise HTTPException(status_code=401, detail="카카오 인증에 실패했습니다.")
+  
+  account = data.get("kakao_account") or {}
+  email = account.get("email")
+  nickname = (account.get("profile") or {}).get("nickname")
+  
+  if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="이메일 제공에 동의해야 가입할 수 있어요.",
+        )
+  
+  return {
+        "id": str(data.get("id")),
+        "email": email,
+        "nickname": nickname or email.split("@")[0],
+    }
