@@ -54,6 +54,7 @@ class QuestRecommendRequest(BaseModel):
         description="Additional user request or prompt message"
     )
 
+
 class QuestItemSchema(BaseModel):
     """추천 퀘스트 개별 항목 DTO"""
     quest_id: Optional[int] = Field(
@@ -116,6 +117,12 @@ class QuestItemSchema(BaseModel):
         # "추천 적합도 점수 (1~10)"
         description="Priority score from 1 to 10 indicating suitability"
     )
+    intensity: Optional[int] = Field(
+        default=50,
+        # "고른 난이도 안에서의 힘든 정도 (0~100). 백엔드가 보상 포인트/경험치 계산에 사용한다"
+        description="How demanding the quest is within its difficulty (0-100). Used by the backend to compute reward points and exp."
+    )
+
 
 class QuestRecommendResponse(BaseModel):
     """AI 퀘스트 추천 응답 DTO"""
