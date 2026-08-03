@@ -26,10 +26,12 @@ from backend.app.quest.models import Quest
 from backend.app.quest_verification.models import QuestSubmission
 from backend.app.quest_verification.enums import SubmissionStatus
 from backend.app.auth.models import User
+from backend.app.auth.service import record_daily_user_activity  # ⭐ 수정: 마이페이지 진입도 "오늘 접속"으로 기록
 from backend.app.community.models import UserActivityLog
 from backend.app.badge.service import get_equipped_badge_name
 from backend.app.shop.models import Purchase, Item  # ⭐ 수정: 장착 중인 프로필 테두리 조회용
 from backend.app.shop.enums import PurchaseStatus
+from backend.app.common.repository import DatabaseRepository  # ⭐ 수정
 from backend.app.common.s3_client import generate_upload_presigned_url, generate_download_presigned_url
 
 KST = ZoneInfo("Asia/Seoul")
@@ -118,6 +120,13 @@ def get_my_profile(db: Session, user_id: int) -> MyProfileResponse:
     user = db.query(User).filter(User.user_id == user_id).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
+
+    # ⭐ 수정: 접속 기록은 그동안 로그인(POST /auth/login) 시에만 남았는데, 프론트가
+    # 토큰을 최대 7일 보관하며 재로그인 없이 앱을 계속 쓰는 구조라 실제로는 로그인한
+    # 첫날 이후로 daily_streak가 갱신되지 않는 문제가 있었다. 이 화면(마이페이지) 진입도
+    # "오늘 접속"으로 잡아서, 로그인 여부와 무관하게 실제 사용일마다 기록이 쌓이게 한다.
+    record_daily_user_activity(DatabaseRepository(User, db), user_id)
+    db.commit()
 
     display_image_url = user.profile_image_url
     if display_image_url and not display_image_url.startswith("http"):
