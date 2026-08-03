@@ -24,6 +24,7 @@ from backend.app.auth.models import User
 from backend.app.common.s3_client import (
     copy_s3_object,
     generate_download_presigned_url,
+    transcode_s3_video_for_community,
 )
 from backend.app.community.models import CommunityPost
 from backend.app.community.repository import CommunityRepository
@@ -94,10 +95,11 @@ def _build_permanent_media_key(
 ) -> str:
     """30일 만료 대상과 분리된 community/ 영구 저장 key를 만듭니다."""
 
-    extension = PurePosixPath(source_key).suffix.lower()
-
-    if not extension:
-        extension = ".mp4" if media_type == MediaType.VIDEO else ".jpg"
+    if media_type == MediaType.VIDEO:
+        # 동영상은 변환 결과가 항상 MP4입니다.
+        extension = ".mp4"
+    else:
+        extension = PurePosixPath(source_key).suffix.lower() or ".jpg"
 
     return (
         f"community/{user_id}/{submission_id}/"
@@ -359,22 +361,38 @@ def create_community_post(
             detail="인증 미디어의 S3 경로가 올바르지 않습니다.",
         )
 
+    media_type = (
+        submission.media_type
+        or _infer_media_type(source_key)
+    )
+
     permanent_key = _build_permanent_media_key(
         user_id=current_user.user_id,
         submission_id=submission.submission_id,
         source_key=source_key,
-        media_type=submission.media_type,
+        media_type=media_type,
     )
 
     try:
-        copy_s3_object(
-            source_key=source_key,
-            destination_key=permanent_key,
-        )
-    except (BotoCoreError, ClientError) as exc:
+        if media_type == MediaType.VIDEO:
+            # 동영상은 커뮤니티 재생용 480p MP4로 변환합니다.
+            transcode_s3_video_for_community(
+                source_key=source_key,
+                destination_key=permanent_key,
+            )
+        else:
+            # 사진은 기존처럼 S3 내부 복사만 수행합니다.
+            copy_s3_object(
+                source_key=source_key,
+                destination_key=permanent_key,
+            )
+    except (BotoCoreError, ClientError, RuntimeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="인증 미디어를 커뮤니티 저장소로 복사하지 못했습니다.",
+            detail=(
+                "인증 미디어를 커뮤니티용으로 "
+                "저장하거나 최적화하지 못했습니다."
+            ),
         ) from exc
 
     post = CommunityRepository.create_post(
@@ -390,10 +408,7 @@ def create_community_post(
         user_id=post.user_id,
         submission_id=post.submission_id,
         media_url=_to_download_url(post.media_url),
-        media_type=(
-            submission.media_type
-            or _infer_media_type(post.media_url)
-        ),
+        media_type=media_type,
         caption=post.caption,
         is_active=post.is_active,
         created_at=post.created_at,

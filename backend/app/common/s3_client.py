@@ -2,6 +2,10 @@ import boto3
 from botocore.config import Config
 from backend.app.common.config import get_setting  # AWS_REGION, S3_BUCKET_NAME 등 환경설정
 
+import subprocess
+import tempfile
+from pathlib import Path
+
 # ---------------------------------------------------------------------------
 # S3 클라이언트 & Presigned URL
 #
@@ -76,6 +80,107 @@ community/1/100/새UUID.jpg
 URL 문자열만 복사하는 것이 아니라 S3 객체 자체를 복사하는 코드
 """
 
+def transcode_s3_video_for_community(
+    source_key: str,
+    destination_key: str,
+) -> None:
+    """
+    인증 원본 동영상을 커뮤니티 재생용 480p MP4로 변환합니다.
+
+    원본 submission 객체는 유지하고, 변환 결과만 community 경로에
+    저장하므로 AI 인증 원본과 커뮤니티 재생 파일을 분리할 수 있습니다.
+    """
+
+    bucket_name = get_setting().S3_BUCKET_NAME
+
+    with tempfile.TemporaryDirectory() as temp_directory:
+        temp_path = Path(temp_directory)
+        source_path = temp_path / "source.mp4"
+        output_path = temp_path / "community.mp4"
+
+        # S3의 인증 원본을 백엔드 임시 폴더로 다운로드합니다.
+        _s3_client.download_file(
+            bucket_name,
+            source_key,
+            str(source_path),
+        )
+
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(source_path),
+
+            # 세로·가로 비율을 유지하면서 높이를 480p로 축소합니다.
+            "-vf",
+            "scale=-2:480",
+
+            # 대부분의 모바일 기기에서 안정적으로 재생되는 H.264 사용
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+
+            # 낮은 화질·저용량 우선
+            "-crf",
+            "30",
+            "-maxrate",
+            "900k",
+            "-bufsize",
+            "1800k",
+
+            # 다양한 모바일 기기와의 호환성 확보
+            "-pix_fmt",
+            "yuv420p",
+
+            # 음성도 저용량으로 변환
+            "-c:a",
+            "aac",
+            "-b:a",
+            "64k",
+
+            # MP4 재생 정보를 파일 앞부분으로 이동
+            "-movflags",
+            "+faststart",
+
+            "-y",
+            str(output_path),
+        ]
+
+        try:
+            subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "커뮤니티 동영상 변환에 필요한 FFmpeg를 찾을 수 없습니다."
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            error_message = (
+                exc.stderr.strip()
+                if exc.stderr
+                else "알 수 없는 FFmpeg 오류"
+            )
+
+            raise RuntimeError(
+                f"커뮤니티 동영상 변환에 실패했습니다: {error_message}"
+            ) from exc
+
+        # 변환된 저용량 MP4를 community 경로에 업로드합니다.
+        _s3_client.upload_file(
+            str(output_path),
+            bucket_name,
+            destination_key,
+            ExtraArgs={
+                "ContentType": "video/mp4",
+                "CacheControl": "public, max-age=31536000, immutable",
+            },
+        )
 
 def generate_download_presigned_url(s3_key: str) -> str:
     """

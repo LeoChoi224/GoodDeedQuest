@@ -136,6 +136,9 @@ def create_community_post(
         current_user=current_user,
     )
 
+    return post
+
+
 @router.patch(
     "/posts/{post_id}",
     response_model=CommunityPostResponse,

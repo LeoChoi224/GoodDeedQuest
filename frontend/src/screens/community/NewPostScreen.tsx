@@ -168,12 +168,31 @@ export default function NewPostScreen({ navigation, route }: any) {
 
       navigation.goBack();
     } catch (error) {
-      console.error(
-        isEditMode
-          ? '커뮤니티 게시글 수정 실패:'
-          : '커뮤니티 게시글 생성 실패:',
-        error,
-      );
+          console.error(
+            isEditMode
+              ? '커뮤니티 게시글 수정 실패:'
+              : '커뮤니티 게시글 생성 실패:',
+            error,
+          );
+
+          const axiosError = error as {
+            response?: {
+              status?: number;
+              data?: unknown;
+            };
+          };
+
+          console.error(
+            '커뮤니티 API 오류 상세:',
+            axiosError.response?.status,
+            axiosError.response?.data,
+          );
+
+          toast.show(
+            isEditMode
+              ? '게시글을 수정하지 못했습니다'
+              : '게시글을 업로드하지 못했습니다',
+          );
 
       toast.show(
         isEditMode
@@ -376,7 +395,10 @@ function LoadVerifyModal({
                       setTemporarySelectedId(item.submission_id)
                     }
                   >
-                    <View style={modalStyles.cell}>
+                    <View
+                      pointerEvents="none"
+                      style={modalStyles.cell}
+                    >
                       <QuestMediaPreview
                         uri={item.media_url ?? ''}
                         mediaType={item.media_type}
