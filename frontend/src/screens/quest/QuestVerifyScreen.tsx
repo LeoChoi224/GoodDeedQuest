@@ -5,7 +5,7 @@
  * 대표 증빙 + 보조 사진(최대 4장)을 올리면 AI가 검토한다.
  */
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { SlideInDown } from 'react-native-reanimated';
@@ -29,10 +29,8 @@ export default function QuestVerifyScreen({ navigation, route }: any) {
 
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
-  const [desc, setDesc] = useState('');
   const [stage, setStage] = useState<Stage>('form');
 
-  const over = desc.length > 200;
   // 동영상 퀘스트는 영상이, 봉사 퀘스트는 확인서 사진이 대표 증빙이다.
   const hasPrimary = isVideo ? videoUri !== null : photos.length > 0;
   const disabled = !hasPrimary || stage !== 'form';
@@ -128,19 +126,6 @@ export default function QuestVerifyScreen({ navigation, route }: any) {
             )}
           </View>
 
-          {/* description */}
-          <View style={styles.descWrap}>
-            <TextInput
-              value={desc}
-              onChangeText={setDesc}
-              placeholder={isVideo ? '활동에 대한 설명을 입력해 주세요' : '봉사활동에 대한 설명을 입력해 주세요'}
-              placeholderTextColor={colors.textMuted}
-              multiline
-              style={[styles.textarea, { borderColor: over ? colors.danger : colors.inputBorder }]}
-            />
-            <Text style={[styles.counter, { color: over ? colors.danger : colors.textMuted }]}>{desc.length}/200</Text>
-          </View>
-
           {/* AI status */}
           <View style={styles.aiInfo}>
             <AiIcon />
@@ -194,21 +179,6 @@ const styles = StyleSheet.create({
   pickerWrap: { marginBottom: 14 },
   extraWrap: { marginTop: 14 },
   extraLabel: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, marginBottom: 8, fontFamily: fonts.bodyM },
-
-  descWrap: { position: 'relative', marginBottom: 14 },
-  textarea: {
-    height: 76,
-    borderWidth: 1,
-    borderRadius: radii.input,
-    paddingTop: 12,
-    paddingBottom: 12,
-    paddingHorizontal: 14,
-    fontSize: 14,
-    color: colors.textPrimary,
-    fontFamily: fonts.bodyR,
-    textAlignVertical: 'top',
-  },
-  counter: { position: 'absolute', right: 12, bottom: 10, fontSize: 11, fontFamily: fonts.bodyR },
 
   aiInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.screenBg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16 },
   aiInfoText: { fontSize: 12, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
