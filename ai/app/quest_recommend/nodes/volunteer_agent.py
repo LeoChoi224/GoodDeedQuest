@@ -173,7 +173,7 @@ def load_volunteer_centers_from_db(
 
 def retrieve_volunteers(state: RecommendState) -> Dict[str, Any]:
     """
-    유저의 실시간 좌표 기준 3km/6km 이내 봉사 데이터를 수색하는 노드 함수입니다.
+    유저의 실시간 좌표 기준 5km/10km 이내 봉사 데이터를 수색하는 노드 함수입니다.
     재시도 시 이전 회차까지 조회했던 공고(searched_volunteer_ids)를 모두 제외하고 새 공고만 가져오며,
     더 가져올 공고가 없다고 판단되면 skip_volunteer_agent를 True로 반환하여
     이후 루프에서 같은 수색이 반복되지 않도록 차단합니다.
@@ -190,7 +190,7 @@ def retrieve_volunteers(state: RecommendState) -> Dict[str, Any]:
 
     adapter = get_vector_store_adapter()
 
-    # 1. 누적 제외 목록을 뺀 3km/6km 이내 신규 공고만 DB에서 픽업
+    # 1. 누적 제외 목록을 뺀 5km/10km 이내 신규 공고만 DB에서 픽업
     with SessionLocal() as db:
         vol_docs = load_volunteer_centers_from_db(
             db, lat=latitude, lng=longitude, radius_km=PRIMARY_RADIUS_KM, exclude_ids=searched_ids

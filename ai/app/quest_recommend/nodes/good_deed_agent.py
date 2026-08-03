@@ -65,6 +65,13 @@ class GoodDeedCandidate(BaseModel):
         # "상황 맞춤 적합도 점수 (1~10점, 10점이 최고 점수)"
         description="Priority score from 1 to 10 indicating suitability (10 is highest)."
     )
+    intensity: int = Field(
+        ...,
+        # "고른 난이도 안에서 얼마나 힘든 쪽인지 (0~100, 0이 해당 난이도의 최소)"
+        description="How demanding the quest is WITHIN the chosen difficulty, as an integer from 0 to 100. 0 is the easiest end of that difficulty, 100 is the hardest end. This is not an overall difficulty score."
+    )
+
+
 class GoodDeedCandidatesOutput(BaseModel):
     """LLM이 최종 출력할 센스 있는 AI 일상 선행 6개 묶음 스키마"""
     quests: List[GoodDeedCandidate] = Field(
@@ -72,6 +79,7 @@ class GoodDeedCandidatesOutput(BaseModel):
         # "유저 맞춤형 AI 일상 선행 퀘스트 후보 6개 리스트"
         description="A list of exactly 6 AI-created daily good deeds."
     )
+
 
 def create_good_deeds(state: RecommendState) -> Dict[str, Any]:
     """
@@ -113,6 +121,7 @@ def create_good_deeds(state: RecommendState) -> Dict[str, Any]:
         - 'quest_type'='GOOD_DEED' 및 'location'=null 로 설정하십시오.
         - 각 퀘스트 후보에 대해 사용자의 프로필, 날씨, 평일/주말 상황, 수립된 전략, 그리고 사용자가 메시지로 보낸 커스텀 요청에 어떻게 부합하는지 설명하는 상세한 맞춤형 'recommendation_reason'(추천 사유)을 한국어로 제공하십시오.
         - 적합성을 나타내는 'priority_score'(1부터 10까지의 정수, 10이 가장 높음)를 부여하십시오.
+        - 난이도를 고른 뒤, 그 난이도 '안에서' 얼마나 힘든 쪽인지를 'intensity'(0부터 100까지의 정수)로 부여하십시오. 시간이 더 걸리거나 준비물이 필요하면 높게, 자리에서 바로 할 수 있으면 낮게 주십시오.
         - 모든 퀘스트의 예상 소요 시간('estimated_duration')을 분 단위 정수로 설정하십시오.
         - 'quests' 필드 아래에 정확히 6개의 후보를 출력하십시오.
         {rejection_feedback}"),
@@ -139,6 +148,7 @@ Generate exactly 6 creative and actionable daily good deed (GOOD_DEED) quests ta
 - Set 'quest_type'='GOOD_DEED' and 'location'=null.
 - Provide a detailed customized 'recommendation_reason' in Korean for each quest candidate explaining how it fits the user's profile, weather, weekday/weekend context, planned strategy, and custom request messaged by the user.
 - Assign a 'priority_score' (integer from 1 to 10, where 10 is the highest) representing suitability.
+- After choosing the difficulty, assign an 'intensity' (integer from 0 to 100) for how demanding the quest is WITHIN that difficulty. Give a higher value when it takes longer or needs preparation, and a lower value when it can be done on the spot. Do not default everything to 50 or 100 — spread the values.
 - Set the 'estimated_duration' for all quests in minutes as an integer.
 - Output exactly 6 candidates under the 'quests' field.{rejection_feedback}"""),
         ("human", """### Inputs
