@@ -7,7 +7,7 @@ Quest/QuestSubmission(quest_verification) 모델을 조회해서 조립한 응�
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field  # ⭐ 수정: 프로필 수정 요청 닉네임 길이 검증용
 
 
 class ORMBase(BaseModel):
@@ -42,6 +42,13 @@ class MyProfileResponse(ORMBase):
     # ⭐ 수정: 현재 장착 중인 프로필 테두리 아이템 이미지 - User 컬럼이 아니라 shop 도메인(Purchase)에서 조회.
     # 상대경로(/static/...)로 내려가므로 프론트에서 getFullImageUrl()로 base URL을 붙여야 함
     equipped_border_image_url: Optional[str] = None
+    category: Optional[list[str]] = None  # ⭐ 수정: 관심 카테고리(User.category) - 프로필 수정 화면에서 사용
+
+
+# ⭐ 수정: PATCH /mypage/profile 요청 - 닉네임/관심카테고리 부분 수정 (둘 다 선택값)
+class ProfileUpdateRequest(BaseModel):
+    nickname: Optional[str] = Field(None, min_length=2, max_length=10)
+    category: Optional[list[str]] = None
 
 
 class ProfileImagePresignRequest(BaseModel):

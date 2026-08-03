@@ -20,6 +20,7 @@ from backend.app.mypage.schemas import (
     MyQuestAchievementResponse,
     MyProfileResponse,
     ProfileImagePresignResponse,
+    ProfileUpdateRequest,  # ⭐ 수정
 )
 from backend.app.quest.models import Quest
 from backend.app.quest_verification.models import QuestSubmission
@@ -132,7 +133,25 @@ def get_my_profile(db: Session, user_id: int) -> MyProfileResponse:
         daily_streak=_compute_daily_streak(db, user_id),
         equipped_border_image_url=_get_equipped_border_image_url(db, user_id),
         profile_image_url=display_image_url,
+        category=user.category,  # ⭐ 수정
     )
+
+
+# ⭐ 수정: 마이페이지 프로필 수정(닉네임/관심카테고리 부분 업데이트) - User 도메인 소유 컬럼이라
+# 모델은 건드리지 않고 이미 존재하는 nickname/category 컬럼만 사용한다. 중복 닉네임 검사는
+# 회원가입 플로우에도 아직 없는 기능이라 이 범위에서는 추가하지 않는다.
+def update_my_profile(db: Session, user_id: int, req: ProfileUpdateRequest) -> MyProfileResponse:
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
+
+    if req.nickname is not None:
+        user.nickname = req.nickname.strip()
+    if req.category is not None:
+        user.category = req.category
+
+    db.commit()
+    return get_my_profile(db, user_id)
 
 
 def presign_profile_image(user_id: int, content_type: str) -> ProfileImagePresignResponse:
