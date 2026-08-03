@@ -16,8 +16,11 @@ logger: Final = logging.getLogger(__name__)
 # 봉사센터 전용 인메모리 임베딩 캐시 딕셔너리
 _volunteer_embedding_cache: Dict[int, List[float]] = {}
 
-# DB 1회 조회 상한. 이 값보다 적게 조회되면 반경 내에 아직 안 본 공고가 없다는 뜻이므로 재수색을 종료한다
-VOLUNTEER_FETCH_LIMIT: Final = 10
+# 조회 상한을 두지 않는다.
+# order_by 없는 limit은 center_id 순, 곧 "먼저 크롤링된 순"으로 잘라낸다.
+# 실측 결과 반경 내 52건 중 앞 10건만 검색 대상이 되어, 환경 관심사 사용자에게
+# 환경 공고가 0건 올라왔다. Vector DB에 1201건을 인덱싱해 두고 10건만 검색하던 셈이다.
+# 반경 내 전부를 인덱싱하고 하이브리드 검색이 Top-K를 고르게 한다.
 
 PRIMARY_RADIUS_KM: Final = 5.18
 SECONDARY_RADIUS_KM: Final = 10.503
@@ -34,7 +37,7 @@ def load_volunteer_centers_from_db(
 ) -> List[Dict[str, Any]]:
     """
     유저의 위도/경도(lat, lng) 좌표 기준 5km 반경(1차) 및 10km 반경(2차) 내
-    VolunteerCenter 레코드를 최대 VOLUNTEER_FETCH_LIMIT건까지만 DB에서 Geo-filtering하여 반환합니다.
+    VolunteerCenter 레코드를 반경 내 전부 DB에서 Geo-filtering하여 반환합니다.
     재시도(Retry) 시 이미 조회했던 공고(exclude_ids)는 notin_ 조건으로 제외하여 중복 픽업을 차단합니다.
     """
     global _volunteer_embedding_cache
@@ -54,7 +57,7 @@ def load_volunteer_centers_from_db(
     centers = query.filter(
         VolunteerCenter.latitude.between(lat - delta_primary, lat + delta_primary),
         VolunteerCenter.longitude.between(lng - delta_primary, lng + delta_primary)
-    ).limit(VOLUNTEER_FETCH_LIMIT).all()
+    ).all()
 
     # 2. 2차 수색: 차에서 0건 발생 시 10km 반경(약 0.0901도)으로 확장 (제외 조건 유지)
     if not centers:
@@ -70,7 +73,7 @@ def load_volunteer_centers_from_db(
         centers = fallback_query.filter(
             VolunteerCenter.latitude.between(lat - delta_secondary, lat + delta_secondary),
             VolunteerCenter.longitude.between(lng - delta_secondary, lng + delta_secondary)
-        ).limit(VOLUNTEER_FETCH_LIMIT).all()
+        ).all()
 
     # 3. 2차 반경 내에도 없으면 빈 리스트 반환
     if not centers:
@@ -231,19 +234,16 @@ def retrieve_volunteers(state: RecommendState) -> Dict[str, Any]:
             "skip_volunteer_agent": True
         }
 
-    # 6. 조회량이 상한에 못 미치면 반경 내 공고를 모두 소진한 것이므로 다음 회차부터 재수색 생략
-    is_exhausted = len(vol_docs) < VOLUNTEER_FETCH_LIMIT
-    if is_exhausted:
-        logger.info(
-            f"반경 내 신규 봉사 공고 {len(vol_docs)}건을 모두 조회했습니다"
-            f"(상한 {VOLUNTEER_FETCH_LIMIT}건 미만). 이후 재수색을 생략합니다."
-        )
+    # 6. 이제 반경 내 공고를 한 번에 전부 가져오므로 첫 조회에서 이미 소진이다.
+    #    재시도 때는 exclude_ids로 이 공고들이 빠져 결과가 0건이 되고,
+    #    그 경우는 위쪽 3번 분기(신규 공고 없음)에서 먼저 처리된다.
+    logger.info(f"반경 내 신규 봉사 공고 {len(vol_docs)}건을 모두 조회했습니다. 이후 재수색을 생략합니다.")
 
     logger.info(f"실제 봉사 데이터 수색 완료. 최종 후보 {len(results)}건")
     return {
         "retrieved_volunteers": results,
         "searched_volunteer_ids": searched_ids,
-        "skip_volunteer_agent": is_exhausted
+        "skip_volunteer_agent": True
     }
 
 

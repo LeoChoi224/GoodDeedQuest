@@ -74,26 +74,56 @@ class FaissVectorStoreAdapter(VectorStoreAdapter):
         # 입력으로 들어온 데이터가 없으면 함수를 즉시 종료합니다.
         if not documents:
             return
-        
-        # 원본 데이터 복사본 유지
+
+        # 원본 데이터 복사본 유지 (BM25 검색기 생성용)
         self.documents_list.extend(documents)
 
-        # Dict 포맷을 LangChain Document 객체로 변환
-        lc_docs = [
-            Document(
-                page_content=doc["content"], # 검색 기준이 될 핵심 텍스트
-                metadata=doc                 # 전체 원본 데이터 보관
+        # ===================== 수정: 캐시된 임베딩 재사용 =====================
+        # from_documents는 page_content를 전부 다시 임베딩한다. metadata에 실어 보낸
+        # vector는 쳐다보지 않아, DB/RAM에 캐시해둔 임베딩이 매번 버려지고 있었다.
+        # 벡터를 들고 온 문서와 그렇지 않은 문서를 나눠서 처리한다.
+        cached_pairs = []   # (본문, 벡터) 쌍 - 임베딩 API를 타지 않는다
+        cached_metas = []
+        pending_docs = []   # 벡터가 없어 새로 임베딩해야 하는 문서
+
+        for doc in documents:
+            vector = doc.get("vector")
+            # None이나 빈 리스트가 섞여 들어오므로 실제로 값이 있는지까지 본다
+            if isinstance(vector, list) and vector:
+                cached_pairs.append((doc["content"], vector))
+                cached_metas.append(doc)
+            else:
+                pending_docs.append(Document(page_content=doc["content"], metadata=doc))
+
+        new_index = None
+
+        # 1. 캐시된 벡터로 인덱스 구성 (임베딩 API 호출 0회)
+        if cached_pairs:
+            new_index = FAISS.from_embeddings(
+                text_embeddings=cached_pairs,
+                # 문서 임베딩엔 안 쓰이지만 검색 질의를 임베딩할 때 필요하다
+                embedding=self.embeddings_model,
+                metadatas=cached_metas,
             )
-            for doc in documents
-        ]
 
-        # FAISS DB 생성 또는 기존 DB에 문서 추가
-        if self.db is None:
-            self.db = FAISS.from_documents(lc_docs, self.embeddings_model)
-        else:
-            self.db.add_documents(lc_docs)
+        # 2. 벡터가 없는 문서만 실제로 임베딩
+        if pending_docs:
+            pending_index = FAISS.from_documents(pending_docs, self.embeddings_model)
+            if new_index is None:
+                new_index = pending_index
+            else:
+                new_index.merge_from(pending_index)
 
-        logger.info(f"FAISS 동적 저장소에 {len(documents)}개 문서 인덱싱 완료")
+        # 3. 기존 인덱스가 있으면 합치고, 없으면 그대로 사용
+        if new_index is not None:
+            if self.db is None:
+                self.db = new_index
+            else:
+                self.db.merge_from(new_index)
+
+        logger.info(
+            f"FAISS 인덱싱 완료. 캐시 재사용 {len(cached_pairs)}건 / 신규 임베딩 {len(pending_docs)}건"
+        )
 
     def similarity_search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         if self.db is None:

@@ -58,6 +58,16 @@ def analyze_strategy(state: RecommendState) -> Dict[str, Any]:
         - 'strategy': 사용자의 관심사와 요청 내용을 기반으로 한 전체 추천 방향
         - 'search_query': 벡터 데이터베이스에서 가장 적합한 봉사활동을 찾기 위한 최적화된 검색 키워드
         - 'llm_constraints': 해당 퀘스트가 사용자에게 적합한지 판단하기 위한 조건 2~4개
+        - 'llm_constraints': 해당 퀘스트가 사용자에게 적합한지 판단하기 위한 조건 2~4개
+
+        사용자 관심사 코드는 다음 6종뿐이며 각각의 범위는 아래와 같습니다.
+        - volunteer: 봉사활동 전반
+        - environment: 환경 정화, 재활용, 자원 절약, 기후 대응
+        - sharing: 기부, 물품 나눔, 식사 나눔
+        - animal: 유기동물 보호, 동물 돌봄
+        - community: 이웃 돕기, 지역 행사, 그리고 노인·장애인·아동·저소득층·다문화 가정 등 지역 주민을 돕는 활동을 모두 포함합니다.
+        - other: 위에 속하지 않는 선행
+
         'llm_constraints' 작성 방법 — 가장 오류가 많이 발생하는 부분이므로 반드시 숙지하세요.
         
         (a) 이 조건들은 두 가지 용도로 모두 사용됩니다.
@@ -100,6 +110,14 @@ Based on the inputs, construct a detailed PlannerOutput specifying:
 - 'strategy': The overall direction, grounded in the user's interests and their custom request context.
 - 'search_query': An optimized search query keyword to find the most relevant volunteer tasks from the vector database.
 - 'llm_constraints': 2 to 4 conditions used to judge whether a quest fits this user.
+The user's interest codes are limited to these six. Each covers the following:
+- volunteer: volunteer work in general
+- environment: cleanups, recycling, resource saving, climate action
+- sharing: donations, sharing goods, sharing meals
+- animal: rescued animal care, animal welfare
+- community: helping neighbours, local events, AND support for elderly people,
+- other: Good deeds not covered by the above people with disabilities, children, low-income households and multicultural families — all of these count as COMMUNITY.
+- OTHER: good deeds that fit none of the above
 HOW TO WRITE 'llm_constraints' — read carefully, this is the most error-prone part:
 (a) These conditions are applied twice: once as guidance when generating new AI daily good deed quests, and once as scoring criteria for real, already-published volunteer listings that cannot be rewritten. A real listing has a fixed schedule, a fixed audience and a fixed venue, so any condition you invent becomes a hard gate it may be unable to pass.
 (b) Write each condition as a property to check, not as an order to carry out. Write "the quest topic must relate to youth or the local community", not "engage youth in activities" — an order gets misread as a requirement about who performs the activity, and real listings get rejected for no good reason.

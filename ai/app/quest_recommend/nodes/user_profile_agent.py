@@ -20,8 +20,10 @@ def analyze_user_profile(state: RecommendState) -> Dict[str, Any]:
     # 난이도 정보 처리 (비어있거나 빈 문자열인 경우 "ANY"로 Fallback)
     target_difficulty = preferred_difficulty or "ANY"
 
-    # 최근 추천 내역(exclusions)과 기존 완료 이력(completed_history) 분리 정의
-    exclusions = recent_recommendations
+    # 최근 추천 내역과 기존 완료 이력 분리 정의.
+    # 'exclusions'라는 이름은 Critic이 "사용자가 싫다고 밝힌 주제 목록"으로 오독하게 만들어
+    # 주제가 겹친다는 이유로 반려하는 원인이 됐다. 실제 내용은 최근 추천된 제목 목록이다.
+    recently_recommended = recent_recommendations
     completed_history = history_quests
 
     # LangGraph 규격에 맞춰 user_profile 업데이트 딕셔너리 반환
@@ -32,6 +34,7 @@ def analyze_user_profile(state: RecommendState) -> Dict[str, Any]:
         "longitude": longitude,
         "level": level,
         "target_difficulty": target_difficulty,
-        "exclusions": exclusions,
+        "recently_recommended": recently_recommended,
         "completed_history": completed_history
     }}
+

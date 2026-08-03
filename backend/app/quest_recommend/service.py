@@ -18,6 +18,45 @@ logger: Final = logging.getLogger(__name__)
 # created_at은 DB 서버 시계(UTC)로 저장되는데 사용자가 느끼는 '오늘'은 한국 시간이다
 KST: Final = timezone(timedelta(hours=9))
 
+# ===================== 추가: 관심사 코드 정규화 =====================
+# 회원가입 화면에 선택지 제한이 없어 DB에 한글/영문 대소문자가 섞여 저장돼 있다.
+# (환경 / COMMUNITY / 생활실천 / 봉사 / ENVIRONMENT / environment / ANIMAL / volunteer)
+# 화면을 확정 6종으로 바꾸기 전까지 여기서 흡수한다.
+INTEREST_ALIASES: Final = {
+    "volunteer": "VOLUNTEER",
+    "봉사": "VOLUNTEER",
+    "environment": "ENVIRONMENT",
+    "환경": "ENVIRONMENT",
+    "sharing": "SHARING",
+    "나눔": "SHARING",
+    "기부": "SHARING",
+    "animal": "ANIMAL",
+    "동물": "ANIMAL",
+    "community": "COMMUNITY",
+    "지역사회": "COMMUNITY",
+    "생활실천": "COMMUNITY",
+    "other": "OTHER",
+    "기타": "OTHER",
+}
+
+
+def normalize_interests(interests: List[str]) -> List[str]:
+    """
+    사용자 관심사를 확정 카테고리 6종으로 정규화합니다.
+    표에 없는 값은 OTHER로 떨어뜨리며, 첫 번째 관심사가 Planner의 주 전략이 되므로 순서는 유지합니다.
+    """
+    normalized = []
+    for raw in interests or []:
+        code = INTEREST_ALIASES.get(str(raw).strip().lower())
+        if not code:
+            logger.info(f"알 수 없는 관심사로 OTHER를 적용합니다. 값: {raw}")
+            code = "OTHER"
+        # 중복은 걸러내되 먼저 등장한 순서를 지킨다
+        if code not in normalized:
+            normalized.append(code)
+    return normalized
+
+
 def save_recommendation_log(
     db: Session,
     user_id: int, 
@@ -88,11 +127,24 @@ def save_recommendation_items(
                 quest_type_str = "GOOD_DEED"
                 target_cat_name = item.get("category_name", "OTHER")
 
-            # 2. DB category 테이블에서 카테고리 객체 조회
-            category_obj = db.query(Category).filter_by(name=target_cat_name).first()
+            # 2. AI는 'ENVIRONMENT' 같은 대문자를 주고 DB의 code는 소문자라 맞춰서 찾는다.
+            #    기존처럼 name으로 찾으면 표기가 바뀔 때마다 조용히 어긋난다.
+            target_code = target_cat_name.strip().lower()
+            category_obj = db.query(Category).filter_by(code=target_code).first()
+
+            # 못 찾으면 기타로 떨어뜨린다. 예전처럼 아무 카테고리나 집으면
+            # 환경 퀘스트가 봉사로 저장되는 조용한 오염이 생긴다.
             if not category_obj:
-                category_obj = db.query(Category).first()
-            category_id = category_obj.category_id if category_obj else 1
+                logger.warning(f"알 수 없는 카테고리로 OTHER를 적용합니다. 값: {target_cat_name}")
+                category_obj = db.query(Category).filter_by(code="other").first()
+
+            # 시드가 안 된 DB라면 없는 category_id로 INSERT하다 외래키 위반이 나고
+            # 추천 5개가 통째로 롤백된다. 이 항목만 건너뛴다.
+            if not category_obj:
+                logger.error("category 테이블이 비어 있습니다. seed_category.py를 실행해야 합니다.")
+                continue
+
+            category_id = category_obj.category_id
 
             # 3. AI가 준 난이도 문자열을 enum으로 변환 (알 수 없는 값이면 NORMAL로 폴백)
             #    변환에 실패해 예외가 나면 이 함수 전체가 롤백되어 추천 5개가 통째로 날아간다

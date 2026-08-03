@@ -109,8 +109,10 @@ def create_good_deeds(state: RecommendState) -> Dict[str, Any]:
         사용자의 상황, 날씨 및 제약조건에 맞춰 기발하고 실천 가능한 일상 선행(GOOD_DEED) 퀘스트를 정확히 6개 생성하십시오.
         ### 생성 규칙
         - 추천 전략 안의 'llm_constraints' 제약조건을 엄격히 준수하십시오 (예: '실내 필수'인 경우 실내 친화적인 활동만 생성하십시오).
-        - 사용자의 제외 목록(exclusions)에 일치하는 퀘스트 제목은 절대 생성하지 마십시오.
+        - 'recently_recommended'(최근 추천 이력)에 있는 제목과 같은 퀘스트는 생성하지 마십시오. 이는 최근에 이미 추천된 제목 목록이며, 사용자가 싫어하는 주제가 아닙니다. 같은 주제를 다른 방식으로 다루는 것은 괜찮습니다.
         - 생성되는 6개 퀘스트 후보 세트 내부에서 중복된 퀘스트 제목을 생성하지 마십시오 (각 후보는 고유한 제목을 가져야 합니다).
+        - 제목이 다르더라도 활동의 대상, 장소, 행동이 겹치면 중복으로 간주합니다. 예를 들어 '꽃밭 가꾸기'와 '정원 워크숍 참여'는 둘 다 식물 가꾸기이므로 하나만 만드십시오. 6개의 소재가 서로 달라야 합니다.
+        - 6개 중 사용자 관심사에 직결되는 퀘스트는 최대 4개까지만 만들고, 나머지 2개는 다른 카테고리에서 만드십시오. 추천이므로 사용자가 평소 고르지 않던 활동도 접할 수 있어야 합니다.
         - 완료 목록(completed_history)은 사용자가 선호하는 활동을 나타냅니다. 사용자의 습관을 강화하기 위해 완료 이력에 있는 유사하거나 동일한 퀘스트를 적극적으로 추천해야 합니다. 단, 다양성을 유지하기 위해 동일한 후보 세트 내에서 완료 이력의 정확한 동일 재추천은 최대 1개까지만 허용하십시오.
         - 'category_name'은 퀘스트 카테고리에 맞는 다음 영문 대문자 문자열 중 하나로 엄격하게 설정되어야 합니다:
             - 'ENVIRONMENT' (환경 관련 활동)
@@ -136,8 +138,10 @@ def create_good_deeds(state: RecommendState) -> Dict[str, Any]:
 Generate exactly 6 creative and actionable daily good deed (GOOD_DEED) quests tailored to the user's situation, weather, and constraints.
 ### Rules for Generation
 - Strictly comply with 'llm_constraints' in the recommendation strategy (e.g. if 'must be indoor', generate only indoor-friendly tasks).
-- Never generate quest titles matching the user's exclusion list (exclusions).
+- Do not generate a quest whose title matches an entry in 'recently_recommended'. That list is a history of titles already shown to this user — it is NOT a list of topics the user dislikes. Covering the same theme in a different way is fine.
 - Do not generate duplicate quest titles within the same generated set of 6 quest candidates (each candidate must have a unique title).
+- Treat two quests as duplicates when the activity's audience, place and action overlap, even if the titles differ. "Tending a flower bed" and "Joining a garden workshop" are both plant care — produce only one. All 6 must differ in subject matter.
+- At most 4 of the 6 may map directly to the user's interests. Make the remaining 2 from other categories. These are recommendations, so the user should also meet activities they would not normally pick.
 - The completed history (completed_history) represents the user's preferred activities. You should actively recommend similar or identical quests from their history to reinforce their habits. However, to maintain variety, allow at most 1 exact repetition from the completed history within the same candidate set.
 - The 'category_name' must be strictly set to one of the following uppercase strings matching the quest category:
   - 'ENVIRONMENT' (for environmental tasks)

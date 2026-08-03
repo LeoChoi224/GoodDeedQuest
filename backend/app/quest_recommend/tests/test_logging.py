@@ -37,10 +37,10 @@ class TestAiRecommendationLogging(unittest.TestCase):
             "message": "추천 완료",
             "data": [
                 {
-                    "quest_title": "취약계층 도시락 배달",
+                    "quest_title": "지역사회 도시락 배달",
                     "quest_description": "도시락을 전달합니다.",
                     "quest_type": "VOLUNTEER",
-                    "reason": "취약계층 관심사 매칭",
+                    "reason": "지역사회 관심사 매칭",
                     "category_name": "VOLUNTEER"
                 }
             ]

@@ -140,9 +140,16 @@ def validate_candidates(state: RecommendState) -> Dict[str, Any]:
         특히 봉사자의 모집 조건(연령, 자격 등)과 활동의 수혜 대상을 혼동하지 마십시오. 성인 봉사자를 모집하는 청소년 대상 활동은 청소년 관련 활동입니다.
         다음 경우에만 Reject(is_valid=False) 하세요.
         1. Safety: 퀘스트가 신체적으로 위험하거나, 명백히 비현실적이거나, 악용될 가능성이 있는 경우입니다.
-        2. Explicit user exclusion: 퀘스트가 사용자의 제외 목록과 일치하는 경우입니다.
+        2. 최근 추천 중복: 'recently_recommended' 목록의 제목과 사실상 동일한 퀘스트인 경우입니다. 이 목록은 최근에 이 사용자에게 추천된 퀘스트 제목이며, 사용자가 싫어한다고 밝힌 주제가 아닙니다. 제목이 거의 같을 때만 반려하고, 주제·대상·카테고리가 겹친다는 이유로는 절대 반려하지 마십시오.
+        조건 판단에 앞서, 사용자 관심사 코드 6종의 범위를 확인하세요.
+        - volunteer: 봉사활동 전반
+        - environment: 환경 정화, 재활용, 자원 절약, 기후 대응
+        - sharing: 기부, 물품 나눔, 식사 나눔
+        - animal: 유기동물 보호, 동물 돌봄
+        - community: 이웃 돕기, 지역 행사, 그리고 노인·장애인·아동·저소득층·다문화 가정 등 지역 주민을 돕는 활동을 모두 포함합니다. 장애인 지원과 어르신 지원은 COMMUNITY입니다.
+        - other: 위에 속하지 않는 선행
         3. Hard incompatibility with 'llm_constraints': 퀘스트가 llm_constraints와 명백하게 충돌하는 경우입니다. 표현이 아니라 실제 의미를 기준으로 판단하세요. 청소년 멘토를 모집하는 봉사활동은 청소년 관련 조건을 충족하는 것으로 봐야 하며, 장애인을 돕는 봉사활동도 지역사회 봉사 조건을 충족하는 것으로 봐야 합니다. 합리적인 사람이 보기에 해당 조건과 관련이 있다고 판단된다면 통과시켜야 합니다.
-        4. 'VOLUNTEER'인 경우에만: 안전 문제, 사용자의 명시적인 제외 조건, 또는 사용자가 실제로 언급한 일정 충돌이 있는 경우에만 Reject 하세요. 실제 봉사활동 공고는 주제가 완벽하게 일치하지 않는다는 이유, 여러 번 참여해야 한다는 이유, 경험자가 더 적합해 보인다는 이유, 특정 요일에 진행된다는 이유로 Reject 하면 안 됩니다.
+        4. 'VOLUNTEER'인 경우에만: 안전 문제, 최근 추천 목록과 제목이 거의 같은 경우, 또는 사용자가 실제로 언급한 일정 충돌이 있는 경우에만 Reject 하세요. 실제 봉사활동 공고는 주제가 완벽하게 일치하지 않는다는 이유, 여러 번 참여해야 한다는 이유, 경험자가 더 적합해 보인다는 이유, 특정 요일에 진행된다는 이유로 Reject 하면 안 됩니다.
         퀘스트가 "가장 적합한 후보가 아니다", 설명이 부족하다, 다른 후보들과 단순히 다르다는 이유로는 Reject 하면 안 됩니다.
         'VOLUNTEER'의 'quest_description'은 원본 공고를 요약한 한 문장입니다. 내용이 짧거나 세부 정보가 없다는 이유로 Reject 하지 마십시오. 원문 전체는 사용자에게 별도 화면으로 제공됩니다.
         분량 규칙: 승인(is_valid=true)한 경우 'reason'과 'reason_ko'에 짧은 구 하나만 쓰세요(예: 'Fits interests' / '관심사에 부합'). 승인 사유는 이후 단계에서 사용되지 않습니다. 반려(is_valid=false)한 경우에만 Planner가 교정할 수 있도록 구체적인 문제를 상세히 설명하세요.
@@ -165,9 +172,16 @@ Real volunteer postings carry a 'target' field taken directly from the original 
 In particular, never confuse the volunteer recruitment criteria (age, qualifications) with the beneficiaries of the activity. A posting that recruits adult volunteers to help teenagers IS a youth-related activity.
 Reject (is_valid=False) only for these reasons:
 1. Safety: the quest is physically dangerous, clearly unrealistic, or open to abuse.
-2. Explicit user exclusion: the quest matches something in the user's exclusion list.
+2. Recently recommended duplicate: the quest title is effectively identical to an entry in 'recently_recommended'. That list is a history of titles already shown to this user — it is NOT a list of topics the user dislikes. Reject only on a near-identical title. Never reject because a quest shares a theme, an audience, or a category with an entry in that list.
+Before judging constraints, note the scope of the six interest codes:
+- volunteer: volunteer work in general
+- environment: cleanups, recycling, resource saving, climate action
+- sharing: donations, sharing goods, sharing meals
+- animal: rescued animal care, animal welfare
+- community: helping neighbours, local events, AND support for elderly people, people with disabilities, children, low-income households and multicultural families. Assisting people with disabilities IS COMMUNITY. Assisting elderly people IS COMMUNITY. Never reject those as unrelated to a COMMUNITY interest.
+- other: good deeds that fit none of the above
 3. Hard incompatibility with 'llm_constraints': the quest plainly contradicts a constraint. Judge by substance, not by wording — a listing recruiting adult mentors for teenagers DOES relate to youth, and a listing that assists disabled residents DOES count as community service. If a reasonable person would say the quest is related to what the constraint asks for, it passes.
-4. For 'VOLUNTEER' only: reject solely on safety, on an explicit user exclusion, or on a scheduling conflict that the user actually stated. Do not reject a real listing for being an imperfect thematic match, for requiring multiple sessions, for suiting experienced participants, or for falling on a particular day of the week.
+4. For 'VOLUNTEER' only: reject solely on safety, on a near-identical title in 'recently_recommended', or on a scheduling conflict that the user actually stated. Do not reject a real listing for being an imperfect thematic match, for requiring multiple sessions, for suiting experienced participants, or for falling on a particular day of the week.
 Do not reject a quest for being "not the most relevant option available", for lacking detail, or for merely being different from the other candidates.
 The 'quest_description' of a 'VOLUNTEER' is a one-sentence summary of the original posting. Never reject it for being short or lacking detail — the full original text is shown to the user on a separate screen.
 LENGTH RULES — follow these exactly, they control response latency:
