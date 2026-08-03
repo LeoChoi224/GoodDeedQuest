@@ -9,12 +9,22 @@ from __future__ import annotations
 # 2. 게시글 수정·사용자 직접 삭제 기능은 이번 프로젝트 범위에서 구현하지 않습니다.
 # =========================================================
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+from pathlib import PurePosixPath
+from urllib.parse import urlparse
+from uuid import uuid4
 
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from backend.app.auth.enums import UserRole
 from backend.app.auth.models import User
+from backend.app.common.s3_client import (
+    copy_s3_object,
+    generate_download_presigned_url,
+)
 from backend.app.community.models import CommunityPost
 from backend.app.community.repository import CommunityRepository
 from backend.app.community.scoring import (
@@ -27,12 +37,72 @@ from backend.app.community.schema import (
     CommunityFeedItemResponse,
     CommunityPostCreate,
     FeedHiddenPreferenceResponse,
+    CommunityPostResponse,
     PostLikeToggleResponse,
     PostLikeUserResponse,
+    CommunityPostUpdate,
     RecentQuestSubmissionResponse,
     CommunityReportCreate,
     CommunityReportResponse,
+    CommunityUserProfileResponse,
+    CommunityUserQuestAchievementResponse,
 )
+
+from backend.app.quest_verification.enums import MediaType
+
+VIDEO_FILE_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
+KST = ZoneInfo("Asia/Seoul")
+DEFAULT_PROFILE_TITLE = "선행 초보자"
+
+
+def _to_download_url(stored_media: str) -> str:
+    """DB의 S3 key를 조회용 URL로 바꾸되 기존 외부 URL은 그대로 유지합니다."""
+
+    if stored_media.startswith(("http://", "https://")):
+        return stored_media
+
+    return generate_download_presigned_url(stored_media)
+
+def _to_profile_image_url(
+    stored_profile_image: str | None,
+) -> str | None:
+    """프로필 S3 key를 조회용 URL로 바꾸고 빈 값은 그대로 처리합니다."""
+
+    if not stored_profile_image:
+        return None
+
+    return _to_download_url(stored_profile_image)
+
+def _infer_media_type(stored_media: str) -> MediaType:
+    """기존 게시글도 표시할 수 있도록 key 또는 URL 확장자에서 유형을 판별합니다."""
+
+    media_path = urlparse(stored_media).path
+    extension = PurePosixPath(media_path).suffix.lower()
+
+    if extension in VIDEO_FILE_EXTENSIONS:
+        return MediaType.VIDEO
+
+    return MediaType.PHOTO
+
+
+def _build_permanent_media_key(
+    *,
+    user_id: int,
+    submission_id: int,
+    source_key: str,
+    media_type: MediaType | None,
+) -> str:
+    """30일 만료 대상과 분리된 community/ 영구 저장 key를 만듭니다."""
+
+    extension = PurePosixPath(source_key).suffix.lower()
+
+    if not extension:
+        extension = ".mp4" if media_type == MediaType.VIDEO else ".jpg"
+
+    return (
+        f"community/{user_id}/{submission_id}/"
+        f"{uuid4().hex}{extension}"
+    )
 
 # 추천 점수가 계산된 게시글 후보를 Service 내부에서 관리.
 class _ScoredCommunityFeedCandidate:
@@ -63,6 +133,142 @@ def _get_feed_sort_timestamp(created_at: datetime) -> float:
 
     return created_at.timestamp()
 
+def _get_viewable_user(
+    db: Session,
+    *,
+    user_id: int,
+    current_user: User,
+) -> User:
+    """일반 사용자는 활성 사용자만, 관리자는 전체 사용자를 조회합니다."""
+
+    user = CommunityRepository.get_user_by_id(
+        db=db,
+        user_id=user_id,
+    )
+
+    is_admin = current_user.role == UserRole.ADMIN
+
+    if user is None or (not user.is_active and not is_admin):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="사용자를 찾을 수 없습니다.",
+        )
+
+    return user
+
+
+def _compute_daily_streak(
+    db: Session,
+    *,
+    user_id: int,
+) -> int:
+    """실제 접속 기록을 기준으로 연속 접속일을 계산합니다."""
+
+    activity_dates = CommunityRepository.list_user_activity_dates(
+        db=db,
+        user_id=user_id,
+    )
+
+    if not activity_dates:
+        return 0
+
+    today = datetime.now(KST).date()
+
+    expected = (
+        today
+        if activity_dates[0] == today
+        else today - timedelta(days=1)
+    )
+
+    if activity_dates[0] != expected:
+        return 0
+
+    streak = 0
+
+    for activity_date in activity_dates:
+        if activity_date != expected:
+            break
+
+        streak += 1
+        expected -= timedelta(days=1)
+
+    return streak
+
+
+def get_community_user_profile(
+    db: Session,
+    *,
+    user_id: int,
+    current_user: User,
+) -> CommunityUserProfileResponse:
+    """다른 사용자 상세 화면에 필요한 공개 프로필을 반환합니다."""
+
+    user = _get_viewable_user(
+        db=db,
+        user_id=user_id,
+        current_user=current_user,
+    )
+
+    title = CommunityRepository.get_equipped_badge_name(
+        db=db,
+        user_id=user_id,
+    )
+
+    border_image_url = (
+        CommunityRepository.get_equipped_border_image_url(
+            db=db,
+            user_id=user_id,
+        )
+    )
+
+    return CommunityUserProfileResponse(
+        nickname=user.nickname,
+        title=title or DEFAULT_PROFILE_TITLE,
+        current_level=user.current_level,
+        daily_streak=_compute_daily_streak(
+            db=db,
+            user_id=user_id,
+        ),
+        profile_image_url=_to_profile_image_url(
+            user.profile_image_url,
+        ),
+        equipped_border_image_url=border_image_url,
+    )
+
+
+def get_community_user_quest_achievements(
+    db: Session,
+    *,
+    user_id: int,
+    current_user: User,
+) -> list[CommunityUserQuestAchievementResponse]:
+    """다른 사용자의 공개 퀘스트 달성 내역을 반환합니다."""
+
+    _get_viewable_user(
+        db=db,
+        user_id=user_id,
+        current_user=current_user,
+    )
+
+    rows = CommunityRepository.list_user_quest_achievements(
+        db=db,
+        user_id=user_id,
+    )
+
+    return [
+        CommunityUserQuestAchievementResponse(
+            submission_id=submission.submission_id,
+            quest_id=quest.quest_id,
+            title=quest.quest_title,
+            description=quest.quest_description,
+            category_code=category_code,
+            completed_at=submission.submitted_at,
+            reward_point=quest.reward_point,
+            reward_exp=quest.reward_exp,
+        )
+        for submission, quest, category_code in rows
+    ]
+
 def get_recent_accepted_quest_submissions(
     db: Session,
     *,
@@ -89,7 +295,22 @@ def get_recent_accepted_quest_submissions(
     )
 
     return [
-        RecentQuestSubmissionResponse.model_validate(submission)
+        RecentQuestSubmissionResponse(
+            submission_id=submission.submission_id,
+            quest_id=submission.quest_id,
+            media_url=(
+                _to_download_url(submission.media_url)
+                if submission.media_url
+                else None
+            ),
+            media_type=(
+                submission.media_type
+                or _infer_media_type(submission.media_url)
+                if submission.media_url
+                else None
+            ),
+            submitted_at=submission.submitted_at,
+        )
         for submission in submissions
     ]
 
@@ -99,7 +320,7 @@ def create_community_post(
     *,
     request: CommunityPostCreate,
     current_user: User,
-) -> CommunityPost:
+) -> CommunityPostResponse:
     """현재 로그인 사용자의 커뮤니티 게시글을 생성합니다."""
 
     if not current_user.is_active:
@@ -108,7 +329,6 @@ def create_community_post(
             detail="비활성화된 사용자는 게시글을 작성할 수 없습니다.",
         )
 
-    # 현재 사용자의 승인된 퀘스트 인증 내역인지 확인합니다.
     submission = CommunityRepository.get_accepted_submission_by_id(
         db=db,
         submission_id=request.submission_id,
@@ -124,17 +344,136 @@ def create_community_post(
             ),
         )
 
-    # 검증이 완료된 요청 데이터로 새 커뮤니티 게시글을 생성.
+    source_key = (submission.media_url or "").strip()
+    expected_prefix = (
+        f"submission/{current_user.user_id}/{submission.quest_id}/"
+    )
+
+    if (
+        not source_key
+        or not source_key.startswith(expected_prefix)
+        or ".." in source_key
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="인증 미디어의 S3 경로가 올바르지 않습니다.",
+        )
+
+    permanent_key = _build_permanent_media_key(
+        user_id=current_user.user_id,
+        submission_id=submission.submission_id,
+        source_key=source_key,
+        media_type=submission.media_type,
+    )
+
+    try:
+        copy_s3_object(
+            source_key=source_key,
+            destination_key=permanent_key,
+        )
+    except (BotoCoreError, ClientError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="인증 미디어를 커뮤니티 저장소로 복사하지 못했습니다.",
+        ) from exc
+
     post = CommunityRepository.create_post(
         db=db,
         user_id=current_user.user_id,
         submission_id=request.submission_id,
-        media_url=request.media_url,
+        media_url=permanent_key,
         caption=request.caption,
     )
 
-    return post
+    return CommunityPostResponse(
+        post_id=post.post_id,
+        user_id=post.user_id,
+        submission_id=post.submission_id,
+        media_url=_to_download_url(post.media_url),
+        media_type=(
+            submission.media_type
+            or _infer_media_type(post.media_url)
+        ),
+        caption=post.caption,
+        is_active=post.is_active,
+        created_at=post.created_at,
+        updated_at=post.updated_at,
+    )
 
+def update_community_post(
+    db: Session,
+    *,
+    post_id: int,
+    request: CommunityPostUpdate,
+    current_user: User,
+) -> CommunityPostResponse:
+    """현재 로그인 사용자가 작성한 게시글 본문을 수정합니다."""
+
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="비활성화된 사용자는 게시글을 수정할 수 없습니다.",
+        )
+
+    post = _get_active_community_post(
+        db=db,
+        post_id=post_id,
+    )
+
+    if post.user_id != current_user.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="본인이 작성한 게시글만 수정할 수 있습니다.",
+        )
+
+    updated_post = CommunityRepository.update_post_caption(
+        db=db,
+        post=post,
+        caption=request.caption,
+    )
+
+    return CommunityPostResponse(
+        post_id=updated_post.post_id,
+        user_id=updated_post.user_id,
+        submission_id=updated_post.submission_id,
+        media_url=_to_download_url(updated_post.media_url),
+        media_type=_infer_media_type(updated_post.media_url),
+        caption=updated_post.caption,
+        is_active=updated_post.is_active,
+        created_at=updated_post.created_at,
+        updated_at=updated_post.updated_at,
+    )
+
+
+def delete_community_post(
+    db: Session,
+    *,
+    post_id: int,
+    current_user: User,
+) -> None:
+    """현재 로그인 사용자가 작성한 게시글을 삭제합니다."""
+
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="비활성화된 사용자는 게시글을 삭제할 수 없습니다.",
+        )
+
+    post = _get_active_community_post(
+        db=db,
+        post_id=post_id,
+    )
+
+    if post.user_id != current_user.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="본인이 작성한 게시글만 삭제할 수 있습니다.",
+        )
+
+    CommunityRepository.delete_post(
+        db=db,
+        post=post,
+    )
 
 # 일반 사용자가 조회하거나 활동할 수 있는 활성 게시글인지 확인.
 def _get_active_community_post(
@@ -167,7 +506,9 @@ def _build_author_response(
     return CommunityAuthorResponse(
         user_id=user.user_id,
         nickname=user.nickname,
-        profile_image_url=user.profile_image_url,
+        profile_image_url=_to_profile_image_url(
+            user.profile_image_url,
+        ),
     )
 
 def _build_comment_response(
@@ -215,7 +556,8 @@ def _build_feed_item_response(
     return CommunityFeedItemResponse(
         post_id=post.post_id,
         submission_id=post.submission_id,
-        media_url=post.media_url,
+        media_url=_to_download_url(post.media_url),
+        media_type=_infer_media_type(post.media_url),
         caption=post.caption,
         created_at=post.created_at,
         updated_at=post.updated_at,
@@ -480,7 +822,9 @@ def get_post_like_users(
         PostLikeUserResponse(
             user_id=user.user_id,
             nickname=user.nickname,
-            profile_image_url=user.profile_image_url,
+            profile_image_url=_to_profile_image_url(
+                user.profile_image_url,
+            ),
         )
         for user in users
     ]

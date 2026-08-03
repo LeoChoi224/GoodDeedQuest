@@ -516,9 +516,15 @@ def create_recommendation_reason_node(
                 "metadata": metadata,
             }
 
-        except Exception:
+        except Exception as exc:
             # LLM 호출 또는 응답 파싱이 실패해도
             # 점수와 순위는 유지하고 규칙 기반 추천 이유로 대체합니다.
+            logger.warning(
+                "LLM 추천 이유 생성 실패, 규칙 기반 Fallback 사용: %s",
+                exc,
+                exc_info=True,
+            )
+
             fallback_reasons = build_rule_based_reasons(candidates)
 
             warnings = _append_unique_messages(
@@ -646,8 +652,6 @@ def build_response_node(
 
     metadata = _copy_metadata(state)
 
-    fallback_recommendations = ...  # 기존 규칙 기반 추천 생성 코드
-
     try:
         request = state["request"]
         recommendations = state["recommendations"]
@@ -663,20 +667,23 @@ def build_response_node(
 
     except Exception as exc:
         logger.exception(
-            "LLM 추천 이유 생성 실패: %s",
+            "최종 추천 응답 생성 실패: %s",
             exc,
         )
 
         errors = _append_unique_messages(
             state["errors"],
             [
-                "추천 이유 생성에 실패하여 "
-                "규칙 기반 추천 이유를 사용했습니다."
+                "최종 추천 응답 생성에 실패했습니다. "
+                f"원인: {type(exc).__name__}: {exc}"
             ],
         )
 
+        metadata["recommendation_count"] = 0
+
         return {
-            "recommendations": fallback_recommendations,
+            "response": None,
+            "status": "failed",
             "errors": errors,
             "metadata": metadata,
         }

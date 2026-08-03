@@ -39,16 +39,133 @@ from backend.app.community.models import (
     CommunityPost,
     FeedHiddenPreference,
     PostLike,
+    UserActivityLog,
 )
 from backend.app.map.models import Region
 from backend.app.quest.models import Category, Quest
 from backend.app.quest_verification.enums import SubmissionStatus
 from backend.app.quest_verification.models import QuestSubmission
-
+from backend.app.badge.models import Badge, UserBadge
+from backend.app.shop.enums import PurchaseStatus
+from backend.app.shop.models import Item, Purchase
 
 class CommunityRepository:
-    """커뮤니티 게시글, 좋아요, 댓글, 관심 없음 기록을 관리."""
+    @staticmethod
+    def get_user_by_id(
+        db: Session,
+        *,
+        user_id: int,
+    ) -> User | None:
+        """공개 프로필을 표시할 사용자 한 명을 조회합니다."""
 
+        query: Select[tuple[User]] = select(User).where(
+            User.user_id == user_id,
+        )
+
+        return db.execute(query).scalar_one_or_none()
+
+    @staticmethod
+    def list_user_activity_dates(
+        db: Session,
+        *,
+        user_id: int,
+    ) -> list:
+        """연속 접속일 계산에 사용할 접속 날짜를 최신순으로 조회합니다."""
+
+        query = (
+            select(UserActivityLog.access_date)
+            .where(UserActivityLog.user_id == user_id)
+            .order_by(UserActivityLog.access_date.desc())
+        )
+
+        return list(db.execute(query).scalars().all())
+
+    @staticmethod
+    def get_equipped_badge_name(
+        db: Session,
+        *,
+        user_id: int,
+    ) -> str | None:
+        """사용자가 현재 장착한 칭호 이름을 조회합니다."""
+
+        query = (
+            select(Badge.name)
+            .join(
+                UserBadge,
+                UserBadge.badge_id == Badge.badge_id,
+            )
+            .where(
+                UserBadge.user_id == user_id,
+                UserBadge.is_equipped.is_(True),
+            )
+            .limit(1)
+        )
+
+        return db.execute(query).scalar_one_or_none()
+
+    @staticmethod
+    def get_equipped_border_image_url(
+        db: Session,
+        *,
+        user_id: int,
+    ) -> str | None:
+        """사용자가 현재 장착한 프로필 테두리를 조회합니다."""
+
+        query = (
+            select(Item.image_url)
+            .join(
+                Purchase,
+                Purchase.item_id == Item.item_id,
+            )
+            .where(
+                Purchase.user_id == user_id,
+                Purchase.status == PurchaseStatus.COMPLETED,
+                Purchase.is_equipped.is_(True),
+            )
+            .limit(1)
+        )
+
+        return db.execute(query).scalar_one_or_none()
+
+    @staticmethod
+    def list_user_quest_achievements(
+        db: Session,
+        *,
+        user_id: int,
+    ) -> list[tuple[QuestSubmission, Quest, str]]:
+        """사용자의 승인된 퀘스트 달성 내역을 조회합니다."""
+
+        query = (
+            select(
+                QuestSubmission,
+                Quest,
+                Category.code,
+            )
+            .join(
+                Quest,
+                Quest.quest_id == QuestSubmission.quest_id,
+            )
+            .join(
+                Category,
+                Category.category_id == Quest.category_id,
+            )
+            .where(
+                QuestSubmission.user_id == user_id,
+                QuestSubmission.final_status
+                == SubmissionStatus.ACCEPTED,
+            )
+            .order_by(
+                QuestSubmission.submitted_at.desc(),
+                QuestSubmission.submission_id.desc(),
+            )
+        )
+
+        return [
+            (row[0], row[1], row[2])
+            for row in db.execute(query).all()
+        ]
+
+    """커뮤니티 게시글, 좋아요, 댓글, 관심 없음 기록을 관리."""
     @staticmethod
     # 현재 사용자의 승인된 퀘스트 인증 내역을 ID로 조회.
     def get_accepted_submission_by_id(
@@ -94,6 +211,33 @@ class CommunityRepository:
         db.refresh(post)
 
         return post
+
+    @staticmethod
+    def update_post_caption(
+        db: Session,
+        *,
+        post: CommunityPost,
+        caption: str | None,
+    ) -> CommunityPost:
+        """게시글 본문을 수정합니다."""
+
+        post.caption = caption
+
+        db.flush()
+        db.refresh(post)
+
+        return post
+
+    @staticmethod
+    def delete_post(
+        db: Session,
+        *,
+        post: CommunityPost,
+    ) -> None:
+        """작성자가 요청한 게시글을 삭제합니다."""
+
+        db.delete(post)
+        db.flush()
 
     @staticmethod
     # 게시글 ID로 커뮤니티 게시글 한 건을 조회.

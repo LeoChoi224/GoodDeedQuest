@@ -55,6 +55,27 @@ def upload_bytes(s3_key: str, data: bytes, content_type: str) -> None:
         ContentType=content_type,
     )
 
+def copy_s3_object(source_key: str, destination_key: str) -> None:
+    """같은 버킷 안에서 S3 객체를 별도의 key로 실제 복사합니다."""
+
+    bucket_name = get_setting().S3_BUCKET_NAME
+
+    _s3_client.copy_object(
+        Bucket=bucket_name,
+        CopySource={
+            "Bucket": bucket_name,
+            "Key": source_key,
+        },
+        Key=destination_key,
+        MetadataDirective="COPY",
+    )
+"""                         민재 추가
+submission/1/10/원본.jpg
+         ↓ 실제 S3 복사
+community/1/100/새UUID.jpg
+URL 문자열만 복사하는 것이 아니라 S3 객체 자체를 복사하는 코드
+"""
+
 
 def generate_download_presigned_url(s3_key: str) -> str:
     """

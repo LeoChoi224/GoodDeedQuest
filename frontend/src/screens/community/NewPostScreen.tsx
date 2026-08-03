@@ -27,32 +27,76 @@ import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import { useToast } from '../../components/Toast';
 import { WhiteCheck } from './_parts';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import {
+  CommunityFeedItem,
   createCommunityPost,
   getRecentQuestSubmissions,
   RecentQuestSubmission,
+  updateCommunityPost,
 } from '../../api/community';
+
 
 const BODY_MAX = 500;
 
-export default function NewPostScreen({ navigation }: any) {
+function QuestMediaPreview({
+  uri,
+  mediaType,
+  style,
+  nativeControls = false,
+}: {
+  uri: string;
+  mediaType: RecentQuestSubmission['media_type'];
+  style: any;
+  nativeControls?: boolean;
+}) {
+  const isVideo = mediaType === 'VIDEO';
+  const player = useVideoPlayer(isVideo ? uri : null, (videoPlayer) => {
+    videoPlayer.loop = true;
+    videoPlayer.muted = true;
+  });
+
+  if (isVideo) {
+    return (
+      <VideoView
+        player={player}
+        style={style}
+        contentFit="cover"
+        nativeControls={nativeControls}
+      />
+    );
+  }
+
+  return <Image source={{ uri }} style={style} resizeMode="cover" />;
+}
+
+export default function NewPostScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
   const toast = useToast();
 
-  const [modalOpen, setModalOpen] = useState(true);
+  const editPost = route?.params?.post as CommunityFeedItem | undefined;
+  const isEditMode = editPost != null;
+
+  const [modalOpen, setModalOpen] = useState(!isEditMode);
   const [submissions, setSubmissions] = useState<RecentQuestSubmission[]>([]);
   const [selected, setSelected] = useState<RecentQuestSubmission | null>(null);
-  const [body, setBody] = useState('');
+  const [body, setBody] = useState(editPost?.caption ?? '');
 
-  const [loadingSubmissions, setLoadingSubmissions] = useState(true);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(!isEditMode);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  const hasMedia = selected?.media_url != null;
+  const mediaUrl = editPost?.media_url ?? selected?.media_url ?? null;
+  const mediaType = editPost?.media_type ?? selected?.media_type ?? null;
+  const hasMedia = mediaUrl != null;
   const canUpload = hasMedia && !uploading;
 
   // 최근 승인된 퀘스트 인증 내역을 Backend에서 조회합니다.
   useEffect(() => {
+    if (isEditMode) {
+      return;
+    }
+
     let mounted = true;
 
     const loadSubmissions = async () => {
@@ -92,28 +136,50 @@ export default function NewPostScreen({ navigation }: any) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isEditMode]);
 
   // 선택한 인증과 본문을 이용해 실제 커뮤니티 게시글을 생성합니다.
   const onUpload = async () => {
-    if (!selected?.media_url || uploading) {
+    if (!mediaUrl || uploading) {
       return;
     }
 
     try {
       setUploading(true);
 
-      await createCommunityPost({
-        submission_id: selected.submission_id,
-        media_url: selected.media_url,
-        caption: body.trim() || null,
-      });
+      if (isEditMode) {
+        await updateCommunityPost(editPost.post_id, {
+          caption: body.trim() || null,
+        });
 
-      toast.show('게시되었습니다');
+        toast.show('게시물이 수정되었습니다');
+      } else {
+        if (!selected) {
+          return;
+        }
+
+        await createCommunityPost({
+          submission_id: selected.submission_id,
+          caption: body.trim() || null,
+        });
+
+        toast.show('게시되었습니다');
+      }
+
       navigation.goBack();
     } catch (error) {
-      console.error('커뮤니티 게시글 생성 실패:', error);
-      toast.show('게시글을 업로드하지 못했습니다');
+      console.error(
+        isEditMode
+          ? '커뮤니티 게시글 수정 실패:'
+          : '커뮤니티 게시글 생성 실패:',
+        error,
+      );
+
+      toast.show(
+        isEditMode
+          ? '게시글을 수정하지 못했습니다'
+          : '게시글을 업로드하지 못했습니다',
+      );
     } finally {
       setUploading(false);
     }
@@ -125,7 +191,7 @@ export default function NewPostScreen({ navigation }: any) {
       <HazeBackground />
       <MainHeader
         showBack
-        title="새 피드작성"
+        title={isEditMode ? '게시물 수정' : '새 피드작성'}
         onBack={() => navigation.goBack()}
       />
 
@@ -139,12 +205,16 @@ export default function NewPostScreen({ navigation }: any) {
           keyboardShouldPersistTaps="handled"
         >
           {/* 선택한 실제 인증 미디어를 표시합니다. */}
-          <Pressable onPress={() => setModalOpen(true)}>
-            {selected?.media_url ? (
-              <Image
-                source={{ uri: selected.media_url }}
+          <Pressable
+            disabled={isEditMode}
+            onPress={() => setModalOpen(true)}
+          >
+            {mediaUrl ? (
+              <QuestMediaPreview
+                uri={mediaUrl}
+                mediaType={mediaType}
                 style={styles.mediaFilled}
-                resizeMode="cover"
+                nativeControls={mediaType === 'VIDEO'}
               />
             ) : (
               <View style={styles.mediaEmpty}>
@@ -183,25 +253,29 @@ export default function NewPostScreen({ navigation }: any) {
             {uploading ? (
               <ActivityIndicator color={colors.white} />
             ) : (
-              <Text style={styles.uploadText}>업로드하기</Text>
+              <Text style={styles.uploadText}>
+                {isEditMode ? '수정 완료' : '업로드하기'}
+              </Text>
             )}
           </SpringButton>
         </View>
       </KeyboardAvoidingView>
 
       {/* 실제 승인 퀘스트 인증 내역 선택 팝업입니다. */}
-      <LoadVerifyModal
-        visible={modalOpen}
-        submissions={submissions}
-        selectedId={selected?.submission_id ?? null}
-        loading={loadingSubmissions}
-        error={submissionError}
-        onClose={() => setModalOpen(false)}
-        onLoad={(submission) => {
-          setSelected(submission);
-          setModalOpen(false);
-        }}
-      />
+      {!isEditMode ? (
+        <LoadVerifyModal
+          visible={modalOpen}
+          submissions={submissions}
+          selectedId={selected?.submission_id ?? null}
+          loading={loadingSubmissions}
+          error={submissionError}
+          onClose={() => setModalOpen(false)}
+          onLoad={(submission) => {
+            setSelected(submission);
+            setModalOpen(false);
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -303,10 +377,10 @@ function LoadVerifyModal({
                     }
                   >
                     <View style={modalStyles.cell}>
-                      <Image
-                        source={{ uri: item.media_url ?? '' }}
+                      <QuestMediaPreview
+                        uri={item.media_url ?? ''}
+                        mediaType={item.media_type}
                         style={modalStyles.cellImage}
-                        resizeMode="cover"
                       />
 
                       {isSelected ? (

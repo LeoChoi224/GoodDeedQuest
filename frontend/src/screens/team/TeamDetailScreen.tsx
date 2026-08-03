@@ -413,6 +413,28 @@ export default function TeamDetailScreen({ navigation, route }: any) {
                       {user.current_level}
                     </Text>
 
+                    <View
+                      style={[
+                        styles.reasonSourceBadge,
+                        user.reason_source === 'LLM'
+                          ? styles.reasonSourceLlmBadge
+                          : styles.reasonSourceFallbackBadge,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.reasonSourceText,
+                          user.reason_source === 'LLM'
+                            ? styles.reasonSourceLlmText
+                            : styles.reasonSourceFallbackText,
+                        ]}
+                      >
+                        {user.reason_source === 'LLM'
+                          ? 'LLM 추천 이유'
+                          : '규칙 기반 이유'}
+                      </Text>
+                    </View>
+
                     <Text style={styles.userInfo}>
                       {user.recommendation_reason}
                     </Text>
@@ -505,4 +527,10 @@ const styles = StyleSheet.create({
   popupContent: { alignSelf: 'stretch', width: '100%' },
   popupBtnRow: { flexDirection: 'row', gap: 10 },
   leaveText: { textAlign: 'center', color: colors.primaryDark, fontFamily: fonts.bodyR, lineHeight: 22, marginBottom: 18 },
+  reasonSourceBadge: { alignSelf: 'flex-start', marginTop: 6, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3 },
+  reasonSourceLlmBadge: { backgroundColor: colors.cellHeader },
+  reasonSourceFallbackBadge: { backgroundColor: colors.parchment },
+  reasonSourceText: { fontSize: 10, fontFamily: fonts.bodyB },
+  reasonSourceLlmText: { color: colors.primaryDark },
+  reasonSourceFallbackText: { color: colors.gold },
 });
