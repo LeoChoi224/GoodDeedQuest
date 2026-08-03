@@ -237,8 +237,15 @@ def get_region_detail_ranking(
         .all()
     )
 
+    # ⭐ 수정: is_me 추가 - 로그인한 유저 본인 행을 프론트에서 하이라이트할 수 있게
     personal_ranking = [
-        {"rank": idx + 1, "user_id": r.user_id, "nickname": r.nickname, "score": r.total_points}
+        {
+            "rank": idx + 1,
+            "user_id": r.user_id,
+            "nickname": r.nickname,
+            "score": r.total_points,
+            "is_me": r.user_id == user["id"],
+        }
         for idx, r in enumerate(personal_results)
     ]
 

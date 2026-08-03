@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from backend.app.auth.enums import TransactionType
 from backend.app.auth.models import User, PointTransaction
 from backend.app.badge.service import check_and_award_badges
+from backend.app.growth.service import level_from_xp
 from backend.app.quest.models import Quest
 from backend.app.quest_verification.challenge import (
     calculate_suspicion, needs_challenge, generate_challenge_code,
@@ -72,8 +73,10 @@ def _grant_reward(repository, user: User, quest: Quest, submission) -> tuple[int
     xp_gained = quest.reward_exp or 0
     points_gained = quest.reward_point or 0
 
-    
     user.current_xp += xp_gained
+    # ⭐ 수정: XP가 바뀔 때마다 레벨도 같이 재계산해서 저장 - 이전엔 XP만 쌓이고
+    # current_level은 절대 자동으로 안 올라갔음(growth 도메인의 level_from_xp 재사용)
+    user.current_level = level_from_xp(user.current_xp)
     user.point_balance += points_gained
     adjust_trust(user, TRUST_ON_COMPLETE)
 

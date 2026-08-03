@@ -1,11 +1,12 @@
 from datetime import date as date_type
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
 
 class DailyXp(BaseModel):
     date: date_type
-    cumulative_xp: int
+    # ⭐ 수정: 아직 지나지 않은 요일(오늘 이후)은 None - 프론트가 그 지점까지만 선을 그리게 함
+    cumulative_xp: Optional[int] = None
 
 
 class GrowthStatusResponse(BaseModel):
@@ -13,6 +14,7 @@ class GrowthStatusResponse(BaseModel):
     current_level: int
     current_xp: int
     next_level_xp: int
+    current_level_floor_xp: int
     weekly_xp_graph: List[DailyXp]
 
 

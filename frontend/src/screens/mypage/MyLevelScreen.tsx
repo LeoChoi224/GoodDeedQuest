@@ -1,12 +1,19 @@
 /**
- * SCREEN 06-4 · 레벨 페이지 (route MyLevel, back) — 내 정보 카드 · 경험치 바(PixelProgress,
- * 마운트 시 채워짐 + XP count-up) · 주간 경험치 추이 라인차트(react-native-svg, 그려지는 애니메이션:
- * 이번 주 초록 실선 / 지난 주 골드 점선) · 랭킹 보러가기 → Ranking.
+ * SCREEN 06-4 · 레벨 페이지 (route MyLevel, back) — 내 정보 카드(getMyProfile() 실API) ·
+ * 경험치 바(PixelProgress, 마운트/포커스마다 채워짐 + XP count-up, 이번 레벨 안에서의 진행률로 표시) ·
+ * 주간 경험치 추이 라인차트(react-native-svg, 그려지는 애니메이션, 일요일부터 시작하고
+ * 아직 지나지 않은 요일은 선이 안 그려짐) · 랭킹 보러가기 → Ranking.
+ * /growth/status + /mypage/profile 실API 연결.
+ * ⭐ useFocusEffect로 교체 — 화면에 포커스가 올 때마다(다른 화면 갔다 뒤로가기로 돌아올 때도)
+ * 다시 불러오게 함. 이전엔 useEffect(마운트 1회)라 퀘스트 완료 후 돌아와도 새로고침 안 됐음.
+ * ⭐ 원본 디자인엔 "지난 주" 골드 점선 비교선이 있었으나, 백엔드가 이번 주 누적치만 주고
+ * 지난 주 데이터는 안 줘서 이번 주 실선만 표시함(지난 주 비교는 백엔드 확장 필요).
  * Matches 06_mypage_flow.dc.html screen 4.
  */
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Line, Path, Text as SvgText } from 'react-native-svg';
 import Animated, {
   useSharedValue,
@@ -23,22 +30,33 @@ import {
   ConicAvatar,
   useCountUp,
   comma,
-  CHART,
+  CHART_LAYOUT,
   chartX,
   chartY,
   chartLine,
   pathLength,
 } from './_parts';
+import { getGrowthStatus, DailyXp } from '../../api/growth';
+import { getMyProfile, MyProfile } from '../../api/mypage';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
-const XP_CUR = 1240;
-const XP_MAX = 2000;
+const WEEKDAY_KR = ['일', '월', '화', '수', '목', '금', '토'];
 
-const WeeklyChart = React.memo(function WeeklyChart() {
-  const len = pathLength(CHART.thisW);
+function dayLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? '' : WEEKDAY_KR[d.getDay()];
+}
+
+const WeeklyChart = React.memo(function WeeklyChart({ graph }: { graph: DailyXp[] }) {
+  const rawValues = graph.map((d) => d.cumulative_xp); // null 포함, 길이 7 유지
+  const knownValues = rawValues.filter((v): v is number => v !== null);
+  const maxV = Math.max(...knownValues, 10);
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxV * f));
+
+  const len = pathLength(rawValues, maxV);
   const draw = useSharedValue(0); // 0 → 1 (this-week line draw)
-  const fade = useSharedValue(0); // last-week dashed + dots fade
+  const fade = useSharedValue(0); // dots fade
 
   useEffect(() => {
     draw.value = withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.cubic) });
@@ -49,35 +67,24 @@ const WeeklyChart = React.memo(function WeeklyChart() {
   const fadeProps = useAnimatedProps(() => ({ opacity: fade.value }));
 
   return (
-    <View style={{ width: '100%', aspectRatio: CHART.W / CHART.H }}>
-      <Svg width="100%" height="100%" viewBox={`0 0 ${CHART.W} ${CHART.H}`}>
+    <View style={{ width: '100%', aspectRatio: CHART_LAYOUT.W / CHART_LAYOUT.H }}>
+      <Svg width="100%" height="100%" viewBox={`0 0 ${CHART_LAYOUT.W} ${CHART_LAYOUT.H}`}>
         {/* gridlines */}
-        {CHART.grid.map((g, i) => (
+        {grid.map((g, i) => (
           <Line
             key={i}
-            x1={CHART.pad}
-            y1={chartY(g)}
-            x2={CHART.W - CHART.pad}
-            y2={chartY(g)}
+            x1={CHART_LAYOUT.pad}
+            y1={chartY(g, maxV)}
+            x2={CHART_LAYOUT.W - CHART_LAYOUT.pad}
+            y2={chartY(g, maxV)}
             stroke="#EEF1F0"
             strokeWidth={1}
           />
         ))}
-        {/* last week — gold dashed (fade-in) */}
-        <AnimatedPath
-          animatedProps={fadeProps}
-          d={chartLine(CHART.lastW)}
-          fill="none"
-          stroke={colors.gold}
-          strokeWidth={2}
-          strokeDasharray="5 4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {/* this week — green solid (line-draw) */}
+        {/* 이번 주 — 초록 실선(오늘까지만, 그려지는 애니메이션) */}
         <AnimatedPath
           animatedProps={drawProps}
-          d={chartLine(CHART.thisW)}
+          d={chartLine(rawValues, maxV)}
           fill="none"
           stroke={colors.xpGreen}
           strokeWidth={2.5}
@@ -85,19 +92,21 @@ const WeeklyChart = React.memo(function WeeklyChart() {
           strokeLinejoin="round"
           strokeDasharray={len}
         />
-        {/* this-week dots (fade-in) */}
-        {CHART.thisW.map((v, i) => (
-          <AnimatedPath
-            key={i}
-            animatedProps={fadeProps}
-            d={`M ${chartX(i)} ${chartY(v)} m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0`}
-            fill={colors.xpGreen}
-          />
-        ))}
-        {/* day labels */}
-        {CHART.days.map((d, i) => (
-          <SvgText key={i} x={chartX(i)} y={CHART.H - 4} fontSize={10} fill="#888" textAnchor="middle">
-            {d}
+        {/* dots (오늘까지만, fade-in) */}
+        {graph.map((d, i) =>
+          d.cumulative_xp === null ? null : (
+            <AnimatedPath
+              key={i}
+              animatedProps={fadeProps}
+              d={`M ${chartX(i, graph.length)} ${chartY(d.cumulative_xp, maxV)} m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0`}
+              fill={colors.xpGreen}
+            />
+          )
+        )}
+        {/* day labels — 일요일부터 7일 전체 표시 */}
+        {graph.map((d, i) => (
+          <SvgText key={i} x={chartX(i, graph.length)} y={CHART_LAYOUT.H - 4} fontSize={10} fill="#888" textAnchor="middle">
+            {dayLabel(d.date)}
           </SvgText>
         ))}
       </Svg>
@@ -106,7 +115,45 @@ const WeeklyChart = React.memo(function WeeklyChart() {
 });
 
 export default function MyLevelScreen({ navigation }: any) {
-  const xp = useCountUp(XP_CUR);
+  const [profile, setProfile] = useState<MyProfile | null>(null);
+  const [level, setLevel] = useState(1);
+  const [currentXp, setCurrentXp] = useState(0);
+  const [nextLevelXp, setNextLevelXp] = useState(1000);
+  const [levelFloorXp, setLevelFloorXp] = useState(0);
+  const [graph, setGraph] = useState<DailyXp[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // ⭐ 수정: useEffect(마운트 1회) → useFocusEffect(포커스 올 때마다) - 퀘스트 완료 후
+  // Ranking 갔다 뒤로가기로 돌아와도 최신 데이터로 다시 불러오게.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      setLoading(true);
+      setError(null);
+      Promise.all([getGrowthStatus(), getMyProfile()])
+        .then(([growth, prof]) => {
+          if (cancelled) return;
+          setLevel(growth.current_level);
+          setCurrentXp(growth.current_xp);
+          setNextLevelXp(growth.next_level_xp);
+          setLevelFloorXp(growth.current_level_floor_xp);
+          setGraph(growth.weekly_xp_graph);
+          setProfile(prof);
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err.message ?? '정보를 불러오지 못했습니다.');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  const xpCount = useCountUp(currentXp);
 
   return (
     <View style={styles.root}>
@@ -119,43 +166,68 @@ export default function MyLevelScreen({ navigation }: any) {
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
       >
-        {/* info card */}
+        {/* info card — /mypage/profile 실API */}
         <View style={styles.infoCard}>
-          <ConicAvatar size={52} />
+          <ConicAvatar size={52} imageUri={profile?.profile_image_url ?? null} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.name}>선한김철수</Text>
-            <Text style={styles.sub}>마을 수호자 · LV.12 · 🔥 7일째</Text>
-          </View>
-        </View>
-
-        {/* xp bar */}
-        <View style={styles.xpBlock}>
-          <View style={styles.xpHead}>
-            <Text style={styles.xpLv}>LV.12</Text>
-            <Text style={styles.xpVal}>
-              {comma(xp)} / {comma(XP_MAX)} XP
+            <Text style={styles.name}>{profile?.nickname ?? ''}</Text>
+            <Text style={styles.sub}>
+              {profile?.title ? `${profile.title} · ` : ''}LV.{level} · 🔥 {profile?.daily_streak ?? 0}일째
             </Text>
           </View>
-          <View style={styles.xpBarBox}>
-            <PixelProgress progress={XP_CUR / XP_MAX} height={22} color={colors.xpGreen} track={colors.screenBg} />
-          </View>
         </View>
 
-        {/* weekly chart */}
-        <Text style={styles.chartTitle}>주간 경험치 추이</Text>
-        <View style={styles.chartCard}>
-          <WeeklyChart />
-          <View style={styles.legend}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDash, { backgroundColor: colors.xpGreen }]} />
-              <Text style={styles.legendText}>이번 주</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDash, { backgroundColor: colors.gold }]} />
-              <Text style={styles.legendText}>지난 주</Text>
-            </View>
+        {loading ? (
+          <View style={styles.centerBox}>
+            <ActivityIndicator color={colors.primaryDark} />
           </View>
-        </View>
+        ) : error ? (
+          <View style={styles.centerBox}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : (
+          <>
+            {/* xp bar — 이번 레벨 안에서의 진행률로 표시(레벨업마다 0%로 리셋) */}
+            <View style={styles.xpBlock}>
+              <View style={styles.xpHead}>
+                <Text style={styles.xpLv}>LV.{level}</Text>
+                <Text style={styles.xpVal}>
+                  {comma(xpCount)} / {comma(nextLevelXp)} XP
+                </Text>
+              </View>
+              <View style={styles.xpBarBox}>
+                <PixelProgress
+                  progress={
+                    nextLevelXp - levelFloorXp > 0
+                      ? (currentXp - levelFloorXp) / (nextLevelXp - levelFloorXp)
+                      : 0
+                  }
+                  height={22}
+                  color={colors.xpGreen}
+                  track={colors.screenBg}
+                />
+              </View>
+            </View>
+
+            {/* weekly chart */}
+            <Text style={styles.chartTitle}>주간 경험치 추이</Text>
+            <View style={styles.chartCard}>
+              {graph.length === 0 ? (
+                <Text style={styles.emptyText}>최근 7일간 획득한 경험치가 없어요.</Text>
+              ) : (
+                <>
+                  <WeeklyChart graph={graph} />
+                  <View style={styles.legend}>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.legendDash, { backgroundColor: colors.xpGreen }]} />
+                      <Text style={styles.legendText}>이번 주 누적 XP</Text>
+                    </View>
+                  </View>
+                </>
+              )}
+            </View>
+          </>
+        )}
 
         {/* → Rank */}
         <SpringButton style={styles.rankBtn} onPress={() => navigation.navigate('Ranking')}>
@@ -184,6 +256,10 @@ const styles = StyleSheet.create({
   },
   name: { fontSize: 16, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
   sub: { fontSize: 12, color: colors.gold, marginTop: 2, fontFamily: fonts.bodyR },
+
+  centerBox: { paddingVertical: 32, alignItems: 'center' },
+  errorText: { fontSize: 13, color: colors.textSecondary, fontFamily: fonts.bodyR },
+  emptyText: { fontSize: 13, color: colors.textSecondary, fontFamily: fonts.bodyR, textAlign: 'center', paddingVertical: 24 },
 
   xpBlock: { marginBottom: 22 },
   xpHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 },

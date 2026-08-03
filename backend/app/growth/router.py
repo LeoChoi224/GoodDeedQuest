@@ -17,24 +17,21 @@ from backend.app.growth.schemas import (
     LeaderboardEntry,
     LeaderboardResponse,
 )
+from backend.app.growth.service import next_level_xp, level_floor_xp, level_from_xp
 
 router = APIRouter(prefix="/growth", tags=["Growth & Rewards System"])
 
-
-def _next_level_xp(level: int) -> int:
-    """레벨업에 필요한 누적 경험치.
-    1레벨=1000, 이후 n레벨(n>=2)은 1000 + (100*n)*n
-    (2레벨=1000+200*2=1400, 3레벨=1000+300*3=1900, ...)
-    """
-    if level <= 1:
-        return 1000
-    return 1000 + (100 * level) * level
+KST = timezone(timedelta(hours=9))
 
 
 def _get_weekly_xp_graph(db: Session, user_id: int) -> list[DailyXp]:
-    """최근 7일간 승인된 퀘스트 제출 기준으로 날짜별 XP 합산 후 누적합으로 변환"""
-    today = datetime.now(timezone.utc).date()
-    start = today - timedelta(days=6)
+    """이번 주(일요일~오늘, KST 기준) 누적 XP. 승인된 퀘스트 제출을 날짜별로 합산 후
+    일요일부터 누적합으로 변환. 아직 지나지 않은 요일은 cumulative_xp=None으로 반환해서
+    프론트가 오늘까지만 선을 그리게 한다."""
+    today = datetime.now(KST).date()
+    # 월=0..일=6 기준이라, 일요일까지 며칠 지났는지 계산: 일요일=0, 월요일=1, ..., 토요일=6
+    days_since_sunday = (today.weekday() + 1) % 7
+    week_start = today - timedelta(days=days_since_sunday)
 
     rows = (
         db.query(
@@ -45,7 +42,7 @@ def _get_weekly_xp_graph(db: Session, user_id: int) -> list[DailyXp]:
         .filter(
             QuestSubmission.user_id == user_id,
             QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
-            QuestSubmission.submitted_at >= start,
+            QuestSubmission.submitted_at >= week_start,
         )
         .group_by(func.date(QuestSubmission.submitted_at))
         .all()
@@ -55,7 +52,10 @@ def _get_weekly_xp_graph(db: Session, user_id: int) -> list[DailyXp]:
     result = []
     running_total = 0
     for i in range(7):
-        d = start + timedelta(days=i)
+        d = week_start + timedelta(days=i)
+        if d > today:
+            result.append(DailyXp(date=d, cumulative_xp=None))
+            continue
         running_total += daily_totals.get(d, 0)
         result.append(DailyXp(date=d, cumulative_xp=running_total))
     return result
@@ -111,15 +111,24 @@ def get_growth_status(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    """경험치바(레벨/XP) + 최근 7일 누적경험치 그래프"""
+    """경험치바(레벨/XP) + 이번 주(일~오늘) 누적경험치 그래프.
+    조회할 때마다 current_xp 기준으로 current_level을 재계산해서 어긋나 있으면 바로잡는다
+    (퀘스트 보상 지급 시점에도 갱신되지만, 수동 DB 수정 등으로 어긋난 경우를 대비한 self-heal)."""
     db_user = db.query(User).filter(User.user_id == user["id"]).first()
     if db_user is None:
         return APIResponse.fail(message="사용자를 찾을 수 없습니다")
 
+    correct_level = level_from_xp(db_user.current_xp)
+    if correct_level != db_user.current_level:
+        db_user.current_level = correct_level
+        db.commit()
+        db.refresh(db_user)
+
     status_data = GrowthStatusResponse(
         current_level=db_user.current_level,
         current_xp=db_user.current_xp,
-        next_level_xp=_next_level_xp(db_user.current_level),
+        next_level_xp=next_level_xp(db_user.current_level),
+        current_level_floor_xp=level_floor_xp(db_user.current_level),
         weekly_xp_graph=_get_weekly_xp_graph(db, db_user.user_id),
     )
     return APIResponse.ok(data=status_data)
