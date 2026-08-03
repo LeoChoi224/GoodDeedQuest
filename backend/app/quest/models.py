@@ -132,3 +132,33 @@ class QuestHiddenPreference(Base):
     )
     def __repr__(self):
         return f"<QuestHiddenPreference user_id={self.user_id} quest_id={self.quest_id}>"
+
+
+class QuestStart(Base):
+    """
+    퀘스트 시작 기록 모델
+    quest.quest_status 는 퀘스트당 하나뿐인 전역 컬럼이라 여기에 진행중을 쓰면
+    한 사람이 시작해도 모두에게 진행중으로 보인다. 그래서 시작 여부는 사람마다 따로 기록한다.
+    """
+    __tablename__ = "quest_start"
+    __table_args__ = (
+        UniqueConstraint("user_id", "quest_id", name="uq_quest_start_user_quest"),
+    )
+    start_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.user_id", ondelete="CASCADE"),
+        nullable=False, index=True, comment="시작한 사람",
+    )
+    quest_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("quest.quest_id", ondelete="CASCADE"),
+        nullable=False, index=True, comment="시작된 퀘스트",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), nullable=False, comment="시작한 일시"
+    )
+    def __repr__(self):
+        return f"<QuestStart user_id={self.user_id} quest_id={self.quest_id}>"
+
+    

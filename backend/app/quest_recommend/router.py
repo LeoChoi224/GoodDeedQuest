@@ -10,6 +10,7 @@ from backend.app.common.config import get_setting
 from backend.app.common.database import get_db
 from backend.app.common.response import APIResponse
 from backend.app.quest.schemas import QuestSchema
+from backend.app.quest.service import completed_quest_ids, started_quest_ids
 from backend.app.quest_recommend.schemas import BackendQuestRecommendRequest
 from backend.app.quest_recommend.service import (
     save_recommendation_log,
@@ -43,8 +44,19 @@ def get_today_recommended_quests(
         return APIResponse.ok(data=None, message="오늘 생성된 추천이 없습니다.")
 
     logger.info(f"오늘의 추천 퀘스트 반환. User ID: {user_id}, 건수: {len(quests)}")
+
+    # quest.quest_status는 퀘스트당 하나뿐인 전역 컬럼이라 보는 사람과 무관하게 같은 값이 나온다.
+    # 목록 조회(GET /quests)와 같은 기준으로 계산하도록 viewer 정보를 함께 넘긴다.
+    done_ids = completed_quest_ids(db, user_id)
+    started_ids = started_quest_ids(db, user_id)
     return APIResponse.ok(
-        data=[QuestSchema.from_quest(quest) for quest in quests],
+        data=[
+            QuestSchema.from_quest(
+                quest, viewer_id=user_id,
+                started_ids=started_ids, done_ids=done_ids,
+            )
+            for quest in quests
+        ],
         message="오늘의 추천 퀘스트 조회 성공"
     )
 

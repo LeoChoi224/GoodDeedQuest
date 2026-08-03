@@ -16,7 +16,7 @@ import SpringButton from '../../components/SpringButton';
 import QuestCard from '../../components/QuestCard';
 import { SwordIcon } from '../../components/PixelIcons';
 import { CameraIcon, StartTransition } from './_parts';
-import { abandonQuest } from '../../api/quest';
+import { abandonQuest, startQuest } from '../../api/quest';
 
 const DEFAULT_DESC =
   '집 근처 공원을 돌며 쓰레기를 주워 봉투에 담아 주세요. 30분 이상 활동하고 인증하면 보상을 받아요.';
@@ -35,8 +35,24 @@ export default function QuestDetailScreen({ navigation, route }: any) {
   const [starting, setStarting] = useState(false);
   const [abandoning, setAbandoning] = useState(false);
 
-  const onStart = () => {
+    const onStart = async () => {
     if (starting || active) return;
+
+    // questId가 없으면 서버에 남길 방법이 없다. 조용히 넘어가면 화면만 진행중으로
+    // 바뀌고 홈에는 반영되지 않아 원인을 찾기 어렵다. 실패로 처리해 드러낸다.
+    if (!questId) {
+      Alert.alert('시작하지 못했어요', '퀘스트 정보를 불러오지 못했습니다.');
+      return;
+    }
+
+    // 애니메이션을 먼저 돌리면 사용자는 시작됐다고 믿는데 서버엔 안 남을 수 있다.
+    // 요청이 짧아 순서를 바꿔도 체감 차이가 없으므로 서버를 먼저 부른다.
+    try {
+      await startQuest(questId);
+    } catch (err: any) {
+      Alert.alert('시작하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      return;
+    }
     setStarting(true);
   };
 

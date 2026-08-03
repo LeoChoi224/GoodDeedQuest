@@ -96,6 +96,12 @@ export async function abandonQuest(questId: number): Promise<void> {
   await api.delete(`/quests/${questId}`);
 }
 
+/** 퀘스트 시작. 이미 시작한 퀘스트를 다시 시작해도 성공으로 돌아온다. */
+export async function startQuest(questId: number): Promise<Quest> {
+  const response = await api.post(`/quests/${questId}/start`);
+  return response.data.data;
+}
+
 /** 오늘 이미 만들어진 추천. 아직 없으면 null이 온다. */
 export async function getTodayRecommendation(): Promise<Quest[] | null> {
   const response = await api.get('/quest-recommend/today');

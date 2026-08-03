@@ -1,16 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import Annotated, List
 from datetime import datetime, timedelta, timezone
+from typing import Annotated, List
+
 import httpx
+from fastapi import APIRouter, Depends, HTTPException
+
 from backend.app.common.response import APIResponse
 from backend.app.common.auth import get_current_user
 from backend.app.common.config import get_setting
 from backend.app.common.deps import get_repository
 from backend.app.common.enums import Difficulty
 from backend.app.common.repository import DatabaseRepository
-from backend.app.quest.models import Quest, Category, QuestHiddenPreference
+from backend.app.quest.models import Quest, Category, QuestHiddenPreference, QuestStart
 from backend.app.quest.enums import QuestType, QuestSource, QuestStatus
 from backend.app.quest.rewards import reward_from_intensity
+from backend.app.quest.service import started_quest_ids
 from backend.app.quest.schemas import QuestSchema, CreateQuestRequest, CreateQuestResponse, DeleteQuestResponse
 from backend.app.auth.router import get_current_db_user
 from backend.app.auth.models import User
@@ -46,6 +49,11 @@ SubmissionRepository = Annotated[
 HiddenRepository = Annotated[
     DatabaseRepository[QuestHiddenPreference],
     Depends(get_repository(QuestHiddenPreference))
+]
+
+StartRepository = Annotated[
+    DatabaseRepository[QuestStart],
+    Depends(get_repository(QuestStart))
 ]
 
 router = APIRouter(prefix="/quests", tags=["Quests"])
@@ -142,6 +150,42 @@ def get_quest_detail(
     ))
 
 
+@router.post("/{quest_id}/start", response_model=APIResponse[QuestSchema])
+def start_quest(
+    quest_id: int,
+    quest_repository: QuestRepository,
+    start_repository: StartRepository,
+    submission_repository: SubmissionRepository,
+    current_user: User = Depends(get_current_db_user),
+):
+    """퀘스트를 시작 상태로 만듭니다.
+
+    quest.quest_status 컬럼은 건드리지 않는다. 퀘스트당 값이 하나뿐이라
+    거기에 쓰면 한 사람이 시작해도 모두에게 진행중으로 보인다.
+    대신 quest_start 에 사람별 기록을 남긴다.
+
+    이미 시작한 퀘스트를 다시 시작해도 오류를 내지 않는다. 버튼이 두 번 눌리거나
+    재시도되는 경우가 있는데, 어느 쪽이든 결과는 '시작됨'으로 같기 때문이다.
+    """
+    quest = quest_repository.get(quest_id)
+    if quest is None or quest.is_deleted:
+        raise HTTPException(status_code=404, detail="Quest not found")
+
+    already = start_repository.get_by(user_id=current_user.user_id, quest_id=quest_id)
+    if not already:
+        start_repository.create({
+            "user_id": current_user.user_id,
+            "quest_id": quest_id,
+        })
+
+    done_ids = _completed_quest_ids(submission_repository, current_user.user_id)
+    started_ids = _started_quest_ids(submission_repository, current_user.user_id)
+    return APIResponse.ok(data=QuestSchema.from_quest(
+        quest, viewer_id=current_user.user_id,
+        started_ids=started_ids, done_ids=done_ids,
+    ), message="퀘스트를 시작했습니다.")
+
+
 def _load_category(category_repository: CategoryRepository, code: str) -> Category:
     category = category_repository.get_by(code=code)
     if category is None:
@@ -174,15 +218,12 @@ def _completed_quest_ids(submission_repository, user_id: int) -> set[int]:
     }
 
 def _started_quest_ids(submission_repository, user_id: int) -> set[int]:
-    """내가 인증을 한 번이라도 낸 퀘스트. 상태는 가리지 않는다.
+    """내가 손을 댄 퀘스트. 인증을 냈거나 시작 버튼을 누른 것을 합친다.
 
     거절·보류도 "손을 댄" 것이므로 진행중으로 본다. 통과한 것은 호출부에서
     done_ids 로 이미 목록에서 빠진다.
     """
-    return {
-        s.quest_id
-        for s in submission_repository.filter(QuestSubmission.user_id == user_id)
-    }
+    return started_quest_ids(submission_repository.session, user_id)
 
 
 def _hidden_quest_ids(hidden_repository: HiddenRepository, user_id:int) -> set[int]:
