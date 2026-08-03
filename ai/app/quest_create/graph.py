@@ -7,7 +7,7 @@ embed(벡터 생성) → evaluate(선행 여부 + 난이도) → finalize(로그
 import json
 from typing import TypedDict, Optional
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 from langchain_core.messages import HumanMessage
 
 from ai.app.common.llm import get_gemini_model
@@ -96,8 +96,9 @@ workflow.add_node("embed", embed)
 workflow.add_node("evaluate", evaluate)
 workflow.add_node("finalize", finalize)
 
-workflow.set_entry_point("embed")
-workflow.add_edge("embed", "evaluate")
+workflow.add_edge(START,"embed")
+workflow.add_edge(START, "evaluate")
+workflow.add_edge("embed", "finalize")
 workflow.add_edge("evaluate", "finalize")
 workflow.add_edge("finalize", END)
 

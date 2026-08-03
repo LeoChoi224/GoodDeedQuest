@@ -34,6 +34,28 @@ export async function register(payload: RegisterPayload) {
   return response.data;
 }
 
+/**
+ * 중복확인 결과. 서버는 중복이어도 200 으로 답하므로 available 로 판단한다.
+ * message 는 화면에 그대로 띄울 수 있는 한국어 문구다.
+ */
+export type Availability = { available: boolean; message: string };
+
+async function checkAvailability(path: string, params: Record<string, string>): Promise<Availability> {
+  const response = await api.get(path, { params });
+  return {
+    available: !!response.data?.data?.available,
+    message: response.data?.message ?? '',
+  };
+}
+
+export function checkEmailAvailable(email: string) {
+  return checkAvailability('/auth/check-email', { email });
+}
+
+export function checkNicknameAvailable(nickname: string) {
+  return checkAvailability('/auth/check-nickname', { nickname });
+}
+
 export async function socialLogin(
   idToken: string,
   provider: 'google' | 'kakao' = 'google',

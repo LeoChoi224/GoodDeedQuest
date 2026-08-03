@@ -2,7 +2,7 @@ import api from "./client";
 
 // AI 판정은 기본 10초로 모자란다. 특히 동영상은 다운로드 + 프레임 추출까지 붙는다.
 // 클라이언트가 먼저 포기하면 서버는 처리를 마쳤는데 화면엔 실패로 뜬다.
-const AI_TIMEOUT = 120000;
+const AI_TIMEOUT = 180000;
 
 export type PresignResult = {
   upload_url: string,

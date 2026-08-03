@@ -31,15 +31,18 @@ export default function AccountScreen({ navigation }: Props) {
   const [pwError, setPwError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
-  const onCheckEmail = () => {
-    const ok = s.checkEmail();
+  const onCheckEmail = async () => {
+    const ok = await s.checkEmail();
     if (!ok) setEmailShake((v) => v + 1);
   };
 
-  const onNext = () => {
+  const onNext = async () => {
     let ok = true;
 
-    const eok = s.emailOk || s.checkEmail();
+    // 【판단】 이미 중복확인을 통과했으면(emailOk) 서버를 다시 부르지 않는다.
+    //        그 사이 남이 같은 이메일로 가입했을 수는 있지만, 최종 차단은
+    //        가입 요청을 받는 서버가 한다.
+    const eok = s.emailOk || (await s.checkEmail());
     if (!eok) {
       setEmailShake((v) => v + 1);
       ok = false;
@@ -91,8 +94,8 @@ export default function AccountScreen({ navigation }: Props) {
                   leftIcon={<MailIcon />}
                 />
               </View>
-              <SpringButton style={styles.dupBtn} onPress={onCheckEmail}>
-                <Text style={styles.dupText}>중복확인</Text>
+              <SpringButton style={styles.dupBtn} onPress={onCheckEmail} disabled={s.emailChecking}>
+                <Text style={styles.dupText}>{s.emailChecking ? '확인 중' : '중복확인'}</Text>
               </SpringButton>
             </View>
             {s.emailMsg ? <Text style={[styles.fieldMsg, { color: s.emailMsg.color }]}>{s.emailMsg.text}</Text> : null}
@@ -143,8 +146,8 @@ export default function AccountScreen({ navigation }: Props) {
         locations={[0, 0.3]}
         style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}
       >
-        <SpringButton onPress={onNext} style={[styles.nextBtn, shadow.button]}>
-          <Text style={styles.nextText}>다음</Text>
+        <SpringButton onPress={onNext} style={[styles.nextBtn, shadow.button]} disabled={s.emailChecking}>
+          <Text style={styles.nextText}>{s.emailChecking ? '확인 중...' : '다음'}</Text>
         </SpringButton>
       </LinearGradient>
     </View>

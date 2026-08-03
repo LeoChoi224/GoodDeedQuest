@@ -70,6 +70,10 @@ class User(Base):
     __table_args__ = (
         UniqueConstraint("email", name="uq_user_email"),
         UniqueConstraint("provider", "provider_user_id", name="uq_user_provider"),
+        # 【판단】 닉네임 중복확인 버튼과 register 의 검사만으로는 완전하지 않다.
+        # 두 사람이 같은 순간에 같은 닉네임으로 가입하면 둘 다 "없음"을 보고 통과한다.
+        # 마지막으로 막는 곳은 DB 여야 한다. 이메일이 uq_user_email 로 막는 것과 같은 이유.
+        UniqueConstraint("nickname", name="uq_user_nickname"),
     )
     user_badges = relationship("UserBadge", back_populates="user")
     shortforms = relationship("ShortForm", back_populates="user")

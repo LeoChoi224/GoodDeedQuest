@@ -3,8 +3,9 @@
  * preserves input. Mirrors the state shape in 01_login_flow.dc.html Component.state,
  * plus the fields the mockup implies (email/pw/nickname values).
  */
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useMemo, useRef, useState } from 'react';
 import { CATEGORY_DEFS } from '../theme';
+import { checkEmailAvailable, checkNicknameAvailable } from '../api/auth';
 
 export type Msg = { text: string; color: string } | null;
 
@@ -20,7 +21,9 @@ type SignupState = {
   setEmail: (v: string) => void;
   emailMsg: Msg;
   emailOk: boolean;
-  checkEmail: () => boolean;
+  // 서버에 물어보므로 Promise 다. 부르는 쪽에서 await 해야 결과를 얻는다.
+  checkEmail: () => Promise<boolean>;
+  emailChecking: boolean;
 
   password: string;
   setPassword: (v: string) => void;
@@ -31,7 +34,8 @@ type SignupState = {
   setNickname: (v: string) => void;
   nickMsg: Msg;
   nickOk: boolean;
-  checkNick: () => boolean;
+  checkNick: () => Promise<boolean>;
+  nickChecking: boolean;
 
   cats: Record<string, boolean>;
   toggleCat: (k: string) => void;
@@ -63,11 +67,19 @@ export function SignupProvider({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState('');
   const [emailMsg, setEmailMsg] = useState<Msg>(null);
   const [emailOk, setEmailOk] = useState(false);
+  const [emailChecking, setEmailChecking] = useState(false);
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [nickname, setNickname] = useState('');
   const [nickMsg, setNickMsg] = useState<Msg>(null);
   const [nickOk, setNickOk] = useState(false);
+  const [nickChecking, setNickChecking] = useState(false);
+
+  // 【판단】 state 는 검사 함수가 시작될 때의 값으로 얼어붙는다(클로저). 응답이
+  // 돌아오는 사이 사용자가 입력칸을 고쳤는지 보려면 "지금 이 순간의 값"이 필요해서
+  // ref 를 따로 둔다. ref.current 는 항상 최신값이다.
+  const emailRef = useRef('');
+  const nickRef = useRef('');
   const [cats, setCats] = useState<Record<string, boolean>>(initialCats);
   const [times, setTimes] = useState<Record<string, boolean>>(initialTimes);
   const [birthday, setBirthday] = useState<Date | null>(null);
@@ -86,6 +98,7 @@ export function SignupProvider({ children }: { children: React.ReactNode }) {
 
       email,
       setEmail: (v) => {
+        emailRef.current = v;
         setEmail(v);
         if (emailMsg) {
           setEmailMsg(null);
@@ -94,16 +107,36 @@ export function SignupProvider({ children }: { children: React.ReactNode }) {
       },
       emailMsg,
       emailOk,
-      checkEmail: () => {
+      emailChecking,
+      checkEmail: async () => {
         const v = email.trim();
-        const ok = EMAIL_RE.test(v);
-        setEmailOk(ok);
-        setEmailMsg(
-          ok
-            ? { text: '사용 가능한 이메일입니다.', color: OK_GREEN }
-            : { text: '사용할 수 없는 이메일입니다. 형식을 확인해 주세요.', color: BAD_RED }
-        );
-        return ok;
+
+        // 형식이 틀리면 서버를 부를 것도 없다.
+        if (!EMAIL_RE.test(v)) {
+          setEmailOk(false);
+          setEmailMsg({ text: '사용할 수 없는 이메일입니다. 형식을 확인해 주세요.', color: BAD_RED });
+          return false;
+        }
+
+        setEmailChecking(true);
+        try {
+          const res = await checkEmailAvailable(v);
+
+          // 응답을 기다리는 동안 사용자가 이메일을 고쳤으면 이 결과는 남의 것이다.
+          // 그대로 반영하면 바뀐 이메일에 "사용 가능"이 붙는다.
+          if (emailRef.current.trim() !== v) return false;
+
+          setEmailOk(res.available);
+          setEmailMsg({ text: res.message, color: res.available ? OK_GREEN : BAD_RED });
+          return res.available;
+        } catch {
+          // 서버가 안 되는 것과 중복인 것은 다르다. 통과시키지 않되 사유는 구분해서 알린다.
+          setEmailOk(false);
+          setEmailMsg({ text: '중복확인에 실패했습니다. 잠시 후 다시 시도해 주세요.', color: BAD_RED });
+          return false;
+        } finally {
+          setEmailChecking(false);
+        }
       },
 
       password,
@@ -113,6 +146,7 @@ export function SignupProvider({ children }: { children: React.ReactNode }) {
 
       nickname,
       setNickname: (v) => {
+        nickRef.current = v;
         setNickname(v);
         if (nickMsg) {
           setNickMsg(null);
@@ -121,16 +155,32 @@ export function SignupProvider({ children }: { children: React.ReactNode }) {
       },
       nickMsg,
       nickOk,
-      checkNick: () => {
+      nickChecking,
+      checkNick: async () => {
         const v = nickname.trim();
-        const ok = v.length >= 2 && v.length <= 10;
-        setNickOk(ok);
-        setNickMsg(
-          ok
-            ? { text: '사용 가능한 닉네임입니다.', color: OK_GREEN }
-            : { text: '사용할 수 없는 닉네임입니다. (2~10자)', color: BAD_RED }
-        );
-        return ok;
+
+        if (v.length < 2 || v.length > 10) {
+          setNickOk(false);
+          setNickMsg({ text: '사용할 수 없는 닉네임입니다. (2~10자)', color: BAD_RED });
+          return false;
+        }
+
+        setNickChecking(true);
+        try {
+          const res = await checkNicknameAvailable(v);
+
+          if (nickRef.current.trim() !== v) return false;
+
+          setNickOk(res.available);
+          setNickMsg({ text: res.message, color: res.available ? OK_GREEN : BAD_RED });
+          return res.available;
+        } catch {
+          setNickOk(false);
+          setNickMsg({ text: '중복확인에 실패했습니다. 잠시 후 다시 시도해 주세요.', color: BAD_RED });
+          return false;
+        } finally {
+          setNickChecking(false);
+        }
       },
 
       cats,
@@ -143,20 +193,24 @@ export function SignupProvider({ children }: { children: React.ReactNode }) {
 
       reset: () => {
         setTerms({ t1: false, t2: false, t3: false });
+        emailRef.current = '';
         setEmail('');
         setEmailMsg(null);
         setEmailOk(false);
+        setEmailChecking(false);
         setPassword('');
         setPasswordConfirm('');
+        nickRef.current = '';
         setNickname('');
         setNickMsg(null);
         setNickOk(false);
+        setNickChecking(false);
         setCats(initialCats());
         setTimes(initialTimes());
         setBirthday(null);
       },
     }),
-    [terms, allAgreed, email, emailMsg, emailOk, password, passwordConfirm, nickname, nickMsg, nickOk, cats, times, birthday]
+    [terms, allAgreed, email, emailMsg, emailOk, emailChecking, password, passwordConfirm, nickname, nickMsg, nickOk, nickChecking, cats, times, birthday]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
