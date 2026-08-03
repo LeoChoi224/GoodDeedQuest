@@ -177,3 +177,4 @@ npm-debug.*
 CLAUDE.local.md
 CLAUDE.md
 MEMORY.md
+ai/eval/*

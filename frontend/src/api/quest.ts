@@ -17,6 +17,7 @@ export type Quest = {
   reward_exp: number | null;
   location: string | null;
   estimated_duration: number | null;
+  volunteer_center_id: number | null;
 };
 
 const DIFFICULTY_LABEL: Record<Difficulty, string> = {

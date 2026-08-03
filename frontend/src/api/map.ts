@@ -102,6 +102,12 @@ export async function getNearbyVolunteerCenters(lat: number, lng: number, radius
   return response.data.data ?? [];
 }
 
+/** 봉사 공고 단건 조회 (퀘스트 상세 → 원본 공고 이동). 없는 ID면 404가 난다. */
+export async function getVolunteerCenter(centerId: number): Promise<VolunteerCenter> {
+  const response = await api.get(`/map/volunteer-centers/${centerId}`);
+  return response.data.data;
+}
+
 export type RegionOption = {
   region_id: number;
   region_name: string;

@@ -35,6 +35,7 @@ class QuestSchema(BaseModel):
     reward_exp: Optional[int] = None
     location: Optional[str] = None
     estimated_duration: Optional[int] = None
+    volunteer_center_id: Optional[int] = None
 
     @classmethod
     def from_quest(cls, quest, viewer_id: Optional[int] = None,
@@ -76,6 +77,7 @@ class QuestSchema(BaseModel):
             reward_exp=quest.reward_exp,
             location=quest.location,
             estimated_duration=quest.estimated_duration,
+            volunteer_center_id=quest.volunteer_center_id,
         )
 
 class DeleteQuestResponse(BaseModel):

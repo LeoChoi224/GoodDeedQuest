@@ -63,6 +63,10 @@ export function HomeStack() {
       <S.Screen name="QuestComplete" component={QuestCompleteScreen} options={{ animation: 'fade' }} />
       <S.Screen name="QuestRegister" component={QuestRegisterScreen} />
       <S.Screen name="AiRecommend" component={AiRecommendScreen} />
+      {/* 퀘스트 상세 → 봉사 원본 공고. MapStack에도 등록돼 있지만, 홈 탭에서 이동할 때
+          탭이 지도로 바뀌지 않도록 여기에도 둔다. */}
+      <S.Screen name="VolunteerDetail" component={VolunteerDetailScreen} />
+
     </S.Navigator>
   );
 }

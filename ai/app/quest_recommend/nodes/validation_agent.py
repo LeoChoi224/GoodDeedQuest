@@ -95,7 +95,7 @@ def validate_candidates(state: RecommendState) -> Dict[str, Any]:
             "quest_type": "VOLUNTEER",
             "location": vol_location,
             "difficulty": "NORMAL",
-            "intensity": 70,
+            "intensity": 80,
             "estimated_duration": 180,
             "recommendation_reason": f"사용자 주변에 위치한 실제 봉사활동 기회입니다. ({vol_location})",
             "priority_score": volunteer_score,
