@@ -207,6 +207,10 @@ export async function createCommunityPost(
   const response = await api.post<CommunityPost>(
     '/community/posts',
     request,
+    {
+      // S3 다운로드 → FFmpeg 변환 → S3 업로드 시간을 고려합니다.
+      timeout: 60000,
+    },
   );
 
   return response.data;
