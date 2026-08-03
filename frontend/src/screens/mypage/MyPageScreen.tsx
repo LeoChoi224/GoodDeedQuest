@@ -11,17 +11,19 @@ import * as ImagePicker from 'expo-image-picker'; // ⭐ 수정
 import { useFocusEffect } from '@react-navigation/native'; // ⭐ 수정: 아이템 목록에서 칭호 장착 후 돌아왔을 때 실시간 반영
 import { StatusBar } from 'expo-status-bar';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { colors, fonts, radii, CATEGORY_ICONS, brand } from '../../theme';
+import { colors, fonts, radii, CATEGORY_DEFS, CATEGORY_ICONS, brand } from '../../theme'; // ⭐ 수정: CATEGORY_DEFS 추가
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
-import GamePopup from '../../components/GamePopup';
+import GamePopup, { PopupButtons } from '../../components/GamePopup'; // ⭐ 수정: PopupButtons 추가
+import GdqInput from '../../components/GdqInput'; // ⭐ 수정
 import { useToast } from '../../components/Toast';
 import { ConicAvatar, ChevronRight } from './_parts'; // ⭐ 수정: 더미 ACHIEVEMENTS/Achievement 제거
 import {
   getMyQuestAchievements,
   type MyQuestAchievement,
   uploadProfileImage,
+  updateMyProfile, // ⭐ 수정
 } from '../../api/mypage'; // ⭐ 수정
 import { useProfile } from '../../context/ProfileContext'; // ⭐ 수정: 프로필 헤더를 드로어와 공유
 import { getFullImageUrl } from '../shop/_parts'; // ⭐ 수정: 장착 테두리 image_url이 상대경로(/static/...)라 base URL을 붙여야 함
@@ -44,6 +46,12 @@ function formatCompletedAt(iso: string): string {
   return `${y}.${m}.${day} ${hh}:${mm}`;
 }
 
+// ⭐ 수정: 관심카테고리 key(예: 'volunteer') → 화면 표기 라벨(예: '봉사'). CATEGORY_DEFS에 없는
+// 값(예: 옛 seed 데이터의 한글 저장값)은 그대로 원문을 보여준다.
+function categoryLabel(key: string): string {
+  return CATEGORY_DEFS.find((c) => c.key === key)?.label ?? key;
+}
+
 export default function MyPageScreen({ navigation }: any) {
   // ⭐ 수정: 더미 Achievement 대신 API 응답 타입 + 로딩/에러 상태
   const [selected, setSelected] = useState<MyQuestAchievement | null>(null);
@@ -54,6 +62,13 @@ export default function MyPageScreen({ navigation }: any) {
   const { profile, loading: profileLoading, error: profileError, refreshProfile, setProfile } = useProfile();
   const [uploadingImage, setUploadingImage] = useState(false);
   const toast = useToast();
+
+  // ⭐ 수정: 프로필 수정(닉네임/관심카테고리) 모달 상태
+  const [editVisible, setEditVisible] = useState(false);
+  const [editNickname, setEditNickname] = useState('');
+  const [editNickError, setEditNickError] = useState<string | null>(null);
+  const [editCats, setEditCats] = useState<Record<string, boolean>>({});
+  const [savingProfile, setSavingProfile] = useState(false);
 
   // ⭐ 수정: 달성 퀘스트 타임라인 조회 — 재시도 버튼과 포커스 재조회 둘 다에서 재사용
   const loadAchievements = useCallback(async () => {
@@ -111,6 +126,45 @@ export default function MyPageScreen({ navigation }: any) {
     }
   };
 
+  // ⭐ 수정: 연필 버튼 탭 → 현재 프로필 값으로 수정 모달 초기화 후 오픈
+  const openEditProfile = () => {
+    if (!profile) return;
+    setEditNickname(profile.nickname);
+    setEditNickError(null);
+    const cats: Record<string, boolean> = {};
+    CATEGORY_DEFS.forEach((c) => {
+      cats[c.key] = !!profile.category?.includes(c.key);
+    });
+    setEditCats(cats);
+    setEditVisible(true);
+  };
+
+  const toggleEditCat = (key: string) => setEditCats((s) => ({ ...s, [key]: !s[key] }));
+
+  // ⭐ 수정: 닉네임(2~10자, 회원가입 화면과 동일한 규칙) + 관심카테고리 부분 수정 저장
+  const saveProfile = async () => {
+    const nick = editNickname.trim();
+    if (nick.length < 2 || nick.length > 10) {
+      setEditNickError('닉네임은 2~10자로 입력해 주세요.');
+      return;
+    }
+    setEditNickError(null);
+    const category = Object.keys(editCats).filter((k) => editCats[k]);
+
+    try {
+      setSavingProfile(true);
+      const updated = await updateMyProfile({ nickname: nick, category });
+      setProfile(updated);
+      setEditVisible(false);
+      toast.show('프로필을 수정했어요.');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      toast.show(typeof detail === 'string' ? detail : '프로필 수정에 실패했어요.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   const goShortform = () => {
     try {
       navigation.navigate('Shortform');
@@ -152,8 +206,22 @@ export default function MyPageScreen({ navigation }: any) {
               <Text style={styles.name}>프로필을 불러오지 못했어요</Text>
             ) : (
               <>
-                <Text style={styles.name}>{profile.nickname}</Text>
-                <Text style={styles.title}>{profile.title}</Text>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name}>{profile.nickname}</Text>
+                  {/* ⭐ 수정: 프로필 수정(닉네임/관심카테고리) 모달 진입 버튼 */}
+                  <Pressable onPress={openEditProfile} hitSlop={8} style={styles.editBtn}>
+                    <Text style={styles.editIcon}>✏️</Text>
+                  </Pressable>
+                </View>
+                {/* ⭐ 수정: 칭호 오른쪽에 관심카테고리 표시 */}
+                <View style={styles.titleRow}>
+                  <Text style={styles.title}>{profile.title}</Text>
+                  {profile.category && profile.category.length > 0 && (
+                    <Text style={styles.categoryText} numberOfLines={1} ellipsizeMode="tail">
+                      {profile.category.map(categoryLabel).join(', ')}
+                    </Text>
+                  )}
+                </View>
                 <View style={styles.metaRow}>
                   <Text style={styles.lv}>LV.{profile.current_level}</Text>
                   <Text style={styles.streak}>🔥 {profile.daily_streak}일째 연속접속</Text>
@@ -240,6 +308,51 @@ export default function MyPageScreen({ navigation }: any) {
           </>
         )}
       </GamePopup>
+
+      {/* ⭐ 수정: 프로필 수정(닉네임/관심카테고리) 모달 */}
+      <GamePopup visible={editVisible} onClose={() => setEditVisible(false)} title="프로필 수정" width={320}>
+        <View style={{ alignSelf: 'stretch' }}>
+          <Text style={styles.editLabel}>닉네임</Text>
+          <GdqInput
+            value={editNickname}
+            onChangeText={(v) => {
+              setEditNickname(v);
+              if (editNickError) setEditNickError(null);
+            }}
+            placeholder="닉네임을 입력하세요"
+            maxLength={10}
+          />
+          {editNickError ? <Text style={styles.editErrorText}>{editNickError}</Text> : null}
+
+          <Text style={[styles.editLabel, { marginTop: 16 }]}>관심 카테고리</Text>
+          <View style={styles.editGrid}>
+            {CATEGORY_DEFS.map((c) => {
+              const on = !!editCats[c.key];
+              return (
+                <Pressable
+                  key={c.key}
+                  onPress={() => toggleEditCat(c.key)}
+                  style={[styles.editCatCell, on ? styles.editCatCellOn : styles.editCatCellOff]}
+                >
+                  <Image source={CATEGORY_ICONS[c.key]} style={styles.editCatIcon} />
+                  <Text style={[styles.editCatLabel, { color: on ? colors.white : colors.parchment }]}>{c.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {savingProfile ? (
+          <ActivityIndicator color={colors.gold} style={{ marginTop: 20 }} />
+        ) : (
+          <PopupButtons
+            primaryLabel="저장"
+            onPrimary={saveProfile}
+            secondaryLabel="취소"
+            onSecondary={() => setEditVisible(false)}
+          />
+        )}
+      </GamePopup>
     </View>
   );
 }
@@ -269,6 +382,26 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   profileInfo: { flex: 1, minWidth: 0 },
+  // ⭐ 수정: 닉네임 + 프로필 수정 버튼 행 / 수정 모달 스타일
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  editBtn: { padding: 2 },
+  editIcon: { fontSize: 13 },
+  editLabel: { fontSize: 13, fontWeight: '700', color: colors.gold, marginBottom: 8, fontFamily: fonts.bodyB },
+  editErrorText: { marginTop: 6, fontSize: 12, color: '#FF8A80', fontFamily: fonts.bodyM },
+  editGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  editCatCell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 42,
+    borderRadius: radii.chip,
+    paddingHorizontal: 10,
+    width: '47%',
+  },
+  editCatCellOn: { backgroundColor: colors.primaryDark, borderWidth: 2, borderColor: colors.gold },
+  editCatCellOff: { backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(242,215,131,0.35)' },
+  editCatIcon: { width: 24, height: 24, borderRadius: 6 },
+  editCatLabel: { fontSize: 13, fontWeight: '600', fontFamily: fonts.bodyM },
   // ⭐ 수정: 프로필 로딩 스피너 / 아바타 업로드 중 오버레이
   profileInfoLoading: { alignSelf: 'flex-start' },
   avatarUploadOverlay: {
@@ -279,7 +412,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   name: { fontSize: 18, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
-  title: { fontSize: 13, color: colors.gold, fontWeight: '600', marginTop: 1, marginBottom: 3, fontFamily: fonts.bodyM },
+  // ⭐ 수정: 칭호 + 관심카테고리를 한 줄에 배치
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1, marginBottom: 3 },
+  title: { fontSize: 13, color: colors.gold, fontWeight: '600', fontFamily: fonts.bodyM },
+  categoryText: { flexShrink: 1, fontSize: 11, color: colors.textMuted, fontFamily: fonts.bodyM },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   lv: { fontFamily: fonts.pixel, fontSize: 15, color: colors.primaryDark },
   streak: { fontSize: 12, color: colors.xpGreen, fontWeight: '600', fontFamily: fonts.bodyM },
