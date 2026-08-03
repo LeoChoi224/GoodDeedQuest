@@ -10,6 +10,7 @@ from backend.app.quest_recommend.models import AiRecommendationLog, AiRecommenda
 from backend.app.quest.models import Quest, Category
 from backend.app.quest.enums import QuestTarget, QuestType, QuestSource, QuestStatus
 from backend.app.quest.rewards import reward_from_intensity
+from backend.app.quest.service import completed_quest_ids, started_quest_ids
 
 
 logger: Final = logging.getLogger(__name__)
@@ -285,10 +286,25 @@ def get_today_recommendation(db: Session, user_id: int) -> Optional[List[Quest]]
         # 4. Quest 원본 조회 및 순위 정렬
         quests = build_quests_from_recommendations(db=db, items=items)
 
-        # 5. 오늘 로그는 있으나 퀘스트가 전부 사라진 경우(AI 빈 응답 / 전량 삭제)
+        # 5. 이미 시작했거나 완료한 퀘스트는 추천 목록에서 뺀다.
+        #    진행중인 것은 홈 상단 캐러셀에 이미 있어 아래 목록에 또 두면 중복이고,
+        #    완료한 것은 다시 추천할 이유가 없다 (전체 목록 조회와 같은 기준).
+        excluded_ids = (
+            completed_quest_ids(db, user_id) | started_quest_ids(db, user_id)
+        )
+        if excluded_ids:
+            before_count = len(quests)
+            quests = [quest for quest in quests if quest.quest_id not in excluded_ids]
+            if before_count != len(quests):
+                logger.info(
+                    f"진행중/완료 퀘스트를 추천 목록에서 제외했습니다. "
+                    f"User ID: {user_id}, {before_count}건 -> {len(quests)}건"
+                )
+
+        # 6. 오늘 로그는 있으나 퀘스트가 전부 사라진 경우(AI 빈 응답 / 전량 삭제)
         #    빈 목록 대신 None을 반환해야 프론트가 새로 생성한다
         if not quests:
-            logger.warning(f"오늘 추천 로그는 있으나 유효한 퀘스트가 없습니다. User ID: {user_id}")
+            logger.warning(f"오늘 추천 로그는 있으나 표시할 퀘스트가 없습니다. User ID: {user_id}")
             return None
 
         logger.info(f"오늘의 추천 퀘스트 조회 완료. User ID: {user_id}, 건수: {len(quests)}")

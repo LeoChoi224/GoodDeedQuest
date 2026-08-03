@@ -3,7 +3,7 @@
  * MainHeader (no back). 진행중 퀘스트 드래그 캐러셀(빈 상태 토글) · 오늘의 추천 리스트
  * (스태거 페이드업) · 다시 추천 받기 · 퀘스트 등록 / 커스텀 추천 액션.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
@@ -110,11 +110,15 @@ export default function HomeScreen({ navigation }: any) {
     }
   };
 
-  useEffect(() => {
-    // 진행중 목록은 빠르고 추천은 느릴 수 있다. 따로 돌려야 캐러셀이 먼저 뜬다.
-    load();
-    loadRecommendation();
-  }, []);
+  // 상세 화면에서 퀘스트를 시작하고 돌아오면 캐러셀과 추천 목록이 함께 바뀌어야 한다.
+  // useEffect는 화면이 처음 만들어질 때 한 번만 돌아서 복귀 시 갱신되지 않는다.
+  useFocusEffect(
+    useCallback(() => {
+      // 진행중 목록은 빠르고 추천은 느릴 수 있다. 따로 돌려야 캐러셀이 먼저 뜬다.
+      load();
+      loadRecommendation();
+    }, [])
+  );
 
   const activeQuests = quests.filter((q) => q.quest_status === 'IN_PROGRESS');
   const empty = activeQuests.length === 0;
