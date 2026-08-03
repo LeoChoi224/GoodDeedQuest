@@ -10,7 +10,7 @@ from backend.app.common.auth import create_access_token, get_password_hash, veri
 from backend.app.auth.service import (
     trigger_embedding_if_needed, verify_google_id_token, find_or_create_social_user,
     record_daily_user_activity, issue_refresh_token, consume_refresh_token,
-    revoke_all_refresh_tokens,
+    revoke_all_refresh_tokens, verify_kakao_access_token
 )
 
 
@@ -52,18 +52,26 @@ def login(req: LoginRequest, repository: UserRepository, background_tasks: Backg
 
 @router.post('/social-login', response_model=APIResponse[LoginResponse])
 def social_login(req: SocialLoginRequest, repository: UserRepository, background_tasks: BackgroundTasks):
-    if req.provider != "google":
+    if req.provider == "google":
+        try:
+            idinfo = verify_google_id_token(req.id_token)
+        except ValueError:
+            raise HTTPException(status_code=401, detail="Invalid Google token")
+        email = idinfo.get("email")
+        provider_user_id = idinfo.get("sub")
+        nickname = idinfo.get("name") or email.split("@")[0]
+
+    elif req.provider == "kakao":
+        # 【기능】 카카오는 id_token 칸에 access_token 이 담겨 온다 (schemas.py 주석 참고)
+        info = verify_kakao_access_token(req.id_token)
+        email = info["email"]
+        provider_user_id = info["id"]
+        nickname = info["nickname"]
+
+    else:
         raise HTTPException(status_code=400, detail="Unsupported provider")
-    try:
-        idinfo = verify_google_id_token(req.id_token)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid Google token")
     
-    email = idinfo.get("email")
-    provider_user_id = idinfo.get("sub")
-    nickname = idinfo.get("name") or email.split("@")[0]
-    
-    user, is_new_user = find_or_create_social_user(repository, "google", provider_user_id, email, nickname)
+    user, is_new_user = find_or_create_social_user(repository, req.provider, provider_user_id, email, nickname)
     record_daily_user_activity(repository=repository,user_id=user.user_id,)
     trigger_embedding_if_needed(user, background_tasks)
     

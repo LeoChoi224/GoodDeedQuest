@@ -34,9 +34,12 @@ export async function register(payload: RegisterPayload) {
   return response.data;
 }
 
-export async function socialLogin(idToken: string): Promise<{ token: string; isNewUser: boolean }> {
+export async function socialLogin(
+  idToken: string,
+  provider: 'google' | 'kakao' = 'google',
+): Promise<{ token: string; isNewUser: boolean }> {
   const response = await api.post('/auth/social-login', {
-    provider: 'google',
+    provider,
     id_token: idToken
   });
   const token: string = response.data.data.access_token;

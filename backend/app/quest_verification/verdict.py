@@ -4,6 +4,9 @@ from backend.app.auth.enums import TransactionType
 from backend.app.auth.models import User, PointTransaction
 from backend.app.badge.service import check_and_award_badges
 from backend.app.growth.service import level_from_xp
+from backend.app.map.enums import CompetitionStatus
+from backend.app.map.models import Competition, CompetitionContribution
+from backend.app.map.router import _ensure_participant
 from backend.app.quest.models import Quest
 from backend.app.quest_verification.challenge import (
     calculate_suspicion, needs_challenge, generate_challenge_code,
@@ -74,7 +77,6 @@ def _grant_reward(repository, user: User, quest: Quest, submission) -> tuple[int
     points_gained = quest.reward_point or 0
 
     user.current_xp += xp_gained
-    # ⭐ 수정: XP가 바뀔 때마다 레벨도 같이 재계산해서 저장 - 이전엔 XP만 쌓이고
     # current_level은 절대 자동으로 안 올라갔음(growth 도메인의 level_from_xp 재사용)
     user.current_level = level_from_xp(user.current_xp)
     user.point_balance += points_gained
@@ -88,6 +90,30 @@ def _grant_reward(repository, user: User, quest: Quest, submission) -> tuple[int
             type=TransactionType.EARN,
             balance_after=user.point_balance,
         ))
+
+    # ⭐ 추가: 대항전 기여 기록 - 지역 랭킹(personal_ranking)·시군구 랭킹·전국 랭킹이 전부
+    # CompetitionContribution을 합산해서 만들어지는 구조인데, 여태 이 지점에서 만드는 코드가
+    # 없어서 실제 퀘스트 완료가 랭킹에 전혀 반영이 안 됐다. 유저가 참여 지역을 정해뒀고
+    # 지금 진행 중(IN_PROGRESS)인 대회가 있을 때만 기록한다 - 정산 중(SETTLING)엔 더 이상
+    # 점수가 안 늘어나야 하므로 team-select 등 다른 쓰기 작업과 동일하게 IN_PROGRESS만 인정.
+    if user.region_id is not None:
+        competition = (
+            repository.session.query(Competition)
+            .filter(Competition.status == CompetitionStatus.IN_PROGRESS)
+            .order_by(Competition.start_at.desc())
+            .first()
+        )
+        if competition is not None:
+            # 이 유저 지역이 아직 이번 대회 참여자로 등록 안 됐을 수 있으니(예: /map 화면을
+            # 이번 주에 한 번도 안 들어옴) 먼저 보장해준다 - map 도메인의 헬퍼 재사용.
+            _ensure_participant(repository.session, competition.competition_id, user.region_id)
+            repository.session.add(CompetitionContribution(
+                competition_id=competition.competition_id,
+                user_id=user.user_id,
+                submission_id=submission.submission_id,
+                region_id=user.region_id,
+                points=points_gained,
+            ))
 
     repository.session.commit()
 

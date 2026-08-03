@@ -21,7 +21,6 @@ import {
   Image,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -40,6 +39,7 @@ import GamePopup from '../../components/GamePopup';
 import Shimmer from '../../components/Shimmer';
 import { useToast } from '../../components/Toast';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import type { VideoSource } from 'expo-video';
 import {
   CommunityComment,
   CommunityFeedItem,
@@ -79,24 +79,53 @@ const COMMENT_MAX_LENGTH = 500;
 const SHEET_PAGE_SIZE = 20;
 const RECOMMENDATION_ROTATION_SIZE = 3;
 
-function CommunityMedia({ feed }: { feed: CommunityFeedItem }) {
-  const isVideo = feed.media_type === 'VIDEO';
+function CommunityVideo({ uri }: { uri: string }) {
+  const videoSource = useMemo<VideoSource>(
+    () => ({
+      uri,
+      useCaching: true,
+      contentType: 'progressive',
+    }),
+    [uri],
+  );
+
   const player = useVideoPlayer(
-    isVideo ? feed.media_url : null,
+    videoSource,
     (videoPlayer) => {
       videoPlayer.loop = true;
+
+      videoPlayer.bufferOptions = {
+        // 끊긴 후 재생을 재개하기 전에 6초를 확보
+        minBufferForPlayback: 6,
+
+        // 8초 영상 전체를 미리 받을 수 있도록 넉넉하게 설정
+        preferredForwardBufferDuration: 30,
+
+        // 8MB 제한을 제거하고 플레이어가 자동으로 결정
+        maxBufferBytes: 0,
+
+        // Android에서 용량보다 재생 시간 확보를 우선
+        prioritizeTimeOverSizeThreshold: true,
+
+        // iOS에서 끊김을 줄이기 위해 충분히 받은 후 재생
+        waitsToMinimizeStalling: true,
+      };
     },
   );
 
-  if (isVideo) {
-    return (
-      <VideoView
-        player={player}
-        style={styles.photo}
-        contentFit="cover"
-        nativeControls
-      />
-    );
+  return (
+    <VideoView
+      player={player}
+      style={styles.photo}
+      contentFit="cover"
+      nativeControls
+    />
+  );
+}
+
+function CommunityMedia({ feed }: { feed: CommunityFeedItem }) {
+  if (feed.media_type === 'VIDEO') {
+    return <CommunityVideo uri={feed.media_url} />;
   }
 
   return (
@@ -703,9 +732,16 @@ useFocusEffect(
           </Text>
         </View>
       ) : (
-        <ScrollView
+        <FlatList
+          data={visibleFeeds}
+          keyExtractor={(feed) => String(feed.post_id)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={1}
+          maxToRenderPerBatch={1}
+          windowSize={2}
+          updateCellsBatchingPeriod={100}
+          removeClippedSubviews
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -714,19 +750,20 @@ useFocusEffect(
               tintColor={colors.primaryDark}
             />
           }
-        >
-          {visibleFeeds.map((feed, index) => {
+          renderItem={({ item: feed, index }) => {
             const feedKey = String(feed.post_id);
+
             const likeState = likes[feedKey] ?? {
               liked: feed.is_liked,
               count: feed.like_count,
               submitting: false,
             };
-            const avatarGradient = AVS[Math.abs(feed.author.user_id) % AVS.length];
+
+            const avatarGradient =
+              AVS[Math.abs(feed.author.user_id) % AVS.length];
 
             return (
               <Animated.View
-                key={feed.post_id}
                 entering={FadeInDown.delay(50 + index * 100).duration(380)}
                 style={styles.card}
               >
@@ -748,9 +785,12 @@ useFocusEffect(
                       grad={avatarGradient}
                       imageUrl={feed.author.profile_image_url}
                     />
-                    <Text style={styles.userName}>{feed.author.nickname}</Text>
+
+                    <Text style={styles.userName}>
+                      {feed.author.nickname}
+                    </Text>
                   </Pressable>
-                  
+
                   <Pressable
                     onPress={() => setMorePostId(feed.post_id)}
                     hitSlop={6}
@@ -758,7 +798,6 @@ useFocusEffect(
                   >
                     <DotsIcon />
                   </Pressable>
-                  
                 </View>
 
                 <CommunityMedia feed={feed} />
@@ -767,38 +806,64 @@ useFocusEffect(
                   <View style={styles.actionRow}>
                     <View style={styles.likeGroup}>
                       <View
-                        pointerEvents={likeState.submitting ? 'none' : 'auto'}
-                        style={likeState.submitting ? styles.disabledAction : undefined}
+                        pointerEvents={
+                          likeState.submitting ? 'none' : 'auto'
+                        }
+                        style={
+                          likeState.submitting
+                            ? styles.disabledAction
+                            : undefined
+                        }
                       >
                         <HeartButton
                           liked={likeState.liked}
-                          onToggle={() => handleToggleLike(feed.post_id)}
+                          onToggle={() =>
+                            handleToggleLike(feed.post_id)
+                          }
                         />
                       </View>
+
                       <Pressable
-                        onPress={() => openLikeUsers(feed.post_id)}
+                        onPress={() =>
+                          openLikeUsers(feed.post_id)
+                        }
                         hitSlop={6}
                       >
-                        <Text style={styles.likeCount}>{likeState.count}개</Text>
+                        <Text style={styles.likeCount}>
+                          {likeState.count}개
+                        </Text>
                       </Pressable>
                     </View>
+
                     <Pressable
                       style={styles.commentGroup}
-                      onPress={() => openComments(feed.post_id)}
+                      onPress={() =>
+                        openComments(feed.post_id)
+                      }
                       hitSlop={6}
                     >
                       <CommentIcon />
-                      <Text style={styles.commentCount}>{feed.comment_count}</Text>
+
+                      <Text style={styles.commentCount}>
+                        {feed.comment_count}
+                      </Text>
                     </Pressable>
                   </View>
 
                   <Text style={styles.caption}>
-                    <Text style={styles.captionUser}>{feed.author.nickname}</Text>
-                    {feed.caption ? ` ${feed.caption}` : ''}
+                    <Text style={styles.captionUser}>
+                      {feed.author.nickname}
+                    </Text>
+
+                    {feed.caption
+                      ? ` ${feed.caption}`
+                      : ''}
                   </Text>
 
                   <Pressable
-                    onPress={() => openComments(feed.post_id)}
+                    onPress={() =>
+                      openComments(feed.post_id)
+                    }
                     hitSlop={4}
                   >
                     <Text style={styles.viewComments}>
@@ -808,8 +873,8 @@ useFocusEffect(
                 </View>
               </Animated.View>
             );
-          })}
-        </ScrollView>
+          }}
+        />
       )}
 
       <BottomSheet

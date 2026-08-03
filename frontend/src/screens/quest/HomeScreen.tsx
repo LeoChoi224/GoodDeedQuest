@@ -120,6 +120,13 @@ export default function HomeScreen({ navigation }: any) {
     }, [])
   );
 
+  // 진행중 목록은 돌아올 때마다 다시 받는다. 안 그러면 포기·완료한 퀘스트가 남는다.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, []),
+  );
+
   const activeQuests = quests.filter((q) => q.quest_status === 'IN_PROGRESS');
   const empty = activeQuests.length === 0;
 
@@ -175,9 +182,7 @@ export default function HomeScreen({ navigation }: any) {
             <EmptyScroll />
             <Text style={styles.emptyText}>진행중인 퀘스트가 없어요</Text>
             {quests.length > 0 && (
-              <Pressable onPress={() => openDetail(quests[0], false)} hitSlop={6}>
-                <Text style={styles.emptyLink}>퀘스트 시작하기</Text>
-              </Pressable>
+              <Text style={styles.emptyHint}>아래 추천 퀘스트에서 골라보세요</Text>
             )}
           </View>
         ) : (
@@ -336,6 +341,7 @@ const styles = StyleSheet.create({
   },
   emptyText: { fontSize: 13, color: colors.textMuted, fontFamily: fonts.bodyR },
   emptyLink: { fontSize: 13, fontWeight: '700', color: colors.primaryDark, textDecorationLine: 'underline', fontFamily: fonts.bodyB },
+  emptyHint: { fontSize: 13, color: colors.textMuted, fontFamily: fonts.bodyR },
 
   carouselWrap: { marginBottom: 24, marginHorizontal: -16 },
   carouselContent: { paddingHorizontal: 16, paddingVertical: 6 },

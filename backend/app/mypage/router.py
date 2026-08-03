@@ -17,12 +17,14 @@ from backend.app.mypage.schemas import (
     ProfileImagePresignRequest,
     ProfileImagePresignResponse,
     ProfileImageConfirmRequest,
+    ProfileUpdateRequest,  # ⭐ 수정
 )
 from backend.app.mypage.service import (
     get_my_quest_achievements,
     get_my_profile,
     presign_profile_image,
     confirm_profile_image,
+    update_my_profile,  # ⭐ 수정
 )
 
 router = APIRouter(prefix="/mypage", tags=["MyPage"])
@@ -60,6 +62,24 @@ def get_my_profile_endpoint(
     user_id = current_user.get("id") or current_user.get("user_id")
     profile = get_my_profile(db, user_id=user_id)
     return APIResponse.ok(data=profile, message="프로필 조회 성공")
+
+
+# ⭐ 수정: 마이페이지 프로필 수정(닉네임/관심카테고리 부분 업데이트)
+@router.patch(
+    "/profile",
+    response_model=APIResponse[MyProfileResponse],
+    status_code=status.HTTP_200_OK,
+    summary="마이페이지 프로필 수정",
+    description="닉네임, 관심 카테고리를 부분 수정합니다. 값을 보내지 않은 필드는 변경하지 않습니다.",
+)
+def update_my_profile_endpoint(
+    req: ProfileUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id = current_user.get("id") or current_user.get("user_id")
+    profile = update_my_profile(db, user_id=user_id, req=req)
+    return APIResponse.ok(data=profile, message="프로필 수정 성공")
 
 
 @router.post(

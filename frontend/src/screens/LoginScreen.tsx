@@ -39,6 +39,7 @@ import { login } from '../api/auth';
 import * as Google from 'expo-auth-session/providers/google'
 import * as WebBrowser from 'expo-web-browser'
 import { socialLogin } from '../api/auth';
+import { login as kakaoSDKLogin, getProfile as kakaoGetProfile } from '@react-native-seoul/kakao-login';
 WebBrowser.maybeCompleteAuthSession();
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
@@ -135,6 +136,25 @@ const handleGoogle = async (idToken: string) => {
   }
 }
 
+const handleKakao = async () => {
+    try {
+      
+      const result = await kakaoSDKLogin();
+
+      const { token, isNewUser } = await socialLogin(result.accessToken, 'kakao');
+
+      if (isNewUser) {
+        navigation.navigate('Profile');
+      } else {
+        await signIn(token);
+      }
+    } catch (err: any) {
+      const message = String(err?.message ?? '');
+      if (message.toLowerCase().includes('cancel')) return;
+      toast.show('카카오 로그인에 실패했습니다.');
+    }
+  };
+
   const HERO_H = Math.max(400, Dimensions.get('window').height * 0.5);
 
   return (
@@ -224,10 +244,10 @@ const handleGoogle = async (idToken: string) => {
           </View>
 
           <View style={styles.socialRow}>
-            <SpringButton style={[styles.socialBtn, { backgroundColor: colors.kakao }]}>
-              <KakaoIcon />
-              <Text style={[styles.socialText, { color: colors.kakaoText }]}>카카오</Text>
-            </SpringButton>
+            <SpringButton style={[styles.socialBtn, { backgroundColor: colors.kakao }]} onPress={handleKakao}>
+  <KakaoIcon />
+  <Text style={[styles.socialText, { color: colors.kakaoText }]}>카카오</Text>
+</SpringButton>
             <SpringButton style={[styles.socialBtn, styles.googleBtn]} onPress={() => promptAsync()} disabled={!request}>
               <GoogleIcon />
               <Text style={[styles.socialText, { color: colors.textPrimary }]}>구글</Text>

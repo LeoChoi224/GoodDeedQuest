@@ -24,10 +24,22 @@ export type MyProfile = {
   daily_streak: number;
   profile_image_url: string | null;
   equipped_border_image_url: string | null; // ⭐ 수정: 상대경로(/static/...)로 오므로 getFullImageUrl()로 변환해서 써야 함
+  category: string[] | null; // ⭐ 수정: 관심 카테고리 - 프로필 수정 화면에서 사용
 };
 
 export async function getMyProfile(): Promise<MyProfile> {
   const response = await api.get('/mypage/profile');
+  return response.data.data;
+}
+
+// ⭐ 수정: 프로필 수정(닉네임/관심카테고리 부분 업데이트) - 값을 넘기지 않은 필드는 유지됨
+export type ProfileUpdatePayload = {
+  nickname?: string;
+  category?: string[];
+};
+
+export async function updateMyProfile(payload: ProfileUpdatePayload): Promise<MyProfile> {
+  const response = await api.patch('/mypage/profile', payload);
   return response.data.data;
 }
 
