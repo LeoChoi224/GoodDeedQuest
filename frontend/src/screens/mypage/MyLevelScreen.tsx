@@ -1,9 +1,15 @@
 /**
- * SCREEN 06-4 · 레벨 페이지 (route MyLevel, back) — 내 정보 카드(getMyProfile() 실API) ·
+ * SCREEN 06-4 · 레벨 페이지 (route MyLevel, back) — 프로필 카드(MyPageScreen과 완전 동일:
+ * ProfileContext 공유, 아바타 업로드, 닉네임/관심카테고리 수정 모달 포함) ·
  * 경험치 바(PixelProgress, 마운트/포커스마다 채워짐 + XP count-up, 이번 레벨 안에서의 진행률로 표시) ·
  * 주간 경험치 추이 라인차트(react-native-svg, 그려지는 애니메이션, 일요일부터 시작하고
  * 아직 지나지 않은 요일은 선이 안 그려짐) · 랭킹 보러가기 → Ranking.
- * /growth/status + /mypage/profile 실API 연결.
+ * /growth/status 실API + ProfileContext(/mypage/profile) 연결.
+ * ⭐ 수정: 프로필 카드를 MyPageScreen.tsx와 1:1 동일하게 이식 — 기존엔 아바타 52px·테두리 미표시·
+ * 이름/칭호/레벨을 한 줄로 압축 표시했는데, 마이페이지 메인과 스타일이 달라 보여서 완전히 통일함.
+ * 이 화면 자체가 이미 "레벨" 화면이라 마이페이지처럼 카드 전체를 눌러 MyLevel로 이동하는
+ * 동작(및 화살표)만 빼고, 아바타 크기(64)·장착 테두리·편집 연필·칭호+관심카테고리·LV+연속접속일
+ * 레이아웃/스타일은 전부 동일.
  * ⭐ useFocusEffect로 교체 — 화면에 포커스가 올 때마다(다른 화면 갔다 뒤로가기로 돌아올 때도)
  * 다시 불러오게 함. 이전엔 useEffect(마운트 1회)라 퀘스트 완료 후 돌아와도 새로고침 안 됐음.
  * ⭐ 원본 디자인엔 "지난 주" 골드 점선 비교선이 있었으나, 백엔드가 이번 주 누적치만 주고
@@ -11,7 +17,8 @@
  * Matches 06_mypage_flow.dc.html screen 4.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Image, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
+import * as ImagePicker from 'expo-image-picker'; // ⭐ 수정: 프로필 카드 마이페이지와 완전히 동일하게 맞추면서 아바타 업로드도 이식
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Line, Path, Text as SvgText } from 'react-native-svg';
@@ -21,11 +28,14 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { colors, fonts } from '../../theme';
+import { colors, fonts, radii, CATEGORY_DEFS, CATEGORY_ICONS } from '../../theme'; // ⭐ 수정: radii/CATEGORY_DEFS/CATEGORY_ICONS 추가
 import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import PixelProgress from '../../components/PixelProgress';
+import GamePopup, { PopupButtons } from '../../components/GamePopup'; // ⭐ 수정
+import GdqInput from '../../components/GdqInput'; // ⭐ 수정
+import { useToast } from '../../components/Toast'; // ⭐ 수정
 import {
   ConicAvatar,
   useCountUp,
@@ -37,7 +47,14 @@ import {
   pathLength,
 } from './_parts';
 import { getGrowthStatus, DailyXp } from '../../api/growth';
-import { getMyProfile, MyProfile } from '../../api/mypage';
+import { uploadProfileImage, updateMyProfile } from '../../api/mypage'; // ⭐ 수정: getMyProfile 직접 호출 대신 ProfileContext 사용
+import { useProfile } from '../../context/ProfileContext'; // ⭐ 수정: 마이페이지/드로어와 같은 프로필 소스 공유
+import { getFullImageUrl } from '../shop/_parts'; // ⭐ 수정: 장착 테두리 image_url 절대경로 변환
+
+// ⭐ 수정: 관심카테고리 key → 화면 표기 라벨 (MyPageScreen과 동일 로직)
+function categoryLabel(key: string): string {
+  return CATEGORY_DEFS.find((c) => c.key === key)?.label ?? key;
+}
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -115,7 +132,9 @@ const WeeklyChart = React.memo(function WeeklyChart({ graph }: { graph: DailyXp[
 });
 
 export default function MyLevelScreen({ navigation }: any) {
-  const [profile, setProfile] = useState<MyProfile | null>(null);
+  // ⭐ 수정: 프로필(이름/칭호/레벨/연속접속일/이미지/관심카테고리)은 마이페이지·드로어와
+  // 공유하는 ProfileContext에서 가져온다 — 이 화면에서 수정해도 즉시 다른 화면에 반영됨.
+  const { profile, loading: profileLoading, error: profileError, refreshProfile, setProfile } = useProfile();
   const [level, setLevel] = useState(1);
   const [currentXp, setCurrentXp] = useState(0);
   const [nextLevelXp, setNextLevelXp] = useState(1000);
@@ -123,6 +142,22 @@ export default function MyLevelScreen({ navigation }: any) {
   const [graph, setGraph] = useState<DailyXp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const toast = useToast();
+
+  // ⭐ 수정: 프로필 수정(닉네임/관심카테고리) 모달 상태 — MyPageScreen과 동일
+  const [editVisible, setEditVisible] = useState(false);
+  const [editNickname, setEditNickname] = useState('');
+  const [editNickError, setEditNickError] = useState<string | null>(null);
+  const [editCats, setEditCats] = useState<Record<string, boolean>>({});
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // ⭐ 수정: 포커스될 때마다 프로필 재조회 (칭호 장착/프로필 수정 후 돌아와도 최신 반영)
+  useFocusEffect(
+    useCallback(() => {
+      refreshProfile();
+    }, [refreshProfile])
+  );
 
   // ⭐ 수정: useEffect(마운트 1회) → useFocusEffect(포커스 올 때마다) - 퀘스트 완료 후
   // Ranking 갔다 뒤로가기로 돌아와도 최신 데이터로 다시 불러오게.
@@ -131,15 +166,14 @@ export default function MyLevelScreen({ navigation }: any) {
       let cancelled = false;
       setLoading(true);
       setError(null);
-      Promise.all([getGrowthStatus(), getMyProfile()])
-        .then(([growth, prof]) => {
+      getGrowthStatus()
+        .then((growth) => {
           if (cancelled) return;
           setLevel(growth.current_level);
           setCurrentXp(growth.current_xp);
           setNextLevelXp(growth.next_level_xp);
           setLevelFloorXp(growth.current_level_floor_xp);
           setGraph(growth.weekly_xp_graph);
-          setProfile(prof);
         })
         .catch((err) => {
           if (!cancelled) setError(err.message ?? '정보를 불러오지 못했습니다.');
@@ -152,6 +186,71 @@ export default function MyLevelScreen({ navigation }: any) {
       };
     }, [])
   );
+
+  // ⭐ 수정: 프로필 이미지 탭 → 갤러리 열기 → 업로드 (MyPageScreen과 동일)
+  const pickAndUploadAvatar = async () => {
+    if (uploadingImage) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      toast.show('사진 접근 권한을 허용해 주세요.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.7,
+    });
+    if (result.canceled || result.assets.length === 0) return;
+
+    try {
+      setUploadingImage(true);
+      const updated = await uploadProfileImage(result.assets[0].uri);
+      setProfile(updated);
+      toast.show('프로필 이미지를 변경했어요.');
+    } catch (err) {
+      toast.show('프로필 이미지 변경에 실패했어요.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // ⭐ 수정: 연필 버튼 탭 → 현재 프로필 값으로 수정 모달 초기화 후 오픈
+  const openEditProfile = () => {
+    if (!profile) return;
+    setEditNickname(profile.nickname);
+    setEditNickError(null);
+    const cats: Record<string, boolean> = {};
+    CATEGORY_DEFS.forEach((c) => {
+      cats[c.key] = !!profile.category?.includes(c.key);
+    });
+    setEditCats(cats);
+    setEditVisible(true);
+  };
+
+  const toggleEditCat = (key: string) => setEditCats((s) => ({ ...s, [key]: !s[key] }));
+
+  // ⭐ 수정: 닉네임(2~10자) + 관심카테고리 부분 수정 저장
+  const saveProfile = async () => {
+    const nick = editNickname.trim();
+    if (nick.length < 2 || nick.length > 10) {
+      setEditNickError('닉네임은 2~10자로 입력해 주세요.');
+      return;
+    }
+    setEditNickError(null);
+    const category = Object.keys(editCats).filter((k) => editCats[k]);
+
+    try {
+      setSavingProfile(true);
+      const updated = await updateMyProfile({ nickname: nick, category });
+      setProfile(updated);
+      setEditVisible(false);
+      toast.show('프로필을 수정했어요.');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      toast.show(typeof detail === 'string' ? detail : '프로필 수정에 실패했어요.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const xpCount = useCountUp(currentXp);
 
@@ -166,14 +265,48 @@ export default function MyLevelScreen({ navigation }: any) {
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
       >
-        {/* info card — /mypage/profile 실API */}
-        <View style={styles.infoCard}>
-          <ConicAvatar size={52} imageUri={profile?.profile_image_url ?? null} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.name}>{profile?.nickname ?? ''}</Text>
-            <Text style={styles.sub}>
-              {profile?.title ? `${profile.title} · ` : ''}LV.{level} · 🔥 {profile?.daily_streak ?? 0}일째
-            </Text>
+        {/* profile card — MyPageScreen 프로필 카드와 완전히 동일 (아바타 업로드/닉네임·관심카테고리 수정 포함) */}
+        <View style={styles.profileCard}>
+          <Pressable onPress={pickAndUploadAvatar} disabled={uploadingImage}>
+            <ConicAvatar
+              size={64}
+              deco
+              imageUri={profile?.profile_image_url ?? null}
+              borderImageUrl={profile?.equipped_border_image_url ? getFullImageUrl(profile.equipped_border_image_url) : null}
+            />
+            {uploadingImage && (
+              <View style={styles.avatarUploadOverlay}>
+                <ActivityIndicator color={colors.parchment} size="small" />
+              </View>
+            )}
+          </Pressable>
+          <View style={styles.profileInfo}>
+            {profileLoading ? (
+              <ActivityIndicator color={colors.primaryDark} style={styles.profileInfoLoading} />
+            ) : profileError || !profile ? (
+              <Text style={styles.name}>프로필을 불러오지 못했어요</Text>
+            ) : (
+              <>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name}>{profile.nickname}</Text>
+                  <Pressable onPress={openEditProfile} hitSlop={8} style={styles.editBtn}>
+                    <Text style={styles.editIcon}>✏️</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.titleRow}>
+                  <Text style={styles.title}>{profile.title}</Text>
+                  {profile.category && profile.category.length > 0 && (
+                    <Text style={styles.categoryText} numberOfLines={1} ellipsizeMode="tail">
+                      {profile.category.map(categoryLabel).join(', ')}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.metaRow}>
+                  <Text style={styles.lv}>LV.{level}</Text>
+                  <Text style={styles.streak}>🔥 {profile.daily_streak}일째 연속접속</Text>
+                </View>
+              </>
+            )}
           </View>
         </View>
 
@@ -234,6 +367,51 @@ export default function MyLevelScreen({ navigation }: any) {
           <Text style={styles.rankBtnText}>랭킹 보러가기</Text>
         </SpringButton>
       </ScrollView>
+
+      {/* ⭐ 수정: 프로필 수정(닉네임/관심카테고리) 모달 — MyPageScreen과 동일 */}
+      <GamePopup visible={editVisible} onClose={() => setEditVisible(false)} title="프로필 수정" width={320}>
+        <View style={{ alignSelf: 'stretch' }}>
+          <Text style={styles.editLabel}>닉네임</Text>
+          <GdqInput
+            value={editNickname}
+            onChangeText={(v) => {
+              setEditNickname(v);
+              if (editNickError) setEditNickError(null);
+            }}
+            placeholder="닉네임을 입력하세요"
+            maxLength={10}
+          />
+          {editNickError ? <Text style={styles.editErrorText}>{editNickError}</Text> : null}
+
+          <Text style={[styles.editLabel, { marginTop: 16 }]}>관심 카테고리</Text>
+          <View style={styles.editGrid}>
+            {CATEGORY_DEFS.map((c) => {
+              const on = !!editCats[c.key];
+              return (
+                <Pressable
+                  key={c.key}
+                  onPress={() => toggleEditCat(c.key)}
+                  style={[styles.editCatCell, on ? styles.editCatCellOn : styles.editCatCellOff]}
+                >
+                  <Image source={CATEGORY_ICONS[c.key]} style={styles.editCatIcon} />
+                  <Text style={[styles.editCatLabel, { color: on ? colors.white : colors.parchment }]}>{c.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {savingProfile ? (
+          <ActivityIndicator color={colors.gold} style={{ marginTop: 20 }} />
+        ) : (
+          <PopupButtons
+            primaryLabel="저장"
+            onPrimary={saveProfile}
+            secondaryLabel="취소"
+            onSecondary={() => setEditVisible(false)}
+          />
+        )}
+      </GamePopup>
     </View>
   );
 }
@@ -243,19 +421,60 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   body: { padding: 16, paddingBottom: 28 },
 
-  infoCard: {
+  // ⭐ 수정: profileCard 이하 프로필 카드 스타일 세트 — MyPageScreen.tsx와 완전히 동일(1:1 이식)
+  profileCard: {
     backgroundColor: colors.parchment,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.pixelBorder,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: radii.card,
+    paddingTop: 18,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    marginBottom: 18,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 18,
+    gap: 14,
+    shadowColor: '#5C3D1E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 3,
   },
-  name: { fontSize: 16, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
-  sub: { fontSize: 12, color: colors.gold, marginTop: 2, fontFamily: fonts.bodyR },
+  profileInfo: { flex: 1, minWidth: 0 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  editBtn: { padding: 2 },
+  editIcon: { fontSize: 13 },
+  editLabel: { fontSize: 13, fontWeight: '700', color: colors.gold, marginBottom: 8, fontFamily: fonts.bodyB },
+  editErrorText: { marginTop: 6, fontSize: 12, color: '#FF8A80', fontFamily: fonts.bodyM },
+  editGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  editCatCell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 42,
+    borderRadius: radii.chip,
+    paddingHorizontal: 10,
+    width: '47%',
+  },
+  editCatCellOn: { backgroundColor: colors.primaryDark, borderWidth: 2, borderColor: colors.gold },
+  editCatCellOff: { backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(242,215,131,0.35)' },
+  editCatIcon: { width: 24, height: 24, borderRadius: 6 },
+  editCatLabel: { fontSize: 13, fontWeight: '600', fontFamily: fonts.bodyM },
+  profileInfoLoading: { alignSelf: 'flex-start' },
+  avatarUploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 999,
+    backgroundColor: 'rgba(3,50,54,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  name: { fontSize: 18, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1, marginBottom: 3 },
+  title: { fontSize: 13, color: colors.gold, fontWeight: '600', fontFamily: fonts.bodyM },
+  categoryText: { flexShrink: 1, fontSize: 11, color: colors.textMuted, fontFamily: fonts.bodyM },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  lv: { fontFamily: fonts.pixel, fontSize: 15, color: colors.primaryDark },
+  streak: { fontSize: 12, color: colors.xpGreen, fontWeight: '600', fontFamily: fonts.bodyM },
 
   centerBox: { paddingVertical: 32, alignItems: 'center' },
   errorText: { fontSize: 13, color: colors.textSecondary, fontFamily: fonts.bodyR },
