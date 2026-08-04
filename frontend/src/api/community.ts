@@ -1,5 +1,7 @@
 import api from './client';
 
+const COMMUNITY_POST_CREATE_TIMEOUT_MS = 180_000;
+
 export type CommunityAuthor = {
   user_id: number;
   nickname: string;
@@ -34,12 +36,14 @@ export type RecentQuestSubmission = {
   submission_id: number;
   quest_id: number;
   media_url: string | null;
+  extra_media_urls: string[];
   media_type: 'PHOTO' | 'VIDEO' | null;
   submitted_at: string;
 };
 
 export type CommunityPostCreateRequest = {
   submission_id: number;
+  selected_media_index: number;
   caption?: string | null;
 };
 
@@ -208,8 +212,9 @@ export async function createCommunityPost(
     '/community/posts',
     request,
     {
-      // S3 다운로드 → FFmpeg 변환 → S3 업로드 시간을 고려합니다.
-      timeout: 60000,
+      // 동영상의 S3 다운로드 → FFmpeg 변환 → S3 업로드 시간을
+      // 고려해 커뮤니티 게시글 생성 요청만 3분까지 기다립니다.
+      timeout: COMMUNITY_POST_CREATE_TIMEOUT_MS,
     },
   );
 

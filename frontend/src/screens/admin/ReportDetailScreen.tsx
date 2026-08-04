@@ -156,16 +156,28 @@ export default function ReportDetailScreen({ navigation, route }: any) {
               </View>
 
               <View style={styles.card}>
-                <Text style={styles.title}>신고 #{report.report_id}</Text>
-                <Text style={styles.line}>상태: {report.status}</Text>
-                <Text style={styles.line}>
-                  신고자 ID: {report.reporter_id}
+                <Text style={styles.title}>
+                  신고 #{report.report_id}
                 </Text>
+
                 <Text style={styles.line}>
-                  게시글 ID: {report.post_id ?? '삭제됨 또는 없음'}
+                  상태: {report.status_label}
                 </Text>
+
                 <Text style={styles.line}>
-                  처리 관리자 ID: {report.reviewed_by ?? '미처리'}
+                  신고자: {report.reporter_nickname}
+                </Text>
+
+                <Text style={styles.line}>
+                  신고 대상:{' '}
+                  {report.reported_user_nickname
+                    ?? '삭제된 게시물'}
+                </Text>
+
+                <Text style={styles.line}>
+                  처리 관리자:{' '}
+                  {report.reviewer_nickname
+                    ?? '미처리'}
                 </Text>
               </View>
 

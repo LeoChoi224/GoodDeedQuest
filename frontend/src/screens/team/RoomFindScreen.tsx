@@ -12,6 +12,7 @@ import Shake from '../../components/Shake';
 import EmptyState from '../../components/EmptyState';
 import { useToast } from '../../components/Toast';
 import { colors, fonts } from '../../theme';
+import useTeamHomeBack from './useTeamHomeBack';
 import {
   getChallengeErrorMessage,
   getTeams,
@@ -52,6 +53,7 @@ function categoryFor(team: TeamListItem): string {
 export default function RoomFindScreen({ navigation }: any) {
   const toast = useToast();
   const { width } = useWindowDimensions();
+  const { handleBack } = useTeamHomeBack(navigation);
   const [teams, setTeams] = useState<TeamListItem[]>([]);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<TeamSort>('latest');
@@ -107,7 +109,7 @@ export default function RoomFindScreen({ navigation }: any) {
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      <MainHeader showBack title="방 찾기" onBack={() => navigation.goBack()} />
+      <MainHeader showBack title="방 찾기" onBack={handleBack} />
       <ScrollView
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}

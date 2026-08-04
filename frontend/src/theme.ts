@@ -153,6 +153,8 @@ export const NAV_ICONS: Record<string, any> = {
   home: require('../assets/nav/home.png'),
   shop: require('../assets/nav/shop.png'),
   my: require('../assets/nav/my.png'),
+  team: require('../assets/nav/team.png'),
+  shortform: require('../assets/nav/shortform.png'),
 };
 
 export const CATEGORY_GLYPHS: Record<string, any> = {

@@ -14,7 +14,7 @@ import {
   getMyInvites,
   getMyTeams,
   respondTeamInvite,
-  TeamInvite,
+  ReceivedTeamInvite,
   TeamListItem,
 } from '../../api/challenge';
 import {
@@ -41,7 +41,7 @@ export default function TeamHomeScreen({ navigation }: any) {
   const toast = useToast();
 
   const [teams, setTeams] = useState<TeamListItem[]>([]);
-  const [invites, setInvites] = useState<TeamInvite[]>([]);
+  const [invites, setInvites] = useState<ReceivedTeamInvite[]>([]);
   const [loading, setLoading] = useState(false);
   const [invitePopupVisible, setInvitePopupVisible] = useState(false);
   const [processingId, setProcessingId] = useState<number | null>(null);
@@ -232,12 +232,18 @@ export default function TeamHomeScreen({ navigation }: any) {
                     style={styles.inviteCard}
                   >
                     <View style={styles.inviteInfo}>
-                      <Text style={styles.inviteTitle}>
-                        팀 #{invite.team_id} 초대
+                      <Text
+                        style={styles.inviteTitle}
+                        numberOfLines={1}
+                      >
+                        {invite.team_name}
                       </Text>
 
-                      <Text style={styles.inviteMeta}>
-                        초대 번호 #{invite.invite_id}
+                      <Text
+                        style={styles.inviteMeta}
+                        numberOfLines={1}
+                      >
+                        {invite.inviter_nickname}님의 초대
                       </Text>
                     </View>
 

@@ -183,8 +183,16 @@ class TeamListItemResponse(TeamResponse):
         description="현재 팀 참가 인원",
     )
 
-# 팀 상세 화면에서 팀 기본 정보와 현재 참가 인원을 반환.
+# 팀 상세 화면에서 팀 기본 정보와 퀘스트명,
+# 현재 참가 인원을 반환.
 class TeamDetailResponse(TeamResponse):
+
+    quest_title: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="팀이 수행 중인 퀘스트명",
+    )
 
     current_members: int = Field(
         ...,
@@ -244,6 +252,23 @@ class TeamInviteResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+class ReceivedTeamInviteResponse(TeamInviteResponse):
+    """받은 초대 목록 화면에 필요한 정보를 포함한 응답."""
+
+    team_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="초대받은 팀 이름",
+    )
+
+    inviter_nickname: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="초대한 팀장의 닉네임",
+    )
+
 class TeamInviteCandidateResponse(BaseModel):
     """팀 초대 검색 결과에 표시할 공개 사용자 정보."""
 
@@ -256,7 +281,7 @@ class TeamInviteCandidateResponse(BaseModel):
     daily_streak: int = Field(default=0, ge=0)
 
 class TeamMemberResponse(BaseModel):
-    """팀 멤버 조회 응답."""
+    """팀 멤버 생성·참가 응답."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -266,6 +291,17 @@ class TeamMemberResponse(BaseModel):
     role_in_team: TeamMemberRole
     joined_at: datetime
     updated_at: datetime
+
+
+class TeamMemberListItemResponse(TeamMemberResponse):
+    """팀 상세의 멤버 목록에 표시할 공개 사용자 정보를 포함한 응답."""
+
+    nickname: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="팀 멤버 닉네임",
+    )
 
 
 # AI 추천 Schema에서 카테고리 ID와 이름처럼

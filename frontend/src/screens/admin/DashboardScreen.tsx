@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
@@ -19,6 +20,10 @@ const EMPTY_SUMMARY: AdminDashboardSummary = {
   today_access_user_count: 0,
   pending_report_count: 0,
 };
+
+const AUTO_REFRESH_INTERVAL_MS = 5_000;
+
+type DashboardLoadMode = 'refresh' | 'background';
 
 function ActivityTrendChart({ data }: { data: AdminActivityTrend[] }) {
   const width = 340, height = 190, left = 34, right = 12, top = 14, bottom = 28;
@@ -62,25 +67,54 @@ export default function DashboardScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const load = useCallback(async (refresh = false) => {
-    refresh ? setRefreshing(true) : setLoading(true);
-    setError('');
-    try {
-      const [nextSummary, nextAlerts, nextTrend] = await Promise.all([
-        adminApi.getDashboardSummary(), adminApi.getDashboardAlerts(), adminApi.getActivityTrend(),
-      ]);
-      setSummary(nextSummary);
-      setAlerts(nextAlerts);
-      setTrend(nextTrend);
-    } catch (e) {
-      setError(getAdminErrorMessage(e));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (
+      mode: DashboardLoadMode = 'background',
+    ) => {
+      if (mode === 'refresh') {
+        setRefreshing(true);
+      }
 
-  useEffect(() => { void load(); }, [load]);
+      setError('');
+
+      try {
+        const [
+          nextSummary,
+          nextAlerts,
+          nextTrend,
+        ] = await Promise.all([
+          adminApi.getDashboardSummary(),
+          adminApi.getDashboardAlerts(),
+          adminApi.getActivityTrend(),
+        ]);
+
+        setSummary(nextSummary);
+        setAlerts(nextAlerts);
+        setTrend(nextTrend);
+      } catch (e) {
+        setError(getAdminErrorMessage(e));
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      // 관리자 대시보드 진입 또는 복귀 시 즉시 최신화합니다.
+      void load('background');
+
+      // 화면을 보고 있는 동안 5초마다 최신 데이터를 조회합니다.
+      const intervalId = setInterval(() => {
+        void load('background');
+      }, AUTO_REFRESH_INTERVAL_MS);
+
+      // 화면을 벗어나면 불필요한 자동 조회를 중단합니다.
+      return () => clearInterval(intervalId);
+    }, [load]),
+  );
 
   const cards = useMemo(() => [
     ['전체 사용자', summary.total_user_count],
@@ -96,7 +130,12 @@ export default function DashboardScreen({ navigation }: any) {
       <StatusBar style="light" /><HazeBackground /><MainHeader />
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 96 }]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void load('refresh')}
+          />
+        }
       >
         <Animated.View entering={FadeInDown.duration(420)} style={styles.banner}>
           <BannerGlow /><MegaphoneIcon /><Text style={styles.bannerText}><Text style={styles.bannerBold}>주요 알림: </Text>{mainAlert}</Text>
@@ -105,7 +144,13 @@ export default function DashboardScreen({ navigation }: any) {
         <View style={styles.summaryHead}><Text style={styles.sectionTitle}>오늘의 요약</Text><Text style={styles.dateText}>{dateLabel}</Text></View>
         {loading ? <View style={{ gap: 10 }}><SkeletonCard /><SkeletonCard /></View> : (
           <View style={styles.grid}>{cards.map(([label, value], index) => (
-            <Animated.View key={label} entering={FadeInDown.delay(index * 70).duration(420)} style={styles.statCard}>
+            <Animated.View
+              key={`${label}-${value}`}
+              entering={FadeInDown
+                .delay(index * 70)
+                .duration(420)}
+              style={styles.statCard}
+            >
               <Text style={styles.statLabel}>{label}</Text><CountUp target={value} delay={index * 70} style={styles.statValue} />
             </Animated.View>
           ))}</View>

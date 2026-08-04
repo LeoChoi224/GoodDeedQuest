@@ -188,22 +188,26 @@ class ChallengeTeamService:
 
         return teams
 
-    # 특정 팀의 상세 정보와 현재 참가 인원을 조회.
+    # 특정 팀의 상세 정보와 현재 참가 인원, 퀘스트명을 조회.
     @staticmethod
     def get_team_detail(
         session: Session,
         *,
         team_id: int,
-    ) -> tuple[Team, int]:
-        team = TeamRepository.get_team_by_id(
+    ) -> tuple[Team, int, str]:
+        detail = TeamRepository.get_team_with_quest_title(
             session,
-            team_id,
+            team_id=team_id,
         )
-        if team is None:
+
+        if detail is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="존재하지 않는 팀입니다.",
             )
+
+        team, quest_title = detail
+
         current_members = (
             TeamMemberRepository.count_team_members(
                 session,
@@ -211,27 +215,32 @@ class ChallengeTeamService:
             )
         )
 
-        return team, current_members
+        return team, current_members, quest_title
 
-    # 특정 팀에 참가 중인 전체 팀 멤버를 조회.
+    # 특정 팀에 참가 중인 전체 팀 멤버와 닉네임을 조회.
     @staticmethod
     def get_team_members(
         session: Session,
         *,
         team_id: int,
-    ) -> list[TeamMember]:
+    ) -> list[tuple[TeamMember, str]]:
         team = TeamRepository.get_team_by_id(
             session,
             team_id,
         )
+
         if team is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="존재하지 않는 팀입니다.",
             )
-        members = TeamMemberRepository.get_team_members(
-            session,
-            team_id=team_id,
+
+        members = (
+            TeamMemberRepository
+            .get_team_members_with_nicknames(
+                session,
+                team_id=team_id,
+            )
         )
 
         return members
@@ -721,26 +730,25 @@ class ChallengeTeamService:
         current_user: User,
         page: int = 1,
         size: int = 20,
-    ) -> list[TeamInvite]:
-        """현재 로그인 사용자가 받은 대기 중 초대를 조회합니다."""
+    ) -> list[tuple[TeamInvite, str, str]]:
+        """현재 사용자가 받은 초대와 화면 표시 정보를 조회합니다."""
 
-        # 목록 조회 전에 만료 시간이 지난 초대를 EXPIRED 상태로 변경.
         ChallengeTeamService.expire_pending_invites(
             session,
         )
 
-        # 요청 페이지에 맞는 offset 값을 계산.
         offset = (page - 1) * size
 
-        # 현재 사용자가 받은 PENDING 상태의 초대 목록을 조회.
-        invites = TeamInviteRepository.get_user_pending_invites(
-            session,
-            user_id=current_user.user_id,
-            offset=offset,
-            limit=size,
+        invite_rows = (
+            TeamInviteRepository.get_user_pending_invites(
+                session,
+                user_id=current_user.user_id,
+                offset=offset,
+                limit=size,
+            )
         )
 
-        return invites
+        return invite_rows
 
     # 현재 로그인 사용자가 받은 초대를 수락하거나 거절.
     @staticmethod

@@ -12,6 +12,11 @@ type APIEnvelope<T> = {
   data: T;
 };
 
+export type ReceivedTeamInvite = TeamInvite & {
+  team_name: string;
+  inviter_nickname: string;
+};
+
 export type Team = {
   team_id: number;
   leader_id: number;
@@ -27,8 +32,14 @@ export type Team = {
   updated_at: string;
 };
 
-export type TeamListItem = Team & { current_members: number };
-export type TeamDetail = Team & { current_members: number };
+export type TeamListItem = Team & {
+  current_members: number;
+};
+
+export type TeamDetail = Team & {
+  quest_title: string;
+  current_members: number;
+};
 
 export type TeamMember = {
   team_member_id: number;
@@ -37,6 +48,10 @@ export type TeamMember = {
   role_in_team: TeamMemberRole;
   joined_at: string;
   updated_at: string;
+};
+
+export type TeamMemberListItem = TeamMember & {
+  nickname: string;
 };
 
 export type TeamCreateRequest = {
@@ -176,8 +191,8 @@ export async function getTeamDetail(teamId: number): Promise<TeamDetail> {
   return unwrap(response.data);
 }
 
-export async function getTeamMembers(teamId: number): Promise<TeamMember[]> {
-  const response = await api.get<TeamMember[] | APIEnvelope<TeamMember[]>>(`/challenges/teams/${teamId}/members`);
+export async function getTeamMembers(teamId: number): Promise<TeamMemberListItem[]> {
+  const response = await api.get<TeamMemberListItem[] | APIEnvelope<TeamMemberListItem[]>>(`/challenges/teams/${teamId}/members`);
   return unwrap(response.data);
 }
 
@@ -243,10 +258,23 @@ export async function searchTeamInviteCandidates(
   return unwrap(response.data);
 }
 
-export async function getMyInvites(page = 1, size = 20): Promise<TeamInvite[]> {
-  const response = await api.get<TeamInvite[] | APIEnvelope<TeamInvite[]>>('/challenges/my-invites', {
-    params: { page, size },
-  });
+export async function getMyInvites(
+  page = 1,
+  size = 20,
+): Promise<ReceivedTeamInvite[]> {
+  const response = await api.get<
+    ReceivedTeamInvite[]
+    | APIEnvelope<ReceivedTeamInvite[]>
+  >(
+    '/challenges/my-invites',
+    {
+      params: {
+        page,
+        size,
+      },
+    },
+  );
+
   return unwrap(response.data);
 }
 
