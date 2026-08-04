@@ -1,8 +1,13 @@
 import api from './client';
 
-// AI 서버가 Vision → RAG → LLM Story 체인을 거쳐야 해서 백엔드 자체 타임아웃(30초)보다
+// AI 서버가 Vision → RAG → LLM Story 체인을 거쳐야 해서 백엔드 자체 타임아웃보다
 // 여유 있게 잡는다. 클라이언트가 먼저 포기하면 서버는 처리 중인데 화면엔 실패로 뜬다.
-const SCRIPT_TIMEOUT = 60000;
+// ⭐ 수정: 백엔드 AI_SCRIPT_GENERATE_TIMEOUT_SECONDS가 (Gemini 할당량 초과 시 OpenAI
+// 폴백까지 감안해) 30 → 60초로 올라갔는데 여긴 안 따라 올라가서 정확히 60초로 같아져
+// 있었다 - AI 호출이 오래 걸리는 경우(폴백 케이스) 백엔드가 정상 응답하기도 전에
+// 클라이언트가 먼저 타임아웃돼 "AI 대본 생성 실패: Network Error"로 보이던 버그.
+// 백엔드보다 확실히 여유 있게(+15초) 잡는다.
+const SCRIPT_TIMEOUT = 75000;
 
 export type ShortFormStatus = 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED';
 
@@ -47,10 +52,16 @@ export type BackgroundMusicList = {
 };
 
 export type EligibleMedia = {
+  // ⭐ 수정: 제출 1건이 보조 사진 여러 장(+동영상이면 대표 프레임 1장)으로 풀려서
+  // 여러 항목으로 내려올 수 있다 - submission_id가 더 이상 화면 내 고유 식별자가
+  // 아니다. 그리드에서 항목 key/선택 식별자는 media_s3_key(사진마다 고유)를 쓴다.
   submission_id: number;
   quest_id: number;
   media_url: string | null;
   media_s3_key: string | null;
+  // ⭐ 추가: 원본이 동영상 인증 자료의 대표 프레임 썸네일이면 true - 그리드에서
+  // 사진과 구분되는 배지를 보여주는 데 쓴다.
+  is_video: boolean;
   submitted_at: string;
 };
 

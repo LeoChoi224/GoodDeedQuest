@@ -4,7 +4,7 @@
  * 다운로드 → useToast('다운로드 완료') + "영상이 저장되었습니다!" 성공 칩 · 공유.
  * Video aspect follows the design source (08_shortform_flow.dc.html) 16:9 player.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Share, Platform, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +23,7 @@ import { useToast } from '../../components/Toast';
 import { CheckMark } from '../../components/PixelIcons';
 import { colors, fonts } from '../../theme';
 import { PlayTri, PauseBars } from './_parts';
+import { markPlayerShown } from './completionFlag';
 
 export default function PlayerScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
@@ -30,6 +31,16 @@ export default function PlayerScreen({ navigation, route }: any) {
   const [saved, setSaved] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const videoUrl: string | null = route?.params?.videoUrl ?? null;
+
+  // ⭐ 수정: 완성된 영상을 보고 나가면 사진 선택 화면(PhotoSelect)이 이전 선택/AI 대본/음악을
+  // 그대로 들고 있던 상태로 다시 보이는 문제 - "어떻게 나갔는지"(버튼/제스처/하드웨어
+  // 뒤로가기/드로어)를 가로채는 방식(beforeRemove)은 이 앱에서 반복적으로 문제가
+  // 있었다(무한 재귀 크래시, 아예 안 먹힘). 그래서 나가는 경로를 가로채지 않고, 대신
+  // 이 화면이 "보여졌다"는 사실만 기록해둔다 - PhotoSelectScreen이 포커스를 되찾을 때
+  // (completionFlag.ts) 이 기록을 보고 스스로 초기화한다.
+  useEffect(() => {
+    markPlayerShown();
+  }, []);
 
   const player = useVideoPlayer(videoUrl, (p) => {
     p.loop = true;
@@ -94,18 +105,10 @@ export default function PlayerScreen({ navigation, route }: any) {
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      <MainHeader
-        showBack
-        onBack={() => {
-          // ⭐ 수정: 완성된 영상을 보고 나가면 사진 선택 화면(PhotoSelect)이 이전 선택/AI
-          // 대본/음악을 그대로 들고 있던 상태로 다시 보였다 - PhotoSelect는 스택 안에
-          // 계속 살아있어서(unmount 안 됨) 그냥 goBack()만으로는 초기화되지 않는다.
-          // params로 reset 신호를 실어 보내면, PhotoSelect가 그 신호를 보고 스스로
-          // 상태를 초기화한다(생성 실패로 Generating에서 돌아가는 경우엔 이 신호가
-          // 없어서 선택이 그대로 유지됨 - 재시도 편의를 위해 의도적으로 다르게 동작).
-          navigation.navigate('PhotoSelect', { reset: true });
-        }}
-      />
+      {/* 뒤로가기 버튼은 기본 goBack()이면 충분하다 - 위 beforeRemove 리스너가
+          버튼/제스처/하드웨어 뒤로가기/드로어 메뉴 등 어떤 경로로 나가든 똑같이
+          PhotoSelect에 reset:true를 미리 심어둔다. */}
+      <MainHeader showBack />
 
       <View style={[styles.body, { paddingBottom: insets.bottom + 16 }]}>
         <Text style={styles.done}>✓ 생성 완료</Text>

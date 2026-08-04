@@ -37,12 +37,13 @@ from backend.app.common.config import get_setting  # DATABASE_URL, AI_SERVICE_UR
 from backend.app.common.s3_client import (
     generate_upload_presigned_url,
     generate_download_presigned_url,
+    get_video_thumbnail_key,
 )  # S3 presigned URL 발급 함수 (공용 모듈로 분리됨 - 다른 도메인도 재사용)
 
 # 사진 선택 화면용 인증 이미지 조회 대상 테이블. community 도메인과 조회 대상은
 # 같지만 용도(숏폼 소재 선택)가 달라 쿼리 로직은 이 도메인 안에서 독립적으로 작성한다
 # (community.repository의 함수를 import해서 재사용하지 않음).
-from backend.app.quest_verification.enums import SubmissionStatus
+from backend.app.quest_verification.enums import SubmissionStatus, MediaType
 from backend.app.quest_verification.models import QuestSubmission
 
 from backend.app.short_form.tasks import render_shortform_task  # Celery task, tasks.py에 정의 가정
@@ -83,11 +84,18 @@ def get_eligible_media(
 ) -> list[EligibleMediaItem]:
     """
     사진 선택 화면(그리드)에서 숏폼 소재로 고를 수 있는, 최근 30일 내
-    승인된 퀘스트 인증 이미지 목록을 반환한다.
+    승인된 퀘스트 인증 제출의 이미지 목록을 반환한다.
 
     media_url은 썸네일 표시용으로 매 조회마다 즉석에서 발급하는 presigned URL,
     media_s3_key는 이후 /shortforms 생성 요청(selected_media_s3_keys)에
     그대로 넘길 원본 S3 key다.
+
+    ⭐ 수정: GOOD_DEED 퀘스트는 대표 증빙이 동영상이라 그대로는 이미지 소재로 쓸 수
+    없었는데, 제외하는 대신 대표 프레임 1장을 뽑아 이미지로 등록해 소재 후보에
+    포함시킨다(get_video_thumbnail_key). 보조 사진(extra_media_urls)도 실제로는
+    사진 파일이라 함께 풀어서 각각 별도 항목으로 반환한다 - 제출 1건이 여러 장의
+    선택 가능한 사진으로 이어질 수 있으므로, 화면에서는 submission_id가 아니라
+    media_s3_key가 각 항목의 고유 식별자가 된다.
     """
     submitted_after = datetime.now(timezone.utc) - timedelta(days=ELIGIBLE_MEDIA_MAX_DAYS)
 
@@ -107,20 +115,39 @@ def get_eligible_media(
         .all()
     )
 
-    return [
-        EligibleMediaItem(
-            submission_id=submission.submission_id,
-            quest_id=submission.quest_id,
-            media_url=(
-                _to_thumbnail_url(submission.media_url)
-                if submission.media_url
-                else None
-            ),
-            media_s3_key=submission.media_url,
-            submitted_at=submission.submitted_at,
-        )
-        for submission in submissions
-    ]
+    items: list[EligibleMediaItem] = []
+    for submission in submissions:
+        # ⭐ 수정: 프론트가 "동영상에서 뽑은 대표 프레임" 항목을 사진과 구분해서 배지로
+        # 보여줄 수 있도록, 키마다 원본이 동영상이었는지(is_video)를 함께 들고 다닌다.
+        photo_keys: list[tuple[str, bool]] = []
+
+        if submission.media_url:
+            if submission.media_type == MediaType.VIDEO:
+                try:
+                    photo_keys.append((get_video_thumbnail_key(submission.media_url), True))
+                except Exception as error:
+                    print(
+                        f"동영상 썸네일 추출 실패(해당 제출은 소재 목록에서 제외): "
+                        f"submission_id={submission.submission_id} {type(error).__name__}: {error}"
+                    )
+            else:
+                photo_keys.append((submission.media_url, False))
+
+        photo_keys.extend((key, False) for key in (submission.extra_media_urls or []))
+
+        for key, is_video in photo_keys:
+            items.append(
+                EligibleMediaItem(
+                    submission_id=submission.submission_id,
+                    quest_id=submission.quest_id,
+                    media_url=_to_thumbnail_url(key),
+                    media_s3_key=key,
+                    is_video=is_video,
+                    submitted_at=submission.submitted_at,
+                )
+            )
+
+    return items
 
 
 # ---------------------------------------------------------------------------

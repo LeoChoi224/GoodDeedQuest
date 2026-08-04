@@ -50,7 +50,7 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>📦</Text>
             <Text style={styles.emptyText}>아직 구매한 아이템이 없어요</Text>
-            <Pressable hitSlop={8} onPress={() => navigation.navigate('Shop')}>
+            <Pressable hitSlop={8} onPress={() => navigation.navigate('ShopHome')}>
               <Text style={styles.emptyLink}>상점 가기</Text>
             </Pressable>
           </View>

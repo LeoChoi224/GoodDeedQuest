@@ -18,6 +18,18 @@ from ...common.config import settings
 # "1. "내용"" 또는 "1. 내용" 형태의 번호 매김 패턴
 _NUMBERED_LINE_PATTERN = re.compile(r'^\s*\d+\.\s*"?(.+?)"?\s*$', re.MULTILINE)
 
+# ⭐ 추가: LLM이 지시를 무시하고 **굵게**/*기울임*/__밑줄__/`코드` 같은 마크다운 서식을
+# 섞어 보내는 경우가 있어, 자막(온스크린 텍스트)에 별표/밑줄 기호가 그대로 노출됐다 -
+# 서식 기호만 벗겨내고 안의 텍스트는 남긴다.
+_MARKDOWN_EMPHASIS_PATTERN = re.compile(r'\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|`(.+?)`')
+
+
+def _strip_markdown(text: str) -> str:
+    def _unwrap(match: "re.Match[str]") -> str:
+        return next(g for g in match.groups() if g is not None)
+
+    return _MARKDOWN_EMPHASIS_PATTERN.sub(_unwrap, text).strip()
+
 
 def _parse_story_response(raw_text: str, scene_count: int, user_name: str, quest_title: str) -> list[str]:
     """LLM raw response(자유 형식 텍스트)를 씬별 캡션 리스트로 파싱.
@@ -49,18 +61,36 @@ def _fit_caption_count(captions: list[str], scene_count: int) -> list[str]:
 
 
 def _build_story_prompt(state: ShortFormState) -> str:
-    scene_descriptions = "\n".join(
-        f"- {r['scene_description']}" for r in state.get("vision_results", [])
-    )
+    vision_results = state.get("vision_results", [])
+    scene_count = len(vision_results) or 1
+    # ⭐ 수정: 예전엔 장면 설명을 번호 없이 그냥 나열해서, LLM이 각 자막을 특정 장면과
+    # 대응시키지 않고 퀘스트 제목만 보고 뭉뚱그린 일반적인 문구를 쓰는 경우가 있었다
+    # ("이미지랑 자막이랑 전혀 상관없다"는 피드백). 장면에 번호를 매겨 그 순서에 맞는
+    # 자막을 쓰도록 명시적으로 지시한다.
+    scene_lines = "\n".join(
+        f"{i + 1}. {r['scene_description']}" for i, r in enumerate(vision_results)
+    ) or "1. (장면 설명 없음)"
+
     return f"""당신은 선행 인증 숏폼 영상의 온스크린 자막을 작성하는 작가입니다.
 
 사용자 이름: {state['user_name']}
 퀘스트 제목: {state['quest_title']}
-장면 설명:
-{scene_descriptions}
 
-위 정보를 바탕으로, 영상에 표시할 짧고 임팩트 있는 온스크린 자막 문구들을 작성해주세요.
-나레이션 음성이 아니라 화면에 텍스트로 얹는 자막입니다. 간결하고 감동적인 톤으로 작성하세요.
+영상은 아래 순서의 장면(총 {scene_count}개)으로 구성됩니다. 각 번호의 설명은 그 장면
+사진을 AI가 분석한 내용입니다:
+{scene_lines}
+
+각 장면마다 정확히 1줄씩, 총 {scene_count}줄의 온스크린 자막을 작성해주세요.
+
+규칙:
+1. 반드시 "1. ", "2. "처럼 번호를 붙이고, 그 번호에 해당하는 장면 설명 내용과 직접
+   연결되는 문구를 쓰세요. 장면 설명과 무관한 뭉뚱그린 문구는 쓰지 마세요.
+2. 나레이션 음성이 아니라 화면에 얹는 짧은 텍스트 자막입니다 - 한 줄은 20자 내외로
+   간결하게 쓰세요.
+3. 감동적이고 진솔한 톤으로 쓰되 과장하지 마세요.
+4. **굵게**, *기울임*, `코드` 같은 마크다운 서식이나 별표(*)·밑줄(_)·해시(#) 등의
+   특수기호는 절대 쓰지 말고 순수 텍스트로만 답하세요.
+5. 번호와 문구 외에 다른 설명이나 인사말은 쓰지 마세요.
 """
 
 
@@ -85,6 +115,10 @@ def llm_story_agent(state: ShortFormState) -> ShortFormState:
             str(response.content), scene_count, state["user_name"], state["quest_title"]
         )
         captions = _fit_caption_count(captions, scene_count)
+        # ⭐ 추가: 프롬프트에서 마크다운 서식을 쓰지 말라고 지시해도 LLM이 가끔
+        # **강조** 같은 서식을 섞어 보내서, 자막에 별표가 글자 양옆에 그대로 노출되던
+        # 문제 - 안전망으로 한 번 더 벗겨낸다.
+        captions = [_strip_markdown(c) for c in captions]
         captions = [c[:settings.MAX_CAPTION_LENGTH] for c in captions]
 
         state["generated_captions"] = captions

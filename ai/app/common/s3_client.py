@@ -2,6 +2,7 @@ import logging
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from .config import settings
 
@@ -38,6 +39,20 @@ def download_file_from_s3(s3_key: str, local_path: str) -> None:
         logger.info(f"[S3Client] 다운로드 성공: s3_key={s3_key} -> local_path={local_path}")
     except Exception:
         logger.exception(f"[S3Client] 다운로드 실패: s3_key={s3_key}")
+        raise
+
+
+def object_exists_in_s3(s3_key: str) -> bool:
+    """
+    S3에 해당 key의 객체가 실제로 존재하는지 확인한다.
+    (Render Agent가 동영상 대표 프레임 썸네일 key로부터 원본 동영상 key를 역추론할 때 사용)
+    """
+    try:
+        _s3_client.head_object(Bucket=settings.S3_BUCKET_NAME, Key=s3_key)
+        return True
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+            return False
         raise
 
 
