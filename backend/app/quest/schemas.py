@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from backend.app.quest.enums import QuestType, QuestStatus, QuestSource
 from backend.app.common.enums import Difficulty
@@ -9,6 +9,25 @@ class CreateQuestRequest(BaseModel):
     quest_title: str = Field(min_length=1, max_length=200)
     quest_description: str = Field(min_length=1, max_length=1000)
     category_code: str
+
+    @field_validator("quest_title", "quest_description", mode="before")
+    @classmethod
+    def strip_spaces(cls, v):
+        """【판단】 앞뒤 공백과 줄 사이 여백을 없앤다.
+
+        임베딩은 "[환경] 쓰레기 버리기\\n바닥의 쓰레기를 버린다" 라는 한 덩어리
+        문장을 벡터로 만든다. 그래서 눈에 안 보이는 공백 하나만 달라도 벡터가
+        달라지고, 이미 등록된 같은 퀘스트를 못 찾아 보상이 다르게 매겨졌다.
+        (실측: 같은 내용인데 176p / 168p 로 갈린 사례가 있다.)
+
+        【문법】 mode="before" 는 길이 검사(min_length)보다 먼저 돈다. 공백만
+        입력한 경우 여기서 빈 문자열이 되어 min_length=1 에 정상적으로 걸린다.
+        """
+        if not isinstance(v, str):
+            return v
+        # 줄 단위로 다듬어 붙인다. 중간 빈 줄과 줄 끝 공백까지 사라진다.
+        lines = [line.strip() for line in v.splitlines()]
+        return "\n".join(line for line in lines if line).strip()
 
 
 class CreateQuestResponse(BaseModel):
