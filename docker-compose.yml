@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: gdq-postgres
+    environment:
+      POSTGRES_USER: gooddeed
+      POSTGRES_PASSWORD: gooddeed
+      POSTGRES_DB: gooddeedquest
+    ports:
+      - "5432:5432"
+    volumes:
+      - gdq_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: gdq-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  gdq_postgres_data:

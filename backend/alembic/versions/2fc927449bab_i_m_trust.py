@@ -1,0 +1,59 @@
+"""I'm trust
+
+Revision ID: 2fc927449bab
+Revises: 9c06343f8506
+Create Date: 2026-07-30 14:14:47.217763
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '2fc927449bab'
+down_revision: Union[str, Sequence[str], None] = '9c06343f8506'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    existing_columns = {
+        column["name"]
+        for column in inspector.get_columns("volunteer_center")
+    }
+
+    if "vol_title" not in existing_columns:
+        op.add_column(
+            "volunteer_center",
+            sa.Column(
+                "vol_title",
+                sa.String(length=500),
+                nullable=True,
+                comment="봉사 모집 제목",
+            ),
+        )
+
+    if "ai_category" not in existing_columns:
+        op.add_column(
+            "volunteer_center",
+            sa.Column(
+                "ai_category",
+                sa.String(length=50),
+                nullable=True,
+                comment=(
+                    "AI 임베딩 기반 의미 카테고리 "
+                    "(환경/동물/아동청소년/어르신/장애인/"
+                    "교육/다문화/재난안전/기타)"
+                ),
+            ),
+        )
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    pass

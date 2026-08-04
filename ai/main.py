@@ -1,12 +1,12 @@
-from fastapi import FastAPI, UploadFile, File, Form
-from pydantic import BaseModel
-from typing import List, Optional
-from ai.app.quest_recommend.agent import run_recommendation_flow
-from ai.app.quest_verification.verifier import verify_quest_image
-from ai.app.challenge_recommend.agent import recommend_collaborative_teams
-from ai.app.shorts.generator import generate_shorts_boilerplate
-from ai.app.quest_recommend.rag import query_rag_coach
-from ai.app.local_quest.agent import get_local_shortage_recommendations
+from fastapi import FastAPI
+
+from ai.app.quest_recommend.router import router as quest_recommend_router
+from ai.app.challenge_recommend.router import router as challenge_recommend_router
+from ai.app.quest_verification.router import router as quest_verification_router
+from ai.app.vol_category.router import router as vol_category_router
+from ai.app.quest_create.router import router as quest_create_router
+from ai.app.short_form.router import router as short_form_router
+from ai.app.user.router import router as user_router
 
 app = FastAPI(
     title="Good Deed Quest AI Model Server",
@@ -14,66 +14,24 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 1. 퀘스트 추천 API (LangGraph 연동)
-class RecommendRequest(BaseModel):
-    user_id: int
-    interests: List[str]
-    location: str
+########################
+# 아래처럼 라우터 추가하세요.
+#######################
 
-@app.post("/ai/recommend")
-async def ai_recommend(req: RecommendRequest):
-    recommended = await run_recommendation_flow(req.user_id, req.interests, req.location)
-    return {"success": True, "data": recommended}
+# AI 팀 챌린지 사용자 추천 API를 메인 앱에 등록합니다.
+app.include_router(challenge_recommend_router)
+# 퀘스트 추천 API (모듈화된 라우터 등록)
+app.include_router(quest_recommend_router)
+# 퀘스트 인증 API (Vision 판정 + 랜덤 챌린지)
+app.include_router(quest_verification_router)
+# 지역별 부족 봉사 카테고리 안내 문구 생성 API
+app.include_router(vol_category_router)
+# 커스텀 퀘스트 심사 API (선행 여부 + 난이도 판정)
+app.include_router(quest_create_router)
+# 숏폼 생성 API (Vision/RAG/LLM Story/Validation/FFmpeg Render 5-Agent 파이프라인)
+app.include_router(short_form_router)
 
-# 2. Vision 퀘스트 인증 API (Gemini Vision 연동)
-@app.post("/ai/verify")
-async def ai_verify(
-    quest_id: int = Form(...),
-    image: UploadFile = File(...)
-):
-    image_bytes = await image.read()
-    verification_result = verify_quest_image(quest_id, image_bytes)
-    return {"success": True, "data": verification_result}
-
-# 3. 협동 챌린지팀 추천 API (LangGraph/Embedding 연동)
-class ChallengeRecommendRequest(BaseModel):
-    interests: List[str]
-    location: str
-
-@app.post("/ai/challenge/recommend")
-def ai_challenge_recommend(req: ChallengeRecommendRequest):
-    teams = recommend_collaborative_teams(req.interests, req.location)
-    return {"success": True, "data": teams}
-
-# 4. 숏폼 생성 트리거 API
-class ShortsRequest(BaseModel):
-    quest_id: int
-    user_name: str
-    bg_music_style: str
-
-@app.post("/ai/shorts/generate")
-def ai_shorts_generate(req: ShortsRequest):
-    shorts_result = generate_shorts_boilerplate(req.quest_id, req.user_name)
-    return {"success": True, "data": shorts_result}
-
-# 5. AI 선행 코치 RAG API (추천 폴더 내 통합)
-class CoachQueryRequest(BaseModel):
-    question: str
-    user_id: int
-
-@app.post("/ai/recommend/coach")
-def ai_coach_query(req: CoachQueryRequest):
-    coach_reply = query_rag_coach(req.question)
-    return {"success": True, "data": coach_reply}
-
-# 6. 지역별 부족 봉사 추천 API
-class LocalShortageRequest(BaseModel):
-    location: str
-
-@app.post("/ai/local-quest/recommend")
-def ai_local_quest_recommend(req: LocalShortageRequest):
-    recommended = get_local_shortage_recommendations(req.location)
-    return {"success": True, "data": recommended}
+app.include_router(user_router)
 
 @app.get("/")
 def home():
@@ -85,4 +43,5 @@ def home():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)
+    # uvicorn 실행 (개발 시 python -m ai.main 로 기동)
+    uvicorn.run("ai.main:app", host="0.0.0.0", port=8001, reload=True)

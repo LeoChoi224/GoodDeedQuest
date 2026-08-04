@@ -1,62 +1,159 @@
-from fastapi import APIRouter, Depends
+import logging
+from typing import Final, List, Optional
+
 import httpx
-from pydantic import BaseModel
-from backend.app.common.response import APIResponse
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
 from backend.app.common.auth import get_current_user
-from backend.app.common.config import settings
+from backend.app.common.config import get_setting
+from backend.app.common.database import get_db
+from backend.app.common.response import APIResponse
+from backend.app.quest.schemas import QuestSchema
+from backend.app.quest.service import completed_quest_ids, started_quest_ids
+from backend.app.quest_recommend.schemas import BackendQuestRecommendRequest
+from backend.app.quest_recommend.service import (
+    save_recommendation_log,
+    save_recommendation_items,
+    get_completed_quest_titles,
+    get_recent_recommended_titles,
+    get_user_coordinates,
+    get_today_recommendation,
+    build_quests_from_recommendations,
+)
+
+
+logger: Final = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/quest-recommend", tags=["Quest AI Recommendation & Coach"])
 
-class AskCoachRequest(BaseModel):
-    question: str
+@router.get("/today", response_model=APIResponse[Optional[List[QuestSchema]]])
+def get_today_recommended_quests(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    오늘 이미 생성된 추천 퀘스트 목록을 조회합니다.
+    아직 생성된 적이 없으면 data에 null을 담아 반환하며, 이는 오류가 아니라 신규 생성이 필요하다는 신호입니다.
+    """
+    user_id = user["id"]
+    quests = get_today_recommendation(db=db, user_id=user_id)
+
+    if quests is None:
+        logger.info(f"오늘 생성된 추천이 없습니다. User ID: {user_id}")
+        return APIResponse.ok(data=None, message="오늘 생성된 추천이 없습니다.")
+
+    logger.info(f"오늘의 추천 퀘스트 반환. User ID: {user_id}, 건수: {len(quests)}")
+
+    # quest.quest_status는 퀘스트당 하나뿐인 전역 컬럼이라 보는 사람과 무관하게 같은 값이 나온다.
+    # 목록 조회(GET /quests)와 같은 기준으로 계산하도록 viewer 정보를 함께 넘긴다.
+    done_ids = completed_quest_ids(db, user_id)
+    started_ids = started_quest_ids(db, user_id)
+    return APIResponse.ok(
+        data=[
+            QuestSchema.from_quest(
+                quest, viewer_id=user_id,
+                started_ids=started_ids, done_ids=done_ids,
+            )
+            for quest in quests
+        ],
+        message="오늘의 추천 퀘스트 조회 성공"
+    )
+
 
 @router.post("")
-async def recommend_quests(user: dict = Depends(get_current_user)):
-    """사용자의 관심사와 위치 정보를 활용해 AI 기반 맞춤형 퀘스트를 추천받습니다."""
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{settings.AI_SERVICE_URL}/ai/recommend",
-                json={
-                    "user_id": user["id"],
-                    "email": user["email"],
-                    "interest": ["환경", "봉사"],
-                    "location": "서울시 마포구"
-                },
-                timeout=10.0
-            )
-            if response.status_code == 200:
-                ai_data = response.json()
-                return APIResponse.ok(data=ai_data.get("data"), message="AI 추천 성공")
-    except Exception as e:
-        pass
+async def recommend_quests(
+    req: BackendQuestRecommendRequest, 
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    사용자의 관심사와 위치 정보를 바탕으로 AI 모델 서버(Port 8001)에 비동기 추천을 요청하고,
+    수신된 결과와 퀘스트 데이터를 DB(AiRecommendationLog, AiRecommendation, Quest)에 영속화한 후 최종 반환합니다.
+    """
+    user_id = user["id"]
+    logger.info(f"메인 백엔드 퀘스트 추천 및 DB 영속화 요청 수신. User ID: {user_id}")
 
-    fallback_recommendations = [
-        {"id": 101, "title": "[AI추천] 일회용품 사용 줄이기 챌린지", "description": "오늘 하루 일회용 플라스틱을 쓰지 않고 다회용품으로 대체해 보세요.", "reason": "사용자님이 환경 분야 관심이 높기 때문에 추천합니다."},
-        {"id": 102, "title": "[AI추천] 경의선 숲길 플로깅", "description": "사용자의 위치인 마포구 경의선 숲길에서 조깅과 쓰레기 줍기를 해보세요.", "reason": "사용자님의 위치 마포구 근처 정화 퀘스트입니다."}
-    ]
-    return APIResponse.ok(data=fallback_recommendations, message="AI 서버 미연결로 폴백 데이터 반환")
+    # 기본 관심 분야. 프론트(theme.ts CATEGORY_DEFS)가 보내는 소문자 코드와 표기를 맞춘다.
+    # VULNERABLE_GROUP은 확정 카테고리에 없는 코드라 Critic이 범위를 몰라 봉사를 오반려했다.
+    user_interests = req.interests if req.interests else ["community", "environment"]
 
-@router.post("/coach")
-async def ask_coach(req: AskCoachRequest, user: dict = Depends(get_current_user)):
-    """[통합] 자원봉사 제도, 공공 캠페인 정보 등을 RAG AI 코치에게 질문합니다."""
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                # AI 서비스의 추천 도메인 하위로 통합된 RAG 엔드포인트 호출
-                f"{settings.AI_SERVICE_URL}/ai/recommend/coach",
-                json={"question": req.question, "user_id": user["id"]},
-                timeout=15.0
-            )
-            if response.status_code == 200:
-                ai_reply = response.json()
-                return APIResponse.ok(data=ai_reply.get("data"), message="AI 코치 답변 성공")
-    except Exception as e:
-        pass
+    # 요청에 좌표가 없으면 User 테이블 저장 좌표로 폴백 
+    latitude = req.latitude
+    longitude = req.longitude
+    if latitude is None or longitude is None:
+        fallback_lat, fallback_lng = get_user_coordinates(db=db, user_id=user_id)
+        latitude = latitude if latitude is not None else fallback_lat
+        longitude = longitude if longitude is not None else fallback_lng
+        logger.info(f"요청 좌표 누락으로 User 테이블 저장 좌표를 사용합니다. User ID: {user_id}")
 
-    # Fallback RAG Response
-    fallback_response = {
-        "answer": "자원봉사 시간은 1365포털이나 VMS를 통해 연계 신청할 수 있습니다. GDQuest는 봉사 인증서 데이터를 API 형태로 공식 연동하는 기능을 준비 중입니다.",
-        "sources": ["1365 자원봉사 연계 가이드 v1.2", "GDQuest 기획 가이드라인"]
+    # 요청 당시 수집된 Context 데이터 구성
+    request_context = {
+        "interests": user_interests,
+        "latitude": latitude,
+        "longitude": longitude,
+        "level": user.get("level", 1),
+        "request_message": req.request_message
     }
-    return APIResponse.ok(data=fallback_response, message="AI 서버 오프라인으로 로컬 폴백 답변 반환")
+
+    history_quests = get_completed_quest_titles(db=db, user_id=user_id)
+    recent_recommendations = get_recent_recommended_titles(db=db, user_id=user_id)
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            ai_service_url = f"{get_setting().AI_SERVICE_URL}/ai/recommend"
+            payload = {
+                "user_id": user_id,
+                **request_context,
+                "history_quests": history_quests,
+                "recent_recommendations": recent_recommendations,
+            }
+            
+            response = await client.post(ai_service_url, json=payload)
+            
+            if response.status_code == 200:
+                ai_result = response.json()
+                recommended_quests = ai_result.get("data", [])
+                logger.info(f"AI 모델 서버 통신 성공. User ID: {user_id}")
+                
+                # 1. 부모 로그 DB 적재
+                ai_log_id = save_recommendation_log(
+                    db=db,
+                    user_id=user_id,
+                    request_context=request_context,
+                    response_context=ai_result
+                )
+                
+                # 2. 추천 5개 항목 및 Quest 원본 DB 영속화 연동
+                saved_items = []
+                if ai_log_id and recommended_quests:
+                    saved_items = save_recommendation_items(
+                        db=db,
+                        ai_log_id=ai_log_id,
+                        user_id=user_id,
+                        recommended_quests=recommended_quests
+                    )
+
+                # 3. AI 서버 응답 원본에는 quest_id가 항상 null이라 프론트가 상세 화면으로 이동할 수 없다.
+                # 영속화 과정에서 생성된 quest_id를 담아 GET /today와 동일한 형태로 반환한다.
+                persisted_quests = build_quests_from_recommendations(db=db, items=saved_items)
+
+                # 4. 저장 실패 시 AI 원본을 그대로 주면 프론트가 깨지므로 실패로 처리한다
+                if not persisted_quests:
+                    logger.warning(f"추천 결과 DB 영속화에 실패했습니다. User ID: {user_id}")
+                    return APIResponse.fail(
+                        message="추천 결과를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                        data=[]
+                    )
+
+                return APIResponse.ok(
+                    data=[QuestSchema.from_quest(quest) for quest in persisted_quests],
+                    message="AI 맞춤 퀘스트 추천 성공"
+                )
+            else:
+                logger.warning(f"AI 모델 서버 응답 이상 (HTTP Status: {response.status_code}). User ID: {user_id}")
+                return APIResponse.fail(message="AI 모델 서버 응답에 실패했습니다.")
+    except Exception as e:
+        logger.error(f"AI 모델 서버 통신 중 예외 발생. User ID: {user_id}, 사유: {str(e)}")
+
+    return APIResponse.fail(message="AI 모델 서버 통신 장애로 인해 퀘스트 추천을 완료하지 못했습니다.")

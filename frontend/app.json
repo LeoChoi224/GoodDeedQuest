@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "선행퀘스트",
+    "slug": "seonhaeng-quest-rn",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/brand/app-icon.png",
+    "scheme": "seonhaengquest",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/brand/app-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#033236"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.seonhaeng.quest"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand/app-icon.png",
+        "backgroundColor": "#033236"
+      },
+      "package": "com.seonhaeng.quest"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-secure-store",
+      "@react-native-community/datetimepicker",
+      "expo-web-browser",
+      "expo-video",
+      [
+        "@react-native-seoul/kakao-login",
+        {
+          "kakaoAppKey": "41e9ca45f6d45b10ae35b8917836807c"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "내 주변 봉사 시설을 찾기 위해 위치 정보를 사용합니다."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "생성한 숏폼 영상을 사진 앱에 저장하기 위해 접근 권한이 필요합니다.",
+          "savePhotosPermission": "생성한 숏폼 영상을 사진 앱에 저장하기 위해 접근 권한이 필요합니다."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraMavenRepos": [
+              "https://devrepo.kakao.com/nexus/content/groups/public/"
+            ]
+          }
+        }
+      ],
+      "@react-native-google-signin/google-signin"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "74b14754-ad3e-4fdb-8e16-c06b559f4846"
+      }
+    }
+  }
+}
