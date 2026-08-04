@@ -55,7 +55,7 @@ def settle(repository, user: User, quest: Quest, submission, verdict: Verdict, r
     submission.extra_media_urls = verdict.stored_extras
     submission.ai_verdict = {**result, "suspicion_score": verdict.suspicion}
     submission.ai_generated_suspicion = result.get("ai_generated", False)
-    
+
     if verdict.final_status is SubmissionStatus.PENDING:
         adjust_trust(user, TRUST_ON_CHALLENGE)
     elif verdict.final_status is SubmissionStatus.REJECTED:
@@ -63,15 +63,15 @@ def settle(repository, user: User, quest: Quest, submission, verdict: Verdict, r
 
     if verdict.final_status is not SubmissionStatus.ACCEPTED:
         repository.session.commit()
-        return 0, 0
-    
+        return 0, 0, []
+
     return _grant_reward(repository, user, quest, submission)
 
-def _grant_reward(repository, user: User, quest: Quest, submission) -> tuple[int, int]:
+def _grant_reward(repository, user: User, quest: Quest, submission) -> tuple[int, int, list[str]]:
     """통과한 제출에 보상을 지급한다.
 
     Returns:
-        (획득 경험치, 획득 포인트)
+        (획득 경험치, 획득 포인트, 이번에 새로 해금된 칭호(배지) 이름 목록)
     """
     xp_gained = quest.reward_exp or 0
     points_gained = quest.reward_point or 0
@@ -117,15 +117,19 @@ def _grant_reward(repository, user: User, quest: Quest, submission) -> tuple[int
 
     repository.session.commit()
 
+    # ⭐ 추가: 퀘스트 인증완료 화면에서 칭호(배지) 해금 토스트를 띄우기 위해
+    # 새로 지급된 배지 이름을 함께 반환한다.
+    unlocked_badge_names: list[str] = []
     try:
-        check_and_award_badges(
+        unlocked_badges = check_and_award_badges(
             db=repository.session,
             user_id=user.user_id,
             category_code=quest.category.code,
         )
+        unlocked_badge_names = [badge.name for badge in unlocked_badges]
     except Exception as error:
         repository.session.rollback()
         print(f"배지 지급 실패(인증은 정상 처리됨): user={user.user_id} "
               f"quest={quest.quest_id} {type(error).__name__}: {error}")
 
-    return xp_gained, points_gained
+    return xp_gained, points_gained, unlocked_badge_names

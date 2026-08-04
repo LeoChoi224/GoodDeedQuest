@@ -24,6 +24,7 @@ import HazeBackground from '../../components/HazeBackground';
 import SpringButton from '../../components/SpringButton';
 import Confetti from '../../components/Confetti';
 import PixelProgress from '../../components/PixelProgress';
+import { useToast } from '../../components/Toast';
 import { CoinW, StarW, useCountUp } from './_parts';
 
 function Spark({ delay = 0 }: { delay?: number }) {
@@ -37,12 +38,25 @@ function Spark({ delay = 0 }: { delay?: number }) {
 
 export default function QuestCompleteScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
+  const toast = useToast();
   const exp = route?.params?.exp ?? 100;
   const point = route?.params?.point ?? 250;
+  const unlockedBadges: string[] = route?.params?.unlockedBadges ?? [];
 
   const expCount = useCountUp(exp, 900);
   const pointCount = useCountUp(point, 900);
   const xpProgress = Math.min(1, exp / 150);
+
+  // ⭐ 추가: 이번 인증으로 새 칭호(배지)를 해금했으면, 등장 연출이 어느 정도
+  // 자리잡은 뒤 토스트로 알려준다. 여러 개를 동시에 얻었으면 한 토스트에 묶어서 보여준다.
+  useEffect(() => {
+    if (unlockedBadges.length === 0) return;
+    const names = unlockedBadges.map((name) => `'${name}'`).join(', ');
+    const message = `🏅 ${names} 칭호를 획득했습니다!`;
+    const timer = setTimeout(() => toast.show(message, 3200), 900);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // check emblem pop → bob (gdq-pop + gdq-bob)
   const scale = useSharedValue(0);

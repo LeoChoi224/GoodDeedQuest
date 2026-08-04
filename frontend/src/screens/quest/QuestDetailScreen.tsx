@@ -94,7 +94,7 @@ export default function QuestDetailScreen({ navigation, route }: any) {
       const center = await getVolunteerCenter(volunteerCenterId);
       // VolunteerDetailScreen은 같은 기관의 공고 여러 건을 카드로 나열하도록 만들어져 있다.
       // 한 건만 보낼 때도 배열이어야 그 로직을 그대로 탄다.
-      navigation.navigate('VolunteerDetail', {
+      navigation.navigate('QuestVolunteerDetail', {
         items: [center],
         place: center.vol_name,
         address: center.vol_address,

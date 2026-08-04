@@ -61,6 +61,12 @@ class EligibleMediaItem(BaseModel):
         default=None,
         description="숏폼 생성 요청(selected_media_s3_keys 등)에 그대로 사용할 원본 S3 key",
     )
+    # ⭐ 추가: 프론트가 동영상 인증 자료에서 뽑은 대표 프레임과 실제 사진을 구분해서
+    # 배지로 표시할 수 있게 - True면 media_s3_key는 동영상 대표 프레임 썸네일이다.
+    is_video: bool = Field(
+        default=False,
+        description="원본이 동영상 인증 자료의 대표 프레임 썸네일이면 True",
+    )
     submitted_at: datetime
 
 

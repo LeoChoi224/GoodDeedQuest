@@ -29,7 +29,6 @@ import { colors, fonts } from '../../theme';
 import GamePopup from '../../components/GamePopup';
 import BottomSheet from '../../components/BottomSheet';
 import SpringButton from '../../components/SpringButton';
-import Shimmer from '../../components/Shimmer';
 import { useToast } from '../../components/Toast';
 import {
   generateScript,
@@ -131,6 +130,47 @@ const pbStyles = StyleSheet.create({
     backgroundColor: colors.primaryDark,
   },
 });
+
+// ⭐ 추가: AI 대본 생성은 백엔드가 Vision → RAG → LLM Story 체인을 한 번의 동기 호출로
+// 처리해서(#194 SCRIPT_TIMEOUT 참고) 실제 진행률(%)을 서버가 내려주지 않는다. 그래서
+// 얼마나 걸릴지 전혀 알려주지 않는 Shimmer(빈 텍스트박스처럼 보이는 스켈레톤) 대신,
+// 경과 시간 기반으로 "지금 어느 단계쯤일지"를 추정해 보여준다 - 실제 %는 아니지만
+// 화면이 멈춘 게 아니라는 것과 대략 얼마나 더 기다려야 하는지 감을 준다.
+const SCRIPT_GENERATE_STAGES = [
+  { atSeconds: 0, label: 'AI가 사진 속 장면을 분석하고 있어요' },
+  { atSeconds: 6, label: 'AI가 비슷한 선행 사례를 찾고 있어요' },
+  { atSeconds: 14, label: 'AI가 대본을 작성하고 있어요' },
+  { atSeconds: 30, label: '생각보다 오래 걸리고 있어요, 조금만 더 기다려주세요' },
+] as const;
+
+function ScriptGeneratingStatus() {
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const id = setInterval(() => setElapsedMs(Date.now() - startedAt), 200);
+    return () => clearInterval(id);
+  }, []);
+
+  const elapsedSeconds = elapsedMs / 1000;
+  const stage = SCRIPT_GENERATE_STAGES.reduce(
+    (acc, s) => (elapsedSeconds >= s.atSeconds ? s : acc),
+    SCRIPT_GENERATE_STAGES[0],
+  );
+  // 실제 진행률이 아니라 경과 시간을 0~92%로 점근시키는 연출용 진행바 - 20초 근처에서
+  // 체감상 많이 찼다가 그 뒤로는 느리게 늘어나며 절대 100%를 찍지 않고 기다린다.
+  const progress = Math.min(0.92, 1 - Math.exp(-elapsedSeconds / 20));
+
+  return (
+    <View style={ai.progressWrap}>
+      <View style={ai.progressTrack}>
+        <View style={[ai.progressFill, { width: `${progress * 100}%` }]} />
+      </View>
+      <Text style={ai.progressLabel}>{stage.label}</Text>
+      <Text style={ai.progressElapsed}>약 {Math.floor(elapsedSeconds)}초 경과</Text>
+    </View>
+  );
+}
 
 /* ----------------------------------------------------- AI 대본 popup (dark) */
 // captions(항목별 자막 배열) <-> 편집용 단일 textarea 사이 변환.
@@ -273,12 +313,7 @@ export function AiScriptPopup({
 
       <View style={ai.scriptBox}>
         {loading ? (
-          <View style={{ gap: 12 }}>
-            <Shimmer width="100%" height={12} radius={6} />
-            <Shimmer width="88%" height={12} radius={6} />
-            <Shimmer width="94%" height={12} radius={6} />
-            <Shimmer width="62%" height={12} radius={6} />
-          </View>
+          <ScriptGeneratingStatus />
         ) : (
           <TextInput
             value={text}
@@ -338,6 +373,11 @@ const ai = StyleSheet.create({
     fontFamily: fonts.bodyR,
     padding: 0,
   },
+  progressWrap: { flex: 1, minHeight: 212, alignItems: 'center', justifyContent: 'center', gap: 14 },
+  progressTrack: { width: '100%', height: 8, borderRadius: 4, backgroundColor: sf.chipInactive, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 4, backgroundColor: colors.gold },
+  progressLabel: { fontSize: 14, color: sf.scriptText, fontFamily: fonts.bodyM, textAlign: 'center' },
+  progressElapsed: { fontSize: 12, color: sf.trackSub, fontFamily: fonts.bodyR },
   btnRow: { width: '100%', flexDirection: 'row', gap: 10, marginTop: 16 },
   btnHalf: { flex: 1 },
   btn: { height: 46, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },

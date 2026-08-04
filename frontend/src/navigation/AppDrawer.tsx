@@ -64,7 +64,10 @@ export default function AppDrawer() {
           swipeEnabled: false,
         }}
       >
-        <Drawer.Screen name="Main" component={MainTabs} />
+        {/* ⭐ 수정: RootNavigator의 최상위 "Main"(AppDrawer 자체)과 이름이 겹쳐
+            React Navigation이 "confusing behavior during navigation" 경고를
+            띄우던 문제 - 드로어 안쪽의 탭 네비게이터는 별도 이름(Tabs)으로 분리한다. */}
+        <Drawer.Screen name="Tabs" component={MainTabs} />
         <Drawer.Screen name="TeamChallenge" component={TeamStack} />
         <Drawer.Screen name="Shortform" component={ShortformStack} />
         <Drawer.Screen name="Admin" component={AdminStack} />

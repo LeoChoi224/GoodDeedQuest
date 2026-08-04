@@ -1,5 +1,6 @@
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from backend.app.common.config import get_setting  # AWS_REGION, S3_BUCKET_NAME 등 환경설정
 
 import subprocess
@@ -181,6 +182,72 @@ def transcode_s3_video_for_community(
                 "CacheControl": "public, max-age=31536000, immutable",
             },
         )
+
+# ⭐ 추가: 숏폼 사진 선택 화면은 이미지만 다루는데, GOOD_DEED 퀘스트 인증 자료는
+# 동영상이다 - 그대로는 소재로 쓸 수 없으니 대표 프레임 1장을 뽑아 이미지로
+# 등록해 소재 후보에 포함시킨다. transcode_s3_video_for_community와 같은
+# 다운로드 -> ffmpeg -> 업로드 패턴을 재사용한다.
+def get_video_thumbnail_key(video_key: str) -> str:
+    """
+    동영상 S3 key에서 대표 프레임 1장을 뽑아 이미지로 저장하고 그 S3 key를 돌려준다.
+    같은 동영상에 대해 이미 뽑아둔 썸네일이 있으면 재추출하지 않고 그대로 재사용한다
+    (조회할 때마다 다시 인코딩하면 느리고 매번 조금씩 다른 프레임이 나올 수 있음).
+    """
+    bucket_name = get_setting().S3_BUCKET_NAME
+    base_key, _, _extension = video_key.rpartition(".")
+    thumbnail_key = f"{base_key or video_key}_thumb.jpg"
+
+    try:
+        _s3_client.head_object(Bucket=bucket_name, Key=thumbnail_key)
+        return thumbnail_key
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") not in ("404", "NoSuchKey"):
+            raise
+
+    with tempfile.TemporaryDirectory() as temp_directory:
+        temp_path = Path(temp_directory)
+        source_path = temp_path / "source.mp4"
+        output_path = temp_path / "thumbnail.jpg"
+
+        _s3_client.download_file(bucket_name, video_key, str(source_path))
+
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            "0.5",  # 검은 화면일 확률이 높은 0초 프레임을 피해 0.5초 지점에서 뽑는다
+            "-i",
+            str(source_path),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+            str(output_path),
+        ]
+
+        try:
+            subprocess.run(command, capture_output=True, text=True, check=True)
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "동영상 썸네일 추출에 필요한 FFmpeg를 찾을 수 없습니다."
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            error_message = exc.stderr.strip() if exc.stderr else "알 수 없는 FFmpeg 오류"
+            raise RuntimeError(
+                f"동영상 썸네일 추출에 실패했습니다: {error_message}"
+            ) from exc
+
+        _s3_client.upload_file(
+            str(output_path),
+            bucket_name,
+            thumbnail_key,
+            ExtraArgs={"ContentType": "image/jpeg"},
+        )
+
+    return thumbnail_key
 
 def generate_download_presigned_url(s3_key: str) -> str:
     """

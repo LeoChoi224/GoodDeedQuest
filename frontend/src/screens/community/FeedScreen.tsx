@@ -673,7 +673,7 @@ useFocusEffect(
 
             <SpringButton
               style={[styles.actBtn, styles.actOutline]}
-              onPress={() => navigation.navigate('TeamHome')}
+              onPress={() => navigation.navigate('CommunityTeamHome')}
             >
               <Text style={styles.actOutlineText}>⚔ 팀 챌린지</Text>
             </SpringButton>

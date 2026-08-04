@@ -19,6 +19,7 @@ import GamePopup, { PopupButtons } from '../../components/GamePopup'; // ⭐ 수
 import GdqInput from '../../components/GdqInput'; // ⭐ 수정
 import { useToast } from '../../components/Toast';
 import { ConicAvatar, ChevronRight } from './_parts'; // ⭐ 수정: 더미 ACHIEVEMENTS/Achievement 제거
+import { PencilIcon } from '../../components/PixelIcons'; // ⭐ 수정: 닉네임 수정 아이콘 가독성 개선 (이모지 → SVG)
 import {
   getMyQuestAchievements,
   type MyQuestAchievement,
@@ -27,6 +28,11 @@ import {
 } from '../../api/mypage'; // ⭐ 수정
 import { useProfile } from '../../context/ProfileContext'; // ⭐ 수정: 프로필 헤더를 드로어와 공유
 import { getFullImageUrl } from '../shop/_parts'; // ⭐ 수정: 장착 테두리 image_url이 상대경로(/static/...)라 base URL을 붙여야 함
+import { checkNicknameAvailable } from '../../api/auth'; // ⭐ 수정: 회원가입에서 쓰던 닉네임 중복확인 함수 재사용
+
+// ⭐ 수정: 회원가입(SignupContext)과 같은 색상으로 통일
+const NICK_OK_GREEN = '#4CAF50';
+const NICK_BAD_RED = '#E53935';
 
 // ⭐ 수정: completed_at(ISO)을 리스트용 짧은 날짜 / 팝업용 상세 시각 문자열로 변환
 function formatShortDate(iso: string): string {
@@ -69,6 +75,10 @@ export default function MyPageScreen({ navigation }: any) {
   const [editNickError, setEditNickError] = useState<string | null>(null);
   const [editCats, setEditCats] = useState<Record<string, boolean>>({});
   const [savingProfile, setSavingProfile] = useState(false);
+  // ⭐ 수정: 닉네임 중복확인(회원가입과 동일한 checkNicknameAvailable 재사용) 상태
+  const [editNickChecking, setEditNickChecking] = useState(false);
+  const [editNickOk, setEditNickOk] = useState(false);
+  const [editNickMsg, setEditNickMsg] = useState<{ text: string; color: string } | null>(null);
 
   // ⭐ 수정: 달성 퀘스트 타임라인 조회 — 재시도 버튼과 포커스 재조회 둘 다에서 재사용
   const loadAchievements = useCallback(async () => {
@@ -131,6 +141,9 @@ export default function MyPageScreen({ navigation }: any) {
     if (!profile) return;
     setEditNickname(profile.nickname);
     setEditNickError(null);
+    setEditNickChecking(false);
+    setEditNickOk(false);
+    setEditNickMsg(null);
     const cats: Record<string, boolean> = {};
     CATEGORY_DEFS.forEach((c) => {
       cats[c.key] = !!profile.category?.includes(c.key);
@@ -141,12 +154,50 @@ export default function MyPageScreen({ navigation }: any) {
 
   const toggleEditCat = (key: string) => setEditCats((s) => ({ ...s, [key]: !s[key] }));
 
+  // ⭐ 수정: 닉네임 중복확인 버튼 - 회원가입 화면(ProfileScreen)과 동일하게
+  // api/auth.ts의 checkNicknameAvailable을 그대로 재사용한다. 현재 내 닉네임과
+  // 똑같이(안 바꾸고) 저장하려는 경우엔 서버에 물어볼 필요 없이 그대로 통과시킨다 -
+  // 그 엔드포인트는 로그인 여부/현재 유저를 모르고 그냥 "이미 존재하는 닉네임인지"만
+  // 보므로, 안 바꿨는데 물어보면 "내 것"인데도 중복이라고 나온다.
+  const checkEditNickname = async (): Promise<boolean> => {
+    const nick = editNickname.trim();
+    if (nick.length < 2 || nick.length > 10) {
+      setEditNickOk(false);
+      setEditNickMsg({ text: '사용할 수 없는 닉네임입니다. (2~10자)', color: NICK_BAD_RED });
+      return false;
+    }
+    if (nick === profile?.nickname) {
+      setEditNickOk(true);
+      setEditNickMsg({ text: '현재 사용 중인 닉네임입니다.', color: NICK_OK_GREEN });
+      return true;
+    }
+    setEditNickChecking(true);
+    try {
+      const res = await checkNicknameAvailable(nick);
+      setEditNickOk(res.available);
+      setEditNickMsg({ text: res.message, color: res.available ? NICK_OK_GREEN : NICK_BAD_RED });
+      return res.available;
+    } catch {
+      setEditNickOk(false);
+      setEditNickMsg({ text: '중복확인에 실패했습니다. 잠시 후 다시 시도해 주세요.', color: NICK_BAD_RED });
+      return false;
+    } finally {
+      setEditNickChecking(false);
+    }
+  };
+
   // ⭐ 수정: 닉네임(2~10자, 회원가입 화면과 동일한 규칙) + 관심카테고리 부분 수정 저장
   const saveProfile = async () => {
     const nick = editNickname.trim();
     if (nick.length < 2 || nick.length > 10) {
       setEditNickError('닉네임은 2~10자로 입력해 주세요.');
       return;
+    }
+    // 닉네임을 바꿨다면 저장 전에 중복확인을 통과해야 한다 - 버튼을 안 눌렀으면
+    // 여기서 대신 한 번 확인한다(회원가입 AccountScreen의 이메일 검증과 동일한 패턴).
+    if (nick !== profile?.nickname) {
+      const ok = editNickOk || (await checkEditNickname());
+      if (!ok) return;
     }
     setEditNickError(null);
     const category = Object.keys(editCats).filter((k) => editCats[k]);
@@ -210,7 +261,7 @@ export default function MyPageScreen({ navigation }: any) {
                   <Text style={styles.name}>{profile.nickname}</Text>
                   {/* ⭐ 수정: 프로필 수정(닉네임/관심카테고리) 모달 진입 버튼 */}
                   <Pressable onPress={openEditProfile} hitSlop={8} style={styles.editBtn}>
-                    <Text style={styles.editIcon}>✏️</Text>
+                    <PencilIcon size={14} color={colors.primaryDark} />
                   </Pressable>
                 </View>
                 {/* ⭐ 수정: 칭호 오른쪽에 관심카테고리 표시 */}
@@ -313,15 +364,27 @@ export default function MyPageScreen({ navigation }: any) {
       <GamePopup visible={editVisible} onClose={() => setEditVisible(false)} title="프로필 수정" width={320}>
         <View style={{ alignSelf: 'stretch' }}>
           <Text style={styles.editLabel}>닉네임</Text>
-          <GdqInput
-            value={editNickname}
-            onChangeText={(v) => {
-              setEditNickname(v);
-              if (editNickError) setEditNickError(null);
-            }}
-            placeholder="닉네임을 입력하세요"
-            maxLength={10}
-          />
+          <View style={styles.editNickRow}>
+            <View style={{ flex: 1 }}>
+              <GdqInput
+                value={editNickname}
+                onChangeText={(v) => {
+                  setEditNickname(v);
+                  if (editNickError) setEditNickError(null);
+                  setEditNickOk(false);
+                  setEditNickMsg(null);
+                }}
+                placeholder="닉네임을 입력하세요"
+                maxLength={10}
+              />
+            </View>
+            <SpringButton style={styles.editDupBtn} onPress={checkEditNickname} disabled={editNickChecking}>
+              <Text style={styles.editDupText}>{editNickChecking ? '확인 중' : '중복확인'}</Text>
+            </SpringButton>
+          </View>
+          {editNickMsg ? (
+            <Text style={[styles.editFieldMsg, { color: editNickMsg.color }]}>{editNickMsg.text}</Text>
+          ) : null}
           {editNickError ? <Text style={styles.editErrorText}>{editNickError}</Text> : null}
 
           <Text style={[styles.editLabel, { marginTop: 16 }]}>관심 카테고리</Text>
@@ -384,10 +447,24 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1, minWidth: 0 },
   // ⭐ 수정: 닉네임 + 프로필 수정 버튼 행 / 수정 모달 스타일
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  editBtn: { padding: 2 },
-  editIcon: { fontSize: 13 },
+  editBtn: {
+    padding: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(92, 61, 30, 0.08)',
+  },
   editLabel: { fontSize: 13, fontWeight: '700', color: colors.gold, marginBottom: 8, fontFamily: fonts.bodyB },
   editErrorText: { marginTop: 6, fontSize: 12, color: '#FF8A80', fontFamily: fonts.bodyM },
+  editNickRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  editDupBtn: {
+    height: 50,
+    paddingHorizontal: 14,
+    borderRadius: radii.input,
+    backgroundColor: colors.primaryDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editDupText: { color: colors.white, fontSize: 13, fontWeight: '600', fontFamily: fonts.bodyM },
+  editFieldMsg: { marginTop: 8, marginLeft: 2, fontSize: 12, fontWeight: '600', fontFamily: fonts.bodyM },
   editGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   editCatCell: {
     flexDirection: 'row',

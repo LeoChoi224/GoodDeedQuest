@@ -204,7 +204,7 @@ def submit_verification(
         "media_embedding": [primary_phash] if primary_phash else None,
         "attempt_number": 1,
     })
-    xp_gained, points_gained = settle(
+    xp_gained, points_gained, unlocked_badges = settle(
         submission_respository, current_user, quest, submission, verdict, result
     )
 
@@ -223,6 +223,7 @@ def submit_verification(
         reason=result["reason"],
         xp_gained=xp_gained,
         points_gained=points_gained,
+        unlocked_badges=unlocked_badges,
     )
 
 
@@ -265,16 +266,17 @@ def submit_challenge(
 
     xp_gained = 0
     points_gained = 0
+    unlocked_badges: list[str] = []
     if matched:
         quest = quest_repository.get(submission.quest_id)
-        xp_gained, points_gained = _grant_reward(
+        xp_gained, points_gained, unlocked_badges = _grant_reward(
             submission_respository, current_user, quest, submission
         )
     else:
         adjust_trust(current_user, TRUST_ON_REJECT)
         submission_respository.session.commit()
 
-    
+
 
     return SubmitResponse(
         verified=matched,
@@ -282,4 +284,5 @@ def submit_challenge(
                 else "손으로 쓴 인증 번호를 확인하지 못했습니다. 다시 시도해 주세요.",
         xp_gained=xp_gained,
         points_gained=points_gained,
+        unlocked_badges=unlocked_badges,
     )

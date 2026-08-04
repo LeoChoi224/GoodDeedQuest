@@ -48,7 +48,7 @@ const SECTIONS: Section[] = [
     { label: '내 주변 봉사', screen: 'Nearby' },
   ] },
   { key: 'shop', label: '상점', icon: NAV_ICONS.shop, tab: 'Shop', children: [
-    { label: '상점', screen: 'Shop' },
+    { label: '상점', screen: 'ShopHome' },
     { label: '구매 내역', screen: 'PurchaseHistory' },
     { label: '보유 아이템', screen: 'Inventory' },
   ] },
@@ -88,7 +88,7 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
   const goChild = (section: Section, child: Child) => {
     navigation.closeDrawer();
     if (section.tab) {
-      navigation.navigate('Main', { screen: section.tab, params: { screen: child.screen } });
+      navigation.navigate('Tabs', { screen: section.tab, params: { screen: child.screen } });
     } else if (section.route) {
       navigation.navigate(section.route, { screen: child.screen });
     }

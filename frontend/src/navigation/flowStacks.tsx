@@ -64,8 +64,11 @@ export function HomeStack() {
       <S.Screen name="QuestRegister" component={QuestRegisterScreen} />
       <S.Screen name="AiRecommend" component={AiRecommendScreen} />
       {/* 퀘스트 상세 → 봉사 원본 공고. MapStack에도 등록돼 있지만, 홈 탭에서 이동할 때
-          탭이 지도로 바뀌지 않도록 여기에도 둔다. */}
-      <S.Screen name="VolunteerDetail" component={VolunteerDetailScreen} />
+          탭이 지도로 바뀌지 않도록 여기에도 둔다.
+          ⭐ 수정: MapStack의 VolunteerDetail과 이름이 겹쳐 React Navigation이
+          "confusing behavior during navigation" 경고를 띄우던 문제 - 탭별로
+          고유한 이름(QuestVolunteerDetail)으로 분리한다. */}
+      <S.Screen name="QuestVolunteerDetail" component={VolunteerDetailScreen} />
 
     </S.Navigator>
   );
@@ -77,8 +80,11 @@ export function CommunityStack() {
       <S.Screen name="Feed" component={FeedScreen} />
       <S.Screen name="MyPosts" component={FeedScreen} />
       <S.Screen name="NewPost" component={NewPostScreen} />
-      {/* 커뮤니티 상단 "팀 챌린지" 탭 진입점 — 뒤로가기 시 Feed 복귀 (TeamStack은 별도) */}
-      <S.Screen name="TeamHome" component={TeamHomeScreen} />
+      {/* 커뮤니티 상단 "팀 챌린지" 탭 진입점 — 뒤로가기 시 Feed 복귀 (TeamStack은 별도)
+          ⭐ 수정(BUG-1): TeamStack의 TeamHome과 이름이 겹쳐 React Navigation이
+          "confusing behavior during navigation" 경고를 띄우던 문제 - 탭별로
+          고유한 이름(CommunityTeamHome)으로 분리한다. */}
+      <S.Screen name="CommunityTeamHome" component={TeamHomeScreen} />
     </S.Navigator>
   );
 }
@@ -86,7 +92,10 @@ export function CommunityStack() {
 export function ShopStack() {
   return (
     <S.Navigator screenOptions={opts}>
-      <S.Screen name="Shop" component={ShopScreen} />
+      {/* ⭐ 수정: MainTabs의 탭 이름 "Shop"과 겹쳐 React Navigation이
+          "confusing behavior during navigation" 경고를 띄우던 문제 - 탭 안쪽의
+          실제 상점 화면은 별도 이름(ShopHome)으로 분리한다. */}
+      <S.Screen name="ShopHome" component={ShopScreen} />
       <S.Screen name="ItemDetail" component={ItemDetailScreen} />
       <S.Screen name="PurchaseHistory" component={PurchaseHistoryScreen} />
       <S.Screen name="Inventory" component={InventoryScreen} />
@@ -124,7 +133,10 @@ export function TeamStack() {
       <S.Screen name="RoomFind" component={RoomFindScreen} />
       <S.Screen name="TeamDetail" component={TeamDetailScreen} />
       <S.Screen name="TeamList" component={TeamListScreen} />
-      <S.Screen name="QuestRegister" component={QuestRegisterScreen} />
+      {/* ⭐ 수정: HomeStack의 QuestRegister와 이름이 겹쳐 React Navigation이
+          "confusing behavior during navigation" 경고를 띄우던 문제 - 탭별로
+          고유한 이름(TeamQuestRegister)으로 분리한다. */}
+      <S.Screen name="TeamQuestRegister" component={QuestRegisterScreen} />
     </S.Navigator>
   );
 }
@@ -134,6 +146,8 @@ export function ShortformStack() {
     <S.Navigator screenOptions={opts}>
       <S.Screen name="PhotoSelect" component={PhotoSelectScreen} />
       <S.Screen name="Generating" component={GeneratingScreen} options={{ animation: 'fade' }} />
+      {/* PlayerScreen 내부의 beforeRemove 리스너가 스와이프 제스처를 포함해 어떤
+          경로로 나가든 PhotoSelect를 초기화하므로, 여기서 제스처를 막을 필요는 없다. */}
       <S.Screen name="Player" component={PlayerScreen} />
     </S.Navigator>
   );

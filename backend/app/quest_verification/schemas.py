@@ -23,6 +23,8 @@ class SubmitResponse(BaseModel):
   challenge_required: bool = False
   challenge_code: Optional[str] = None
   submission_id: Optional[int] = None
+  # ⭐ 수정: 이번 인증으로 새로 해금된 칭호(배지) 이름 목록 - 인증완료 화면 토스트 표시용
+  unlocked_badges: list[str] = []
 
 class ChallengeRequest(BaseModel):
   submission_id: int

@@ -155,7 +155,7 @@ export default function TeamListScreen({ navigation, route }: any) {
     setQuestPickerOpen(false);
     setSheet(false);
 
-    navigation.navigate('QuestRegister', {
+    navigation.navigate('TeamQuestRegister', {
       returnToTeamCreate: true,
     });
   };

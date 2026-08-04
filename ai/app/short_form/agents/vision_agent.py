@@ -18,6 +18,7 @@ import json
 import os
 import re
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import boto3
@@ -145,31 +146,52 @@ def _parse_vision_response(raw_content: str, media_key: str) -> VisionAnalysisRe
     )
 
 
+# 이미지 1장당 S3 다운로드 + Gemini(폴백 시 OpenAI) 호출 시간이 그대로 더해지는 구조라,
+# 사진 선택 화면에서 고를 수 있는 이미지가 늘수록(보조 사진·동영상 대표 프레임 포함) 대본
+# 생성 전체 시간이 그만큼 늘어나 백엔드/프론트 타임아웃까지 넘기던 문제가 있었다.
+# 이미지마다 서로 독립적인 작업이라 스레드풀로 동시에 처리한다. 값을 너무 크게 잡으면
+# Gemini 할당량(429)을 오히려 더 자주 유발할 수 있어 보수적으로 4로 제한한다.
+MAX_CONCURRENT_VISION_CALLS = 4
+
+
+def _analyze_one_media(media_key: str) -> VisionAnalysisResult | None:
+    """미디어 1건을 다운로드 -> Vision 호출 -> 파싱까지 처리. 실패해도 예외를 올리지
+    않고 None을 돌려줘서(로그만 남김) 한 장이 실패해도 나머지 장은 계속 처리되게 한다."""
+    local_path = None
+    try:
+        local_path = _download_media_from_s3(media_key)
+        response_text = _call_gemini_vision(local_path, media_key)  # ⭐ 수정: 이미 정규화된 텍스트 반환
+
+        if response_text is None:
+            return None
+
+        print(f"[VisionAgent] raw response for {media_key}:\n{response_text}")  # ⭐ 수정
+        return _parse_vision_response(response_text, media_key)  # ⭐ 수정: _extract_text_from_content 제거(정규화가 헬퍼 내부로 이동)
+
+    except Exception as e:
+        # TODO(후속): 실패한 media_key를 모아서 state["error_message"]/status에 반영할지 결정
+        print(f"[VisionAgent] {media_key} 처리 중 오류 발생: {e}")
+        return None
+
+    finally:
+        if local_path and os.path.exists(local_path):
+            os.remove(local_path)
+
+
 def vision_agent(state: ShortFormState) -> ShortFormState:
 
-    print(f"[VisionAgent] media_keys={state['media_keys']}")
+    media_keys = state["media_keys"]
+    print(f"[VisionAgent] media_keys={media_keys}")
 
-    vision_results: list[VisionAnalysisResult] = []
+    if not media_keys:
+        state["vision_results"] = []
+        return state
 
-    for media_key in state["media_keys"]:
-        local_path = None
-        try:
-            local_path = _download_media_from_s3(media_key)
-            response_text = _call_gemini_vision(local_path, media_key)  # ⭐ 수정: 이미 정규화된 텍스트 반환
-
-            if response_text is not None:
-                print(f"[VisionAgent] raw response for {media_key}:\n{response_text}")  # ⭐ 수정
-                parsed_result = _parse_vision_response(response_text, media_key)  # ⭐ 수정: _extract_text_from_content 제거(정규화가 헬퍼 내부로 이동)
-                if parsed_result is not None:
-                    vision_results.append(parsed_result)
-
-        except Exception as e:
-            # TODO(후속): 실패한 media_key를 모아서 state["error_message"]/status에 반영할지 결정
-            print(f"[VisionAgent] {media_key} 처리 중 오류 발생: {e}")
-
-        finally:
-            if local_path and os.path.exists(local_path):
-                os.remove(local_path)
+    # futures 리스트를 media_keys와 같은 순서로 만들어두면, 실행은 동시에 되더라도
+    # .result()를 그 순서대로 모으므로 씬 순서(자막/렌더링이 의존)가 그대로 유지된다.
+    with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT_VISION_CALLS, len(media_keys))) as executor:
+        futures = [executor.submit(_analyze_one_media, media_key) for media_key in media_keys]
+        vision_results = [result for future in futures if (result := future.result()) is not None]
 
     state["vision_results"] = vision_results
     return state

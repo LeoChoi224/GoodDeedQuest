@@ -11,7 +11,7 @@
  * media_url(presigned URL)과 숏폼 생성 요청용 media_s3_key(원본 S3 key)가
  * 분리되어 내려온다.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { ZoomIn } from 'react-native-reanimated';
 import HazeBackground from '../../components/HazeBackground';
@@ -32,12 +33,11 @@ import SpringButton from '../../components/SpringButton';
 import { CheckMark } from '../../components/PixelIcons';
 import { useToast } from '../../components/Toast';
 import { colors, fonts } from '../../theme';
-import { AiScriptPopup, MusicSheet } from './_parts';
+import { AiScriptPopup, MusicSheet, PlayTri } from './_parts';
+import { consumePlayerShown } from './completionFlag';
 import { getQuest } from '../../api/quest';
 import {
   createShortform,
-  generateScript,
-  getBackgroundMusicList,
   getEligibleMedia,
   CaptionItem,
   BackgroundMusic,
@@ -48,7 +48,7 @@ const PERIODS = ['전체', '이번주', '1주전', '2주전', '3주전'];
 const PERIOD_DAYS: (number | null)[] = [null, 7, 14, 21, 28];
 const DEFAULT_TITLE = '나의 선행 숏폼';
 
-export default function PhotoSelectScreen({ navigation, route }: any) {
+export default function PhotoSelectScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const toast = useToast();
@@ -57,7 +57,9 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
   const [submissions, setSubmissions] = useState<EligibleMedia[]>([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(true);
   const [submissionsError, setSubmissionsError] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  // ⭐ 수정: 제출 1건이 여러 사진(보조 사진 + 동영상 대표 프레임)으로 풀려 나올 수 있어
+  // submission_id는 더 이상 화면 내에서 유일하지 않다 - 사진마다 고유한 media_s3_key로 선택 관리.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [scriptOpen, setScriptOpen] = useState(false);
   const [musicOpen, setMusicOpen] = useState(false);
@@ -80,24 +82,29 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
   const [autoBgmId, setAutoBgmId] = useState<number | null>(null);
   const questTitleCache = React.useRef<Map<number, string>>(new Map());
 
-  // ⭐ 수정: 생성 완료(PlayerScreen)를 보고 뒤로가기로 나오면 처음부터 다시 선택할 수 있도록
-  // 사진 선택/AI 대본/음악/기간 필터를 전부 초기 상태로 되돌린다. PlayerScreen이 뒤로가기 시
-  // navigation.navigate('PhotoSelect', { reset: true })로 이 신호를 실어 보낸다.
-  useEffect(() => {
-    if (!route?.params?.reset) return;
-    setPeriod(0);
-    setSelectedIds([]);
-    setScriptOpen(false);
-    setMusicOpen(false);
-    setShortsId(null);
-    setShortsIdBgmId(undefined);
-    setShortsIdTitle(undefined);
-    setSelectedBgm(null);
-    setCaptions(null);
-    setScriptTitle(null);
-    setAutoBgmId(null);
-    navigation.setParams({ reset: undefined });
-  }, [route?.params?.reset]);
+  // ⭐ 수정: 생성 완료(PlayerScreen)를 보고 돌아오면 처음부터 다시 선택할 수 있도록
+  // 사진 선택/AI 대본/음악/기간 필터를 전부 초기 상태로 되돌린다. 예전엔 PlayerScreen이
+  // 나가는 시점에 route params로 reset 신호를 실어 보내는 방식이었는데, 버튼/스와이프
+  // 제스처/하드웨어 뒤로가기/드로어 메뉴 등 "나가는 경로"마다 신호를 놓치기 쉬웠다
+  // (완전히 가로채려던 시도는 무한 재귀 크래시까지 났음). 대신 PlayerScreen이 "보여졌다"는
+  // 사실만 completionFlag에 기록해두고, 이 화면이 포커스를 되찾을 때마다(나가는 경로와
+  // 무관하게 항상 호출되는 useFocusEffect) 그 기록을 확인해서 초기화한다.
+  useFocusEffect(
+    useCallback(() => {
+      if (!consumePlayerShown()) return;
+      setPeriod(0);
+      setSelectedIds([]);
+      setScriptOpen(false);
+      setMusicOpen(false);
+      setShortsId(null);
+      setShortsIdBgmId(undefined);
+      setShortsIdTitle(undefined);
+      setSelectedBgm(null);
+      setCaptions(null);
+      setScriptTitle(null);
+      setAutoBgmId(null);
+    }, []),
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -141,7 +148,7 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
   }, [submissions, period]);
 
   const selectedSubmissions = useMemo(
-    () => submissions.filter((s) => selectedIds.includes(s.submission_id)),
+    () => submissions.filter((s) => selectedIds.includes(s.media_s3_key as string)),
     [submissions, selectedIds],
   );
   const mediaKeys = useMemo(
@@ -167,9 +174,9 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mediaKeysKey]);
 
-  const toggle = (submissionId: number) =>
+  const toggle = (mediaS3Key: string) =>
     setSelectedIds((cur) =>
-      cur.includes(submissionId) ? cur.filter((x) => x !== submissionId) : [...cur, submissionId],
+      cur.includes(mediaS3Key) ? cur.filter((x) => x !== mediaS3Key) : [...cur, mediaS3Key],
     );
 
   // 백엔드는 quest_title을 문자열 하나로만 받아서, 서로 다른 퀘스트 사진을 섞어
@@ -272,77 +279,17 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
 
   /**
    * "자동생성" 버튼(사진 선택 화면 하단) - AI가 선택된 사진을 분석해 대본과
-   * 분위기에 맞는 음악(BGM)을 전부 자동으로 정한 뒤 바로 숏폼 생성 화면으로 이동한다.
-   * BGM은 항상 AI 서버의 RAG 매칭 결과를 쓴다 - 자동 경로는 사용자가 수동으로 골라둔
-   * 음악(selectedBgm)을 무시한다.
+   * 분위기에 맞는 음악(BGM)을 전부 자동으로 정한 뒤 영상까지 만든다. BGM은 항상 AI
+   * 서버의 RAG 매칭 결과를 쓴다 - 자동 경로는 사용자가 수동으로 골라둔 음악(selectedBgm)을
+   * 무시한다.
    *
-   * ⭐ 수정: 대본 생성(/generate-script)이 이제 vision_agent 분석 결과로 RAG 매칭까지
-   * 함께 실행해 bgm_id를 응답에 실어준다(ai/app/short_form/router.py). 예전엔 ShortForm
-   * 생성 시점(사진 분석 전!)에 "가장 최근 등록된 BGM"을 그냥 집어오는 더미 로직이라
-   * 사진 내용과 무관했는데, 이제 대본 생성 응답의 bgm_id로 다시 만들어서 실제 분위기
-   * 매칭 결과가 반영되게 한다. AI가 매칭에 실패하면(bgm_id=None) 기존처럼 backend
-   * 자체 fallback(_resolve_bgm_id_for_auto_mode)에 맡긴다.
-   *
-   * AI 대본 팝업의 "적용하기"로 이미 대본(captions/scriptTitle/autoBgmId)을 저장해둔
-   * 상태라면 그 값을 그대로 쓰고 generateScript를 다시 호출하지 않는다(같은 사진을
-   * 두 번 분석하는 낭비 방지). 사진 선택이 바뀌면 그 값들은 이미 초기화되어 있으므로
-   * 안전하게 재사용할 수 있다.
+   * ⭐ 수정: 예전엔 대본 생성(생성기 호출 중 가장 오래 걸리는 단계)을 이 화면에 머문 채로
+   * 끝낸 뒤에야 Generating으로 넘어가서, 그동안 화면이 멈춘 것처럼 보였다(버튼 안의 작은
+   * 스피너 말고는 아무 진행 표시가 없었음). 이제 대본/음악을 실제로 만드는 무거운 작업을
+   * 전부 GeneratingScreen으로 넘기고, 여기서는 퀘스트 제목만 미리 계산해서 바로
+   * navigate한다 - 화면 전환이 즉시 일어나고, 그 뒤 모든 단계(대본 생성 → 음악 매칭 →
+   * 렌더링)의 진행 상황을 GeneratingScreen이 계속 보여준다.
    */
-  const runAutoGenerate = async (): Promise<void> => {
-    if (selectedSubmissions.length === 0) {
-      throw new Error('사진을 먼저 선택해주세요.');
-    }
-    const placeholderTitle = scriptTitle ?? (await resolveQuestTitle());
-
-    let finalCaptions = captions;
-    let matchedBgmId = autoBgmId;
-    let finalTitle = placeholderTitle;
-
-    if (!finalCaptions) {
-      // 저장된 대본이 없으면(또는 사진이 바뀌어 초기화됐으면) 새로 생성 - bgm_id는 아직
-      // 모르니 임시 shorts_id 확보용으로만 undefined로 만들고, 아래서 실제 매칭값으로 다시 만든다.
-      const draft = await createShortform(placeholderTitle, mediaKeys, undefined);
-      const scriptResult = await generateScript(draft.shorts_id, mediaKeys, placeholderTitle);
-      finalCaptions = scriptResult.captions;
-      finalTitle = scriptResult.title || placeholderTitle;
-      matchedBgmId = scriptResult.bgm_id ?? null;
-      setAutoBgmId(matchedBgmId);
-    }
-
-    // 최종 제목/BGM으로 다시 생성한다 - draft는 임시값(제목 placeholder, bgm 더미)이라
-    // 실제 반영하려면 다시 만들어야 함(ShortForm에 title/bgm_id 수정 API가 없음).
-    const finalForm = await createShortform(finalTitle, mediaKeys, matchedBgmId ?? undefined);
-    const finalShortsId = finalForm.shorts_id;
-    const finalBgmId = finalForm.bgm_id;
-
-    let bgm: BackgroundMusic | null = null;
-    try {
-      const list = await getBackgroundMusicList();
-      bgm = list.items.find((b) => b.bgm_id === finalBgmId) ?? null;
-    } catch (error) {
-      console.error('자동 매칭된 배경음악 조회 실패:', error);
-    }
-
-    setShortsId(finalShortsId);
-    setShortsIdBgmId(finalBgmId);
-    setShortsIdTitle(finalTitle);
-    setSelectedBgm(bgm);
-    setCaptions(finalCaptions);
-    setScriptTitle(finalTitle);
-    setScriptOpen(false);
-
-    navigation.navigate('Generating', {
-      shortsId: finalShortsId,
-      mediaKeys,
-      captions: finalCaptions,
-      title: finalTitle,
-      bgmId: finalBgmId,
-    });
-  };
-
-  // ⭐ 수정: 사진 선택 화면 하단 "자동생성" 버튼 핸들러. 기존엔 파라미터 없이 그냥
-  // navigation.navigate('Generating')만 호출해서 GeneratingScreen이 shortsId/captions를
-  // 못 받아 곧바로 에러가 나던 버그였다 - runAutoGenerate()로 교체.
   const handleAutoGenerate = async () => {
     if (selectedSubmissions.length === 0) {
       toast.show('사진을 먼저 선택해주세요.');
@@ -350,10 +297,21 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
     }
     try {
       setAutoGenerating(true);
-      await runAutoGenerate();
+      // AI 대본 팝업의 "적용하기"로 이미 대본을 저장해둔 상태라면 그대로 넘겨서
+      // GeneratingScreen이 generateScript를 다시 호출하지 않게 한다(같은 사진을 두 번
+      // 분석하는 낭비 방지 - Gemini 호출 할당량도 아낀다).
+      const questTitle = scriptTitle ?? (await resolveQuestTitle());
+      navigation.navigate('Generating', {
+        auto: true,
+        shortsId,
+        mediaKeys,
+        captions,
+        questTitle,
+        matchedBgmId: autoBgmId,
+      });
     } catch (error) {
-      console.error('자동 생성 실패:', error);
-      toast.show('자동 생성에 실패했습니다.');
+      console.error('자동 생성을 시작하지 못했습니다:', error);
+      toast.show('자동 생성을 시작하지 못했습니다.');
     } finally {
       setAutoGenerating(false);
     }
@@ -414,15 +372,16 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
         ) : (
           <View style={styles.grid}>
             {filteredSubmissions.map((item, i) => {
-              const sel = selectedIds.includes(item.submission_id);
+              const key = item.media_s3_key as string;
+              const sel = selectedIds.includes(key);
               return (
                 <Animated.View
-                  key={item.submission_id}
+                  key={key}
                   entering={ZoomIn.delay(30 + i * 40).duration(360)}
                   style={{ width: cell, height: cell }}
                 >
                   <Pressable
-                    onPress={() => toggle(item.submission_id)}
+                    onPress={() => toggle(key)}
                     style={[styles.cell, sel && styles.cellSelected]}
                   >
                     <Image
@@ -430,6 +389,14 @@ export default function PhotoSelectScreen({ navigation, route }: any) {
                       style={StyleSheet.absoluteFill}
                       resizeMode="cover"
                     />
+                    {/* ⭐ 추가: 동영상 인증 자료에서 뽑은 대표 프레임은 사진과 구분이
+                        안 돼서 헷갈렸다 - 배지로 "동영상"임을 표시한다. */}
+                    {item.is_video ? (
+                      <View style={styles.videoBadge}>
+                        <PlayTri size={9} color="#fff" />
+                        <Text style={styles.videoBadgeText}>동영상</Text>
+                      </View>
+                    ) : null}
                     {sel ? (
                       <View style={styles.badge}>
                         <CheckMark size={12} color="#fff" />
@@ -547,6 +514,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  videoBadge: {
+    position: 'absolute',
+    left: 5,
+    bottom: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  videoBadgeText: { fontSize: 9, fontWeight: '700', color: '#fff', fontFamily: fonts.bodyB },
   count: { textAlign: 'right', fontFamily: fonts.pixel, fontSize: 14, color: colors.gold },
 
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10 },

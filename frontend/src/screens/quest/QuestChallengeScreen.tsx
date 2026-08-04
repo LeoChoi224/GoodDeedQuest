@@ -70,6 +70,7 @@ export default function QuestChallengeScreen({ navigation, route }: any) {
           exp: result.xp_gained,
           point: result.points_gained,
           title,
+          unlockedBadges: result.unlocked_badges,
         });
       } else {
         setStage('form');

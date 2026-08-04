@@ -83,6 +83,12 @@ export const ChevronLeft = ({ size = 24, color = '#1A1A1A' }: IconProps) => (
   </Svg>
 );
 
+export const PencilIcon = ({ size = 14, color = '#1A1A1A' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19 3 20l1-4Z" />
+  </Svg>
+);
+
 export const CheckMark = ({ size = 13, color = '#fff' }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
     <Path d="M5 12l5 5L20 6" />
