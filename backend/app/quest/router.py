@@ -11,7 +11,7 @@ from backend.app.common.deps import get_repository
 from backend.app.common.enums import Difficulty
 from backend.app.common.repository import DatabaseRepository
 from backend.app.quest.models import Quest, Category, QuestHiddenPreference, QuestStart
-from backend.app.quest.enums import QuestType, QuestSource, QuestStatus
+from backend.app.quest.enums import QuestTarget, QuestType, QuestSource, QuestStatus
 from backend.app.quest.rewards import reward_from_intensity
 from backend.app.quest.service import started_quest_ids
 from backend.app.quest.schemas import QuestSchema, CreateQuestRequest, CreateQuestResponse, DeleteQuestResponse
@@ -21,6 +21,7 @@ from backend.app.quest_verification.models import QuestSubmission
 from backend.app.quest_verification.enums import SubmissionStatus
 from backend.app.quest.rate_limit import count_daily_use
 from backend.app.quest.similarity import find_similar_quest
+from backend.app.map.models import VolunteerCenter
 
 # 하루에 만들 수 있는 커스텀 퀘스트 수.
 # 같은 활동을 여러 개 만드는 것 자체는 막지 않는다. 인증 단계에서 사진·영상
@@ -55,6 +56,11 @@ HiddenRepository = Annotated[
 StartRepository = Annotated[
     DatabaseRepository[QuestStart],
     Depends(get_repository(QuestStart))
+]
+
+VolunteerCenterRepository = Annotated[
+    DatabaseRepository[VolunteerCenter],
+    Depends(get_repository(VolunteerCenter))
 ]
 
 router = APIRouter(prefix="/quests", tags=["Quests"])
@@ -198,6 +204,98 @@ def start_quest(
         quest, viewer_id=current_user.user_id,
         started_ids=started_ids, done_ids=done_ids,
     ), message="퀘스트를 시작했습니다.")
+
+
+# ⭐ 수정: AI 요약 호출 헬퍼. 실패해도 예외를 던지지 않고 조용히 원문으로 폴백한다 —
+# 지도에서 "퀘스트 시작"을 눌렀는데 AI 서버가 잠깐 죽어있다고 시작 자체가 막히면 안 되므로.
+def _summarize_volunteer_center(center: VolunteerCenter) -> tuple[str, str]:
+    """AI로 봉사 공고를 퀘스트용 제목/한 문장 요약으로 정리한다. 실패하면 원문으로 대체."""
+    try:
+        response = httpx.post(
+            f"{get_setting().AI_SERVICE_URL}/ai/recommend/volunteer-summary",
+            json={
+                "center_id": center.center_id,
+                "vol_title": center.vol_title,
+                "vol_name": center.vol_name,
+                "target": center.target,
+                "vol_act": center.vol_act,
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        data = response.json()["data"]
+        return data["quest_title"], data["quest_summary"]
+    except (httpx.HTTPError, KeyError, ValueError, TypeError) as e:
+        print(f"봉사 공고 AI 요약 실패, 원문으로 대체함: center_id={center.center_id} {type(e).__name__}: {e}")
+        fallback_title = (center.vol_title or center.vol_name or "봉사활동 참여")[:200]
+        fallback_summary = center.vol_act or "봉사활동에 참여하고 인증하면 보상을 받아요."
+        return fallback_title, fallback_summary
+
+
+# ⭐ 수정: 지도에서 본 봉사공고를 AI 추천 경로를 거치지 않고 바로 퀘스트로 변환한다.
+# 같은 center_id로 이미 만들어진 Quest가 있으면 그걸 재사용하고(중복 생성 방지), 없으면
+# 이 자리에서 하나 만든다. 제목/설명은 VolunteerCenter.quest_title/quest_summary(AI 추천
+# 경로에서 미리 채워졌을 수 있음)가 있으면 그대로 쓰고, 없으면 AI에 단건 요약을 요청해서
+# 채운 뒤 VolunteerCenter에도 캐싱한다(다음부턴 이 경로든 AI 추천 경로든 재사용).
+# 보상은 난이도를 판단할 근거가 없어 NORMAL 고정으로 산정한다.
+@router.post("/from-volunteer-center/{center_id}", response_model=APIResponse[QuestSchema])
+def get_or_create_quest_from_volunteer_center(
+    center_id: int,
+    quest_repository: QuestRepository,
+    category_repository: CategoryRepository,
+    center_repository: VolunteerCenterRepository,
+    submission_repository: SubmissionRepository,
+    current_user: User = Depends(get_current_db_user),
+):
+    """지도에서 보고 있는 봉사공고를 그 자리에서 퀘스트로 변환(또는 기존 것 재사용)한다."""
+    center = center_repository.get(center_id)
+    if center is None:
+        raise HTTPException(status_code=404, detail="봉사 공고를 찾을 수 없습니다.")
+
+    quest = quest_repository.get_by(volunteer_center_id=center_id, is_deleted=False)
+
+    if quest is None:
+        category = _load_category(category_repository, "volunteer")
+
+        if center.quest_title and center.quest_summary:
+            quest_title, quest_description = center.quest_title, center.quest_summary
+        else:
+            quest_title, quest_description = _summarize_volunteer_center(center)
+            # 다음 요청(다른 유저가 이 화면에서 또 누르거나, AI 추천 쪽이 나중에 이 공고를
+            # 집는 경우)에서 재사용할 수 있게 원본 테이블에도 캐싱해둔다.
+            center.quest_title = quest_title
+            center.quest_summary = quest_description
+            center_repository.session.commit()
+
+        quest_title = quest_title[:200]
+        # 난이도를 판단할 AI 심사가 없으므로 NORMAL 구간의 중간값으로 고정 산정한다.
+        point, exp = reward_from_intensity(Difficulty.NORMAL, 50)
+
+        quest = quest_repository.create({
+            "category_id": category.category_id,
+            "creator_id": current_user.user_id,
+            "quest_title": quest_title,
+            "quest_description": quest_description,
+            "quest_target": QuestTarget.SOLO,
+            "quest_type": QuestType.VOLUNTEER,
+            # USER로 두면 QuestSchema.from_quest가 만든 사람을 곧바로 '진행중'으로 표시해버려서
+            # (커스텀 퀘스트 전용 규칙), 시작 버튼 없이도 항상 진행중으로 보이는 부작용이 생긴다.
+            # 이건 원본 크롤링 데이터를 그대로 옮긴 것뿐이라 ADMIN으로 둔다.
+            "quest_source": QuestSource.ADMIN,
+            "location": center.vol_address,
+            "volunteer_center_id": center.center_id,
+            "difficulty": Difficulty.NORMAL,
+            "reward_point": point,
+            "reward_exp": exp,
+            "quest_status": QuestStatus.NOT_STARTED,
+        })
+
+    done_ids = _completed_quest_ids(submission_repository, current_user.user_id)
+    started_ids = _started_quest_ids(submission_repository, current_user.user_id)
+    return APIResponse.ok(data=QuestSchema.from_quest(
+        quest, viewer_id=current_user.user_id,
+        started_ids=started_ids, done_ids=done_ids,
+    ))
 
 
 def _load_category(category_repository: CategoryRepository, code: str) -> Category:
