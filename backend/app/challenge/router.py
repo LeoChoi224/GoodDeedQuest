@@ -40,12 +40,14 @@ from typing import Literal
 from backend.app.auth.router import get_current_db_user
 from backend.app.auth.models import User
 from backend.app.challenge.schema import (
+    ReceivedTeamInviteResponse,
     TeamCreate,
     TeamDetailResponse,
     TeamInviteCreate,
     TeamInviteResponse,
     TeamInviteStatusUpdate,
     TeamListItemResponse,
+    TeamMemberListItemResponse,
     TeamMemberResponse,
     TeamPasswordVerify,
     TeamResponse,
@@ -331,7 +333,7 @@ def leave_team(
 @router.get(
     "/teams/{team_id}/members",
     response_model=APIResponse[
-        list[TeamMemberResponse]
+        list[TeamMemberListItemResponse]
     ],
     status_code=status.HTTP_200_OK,
     summary="Challenge 팀 멤버 목록 조회",
@@ -339,23 +341,26 @@ def leave_team(
 def get_team_members(
     team_id: int,
     session: Session = Depends(get_db),
-) -> APIResponse[list[TeamMemberResponse]]:
+) -> APIResponse[list[TeamMemberListItemResponse]]:
 
-    # Service에서 팀 존재 여부를 검사하고 전체 멤버를 조회.
     members = ChallengeTeamService.get_team_members(
         session,
         team_id=team_id,
     )
 
-    # TeamMember ORM 객체를 응답 Schema 목록으로 변환.
     response_data = [
-        TeamMemberResponse.model_validate(
-            member
+        TeamMemberListItemResponse(
+            team_member_id=member.team_member_id,
+            team_id=member.team_id,
+            user_id=member.user_id,
+            nickname=nickname,
+            role_in_team=member.role_in_team,
+            joined_at=member.joined_at,
+            updated_at=member.updated_at,
         )
-        for member in members
+        for member, nickname in members
     ]
 
-    # 프로젝트의 공통 API 응답 형식으로 팀 멤버 목록을 반환.
     return APIResponse.ok(
         data=response_data,
         message="팀 멤버 목록을 성공적으로 조회했습니다.",
@@ -491,18 +496,18 @@ def get_team_detail(
 ) -> APIResponse[TeamDetailResponse]:
 
     # Service에서 팀 정보와 현재 참가 인원을 함께 조회.
-    team, current_members = (
+    team, current_members, quest_title = (
         ChallengeTeamService.get_team_detail(
             session,
             team_id=team_id,
         )
     )
 
-    # Team 객체에 현재 참가 인원을 결합하여 상세 응답 Schema로 변환.
     response_data = TeamDetailResponse(
         **TeamResponse.model_validate(
             team
         ).model_dump(),
+        quest_title=quest_title,
         current_members=current_members,
     )
 
@@ -551,7 +556,7 @@ def create_team_invite(
 @router.get(
     "/my-invites",
     response_model=APIResponse[
-        list[TeamInviteResponse]
+        list[ReceivedTeamInviteResponse]
     ],
     status_code=status.HTTP_200_OK,
     summary="내가 받은 Challenge 팀 초대 목록 조회",
@@ -562,39 +567,49 @@ def get_my_invites(
         ge=1,
         description="조회할 페이지 번호",
     ),
-
     size: int = Query(
         default=20,
         ge=1,
         le=100,
         description="한 페이지에서 조회할 초대 개수",
     ),
-
     session: Session = Depends(get_db),
     current_user: User = Depends(
         get_current_db_user
     ),
-) -> APIResponse[list[TeamInviteResponse]]:
-    
-    # Service에서 만료된 초대를 정리한 후 현재 사용자의 초대를 조회.
-    invites = ChallengeTeamService.get_received_invites(
-        session,
-        current_user=current_user,
-        page=page,
-        size=size,
+) -> APIResponse[
+    list[ReceivedTeamInviteResponse]
+]:
+    invite_rows = (
+        ChallengeTeamService.get_received_invites(
+            session,
+            current_user=current_user,
+            page=page,
+            size=size,
+        )
     )
 
-    # TeamInvite ORM 객체 목록을 응답 Schema 목록으로 변환.
     response_data = [
-        TeamInviteResponse.model_validate(
-            invite
+        ReceivedTeamInviteResponse(
+            **TeamInviteResponse.model_validate(
+                invite
+            ).model_dump(),
+            team_name=team_name,
+            inviter_nickname=inviter_nickname,
         )
-        for invite in invites
+        for (
+            invite,
+            team_name,
+            inviter_nickname,
+        ) in invite_rows
     ]
 
     return APIResponse.ok(
         data=response_data,
-        message="받은 팀 초대 목록을 성공적으로 조회했습니다.",
+        message=(
+            "받은 팀 초대 목록을 "
+            "성공적으로 조회했습니다."
+        ),
     )
 
 # 현재 로그인 사용자가 받은 초대를 수락하거나 거절하는 API.

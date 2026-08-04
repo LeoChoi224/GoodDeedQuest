@@ -16,6 +16,16 @@ class CommunityPostCreate(BaseModel):
         description="게시글과 연결할 승인된 퀘스트 인증 ID",
     )
 
+    selected_media_index: int = Field(
+        default=0,
+        ge=0,
+        le=4,
+        description=(
+            "커뮤니티 게시글에 사용할 인증 미디어 순서. "
+            "0은 대표 미디어, 1~4는 extra_media_urls입니다."
+        ),
+    )
+
     caption: str | None = Field(
         default=None,
         max_length=5000,
@@ -71,6 +81,10 @@ class RecentQuestSubmissionResponse(BaseModel):
     submission_id: int
     quest_id: int
     media_url: str | None
+    extra_media_urls: list[str] = Field(
+        default_factory=list,
+        description="AI 인증에 사용된 추가 사진 조회 URL 목록",
+    )
     media_type: MediaType | None
     submitted_at: datetime
 

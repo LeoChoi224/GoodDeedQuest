@@ -22,12 +22,16 @@ from sqlalchemy.orm import Session
 from backend.app.auth.enums import UserRole
 from backend.app.auth.models import User
 from backend.app.common.s3_client import (
+    CommunityVideoTranscodeTimeoutError,
     copy_s3_object,
     generate_download_presigned_url,
     transcode_s3_video_for_community,
 )
 from backend.app.community.models import CommunityPost
-from backend.app.community.repository import CommunityRepository
+from backend.app.community.repository import (
+    CommunityRepository,
+    DuplicateCommunityPostError,
+)
 from backend.app.community.scoring import (
     CommunityRecommendationScore,
     calculate_community_recommendation_score,
@@ -85,6 +89,23 @@ def _infer_media_type(stored_media: str) -> MediaType:
 
     return MediaType.PHOTO
 
+def _get_extra_media_keys(submission: object) -> list[str]:
+    """QuestSubmission의 유효한 추가 미디어 S3 key를 순서대로 반환합니다."""
+
+    raw_extra_media = getattr(
+        submission,
+        "extra_media_urls",
+        None,
+    )
+
+    if not isinstance(raw_extra_media, list):
+        return []
+
+    return [
+        media_key.strip()
+        for media_key in raw_extra_media
+        if isinstance(media_key, str) and media_key.strip()
+    ]
 
 def _build_permanent_media_key(
     *,
@@ -305,6 +326,12 @@ def get_recent_accepted_quest_submissions(
                 if submission.media_url
                 else None
             ),
+            extra_media_urls=[
+                _to_download_url(extra_media_key)
+                for extra_media_key in _get_extra_media_keys(
+                    submission,
+                )
+            ],
             media_type=(
                 submission.media_type
                 or _infer_media_type(submission.media_url)
@@ -331,11 +358,17 @@ def create_community_post(
             detail="비활성화된 사용자는 게시글을 작성할 수 없습니다.",
         )
 
-    submission = CommunityRepository.get_accepted_submission_by_id(
-        db=db,
-        submission_id=request.submission_id,
-        user_id=current_user.user_id,
-    )
+    try:
+        submission = CommunityRepository.get_accepted_submission_by_id(
+            db=db,
+            submission_id=request.submission_id,
+            user_id=current_user.user_id,
+        )
+    except DuplicateCommunityPostError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 커뮤니티에 등록한 퀘스트 인증입니다.",
+        ) from exc
 
     if submission is None:
         raise HTTPException(
@@ -346,14 +379,35 @@ def create_community_post(
             ),
         )
 
-    source_key = (submission.media_url or "").strip()
+    primary_media_key = (submission.media_url or "").strip()
+
+    if not primary_media_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="인증 대표 미디어의 S3 경로가 올바르지 않습니다.",
+        )
+
+    available_media_keys = [
+        primary_media_key,
+        *_get_extra_media_keys(submission),
+    ]
+
+    if request.selected_media_index >= len(available_media_keys):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="선택한 인증 미디어를 찾을 수 없습니다.",
+        )
+
+    source_key = available_media_keys[
+        request.selected_media_index
+    ]
+
     expected_prefix = (
         f"submission/{current_user.user_id}/{submission.quest_id}/"
     )
 
     if (
-        not source_key
-        or not source_key.startswith(expected_prefix)
+        not source_key.startswith(expected_prefix)
         or ".." in source_key
     ):
         raise HTTPException(
@@ -361,10 +415,14 @@ def create_community_post(
             detail="인증 미디어의 S3 경로가 올바르지 않습니다.",
         )
 
-    media_type = (
-        submission.media_type
-        or _infer_media_type(source_key)
-    )
+    if (
+        request.selected_media_index == 0
+        and submission.media_type is not None
+    ):
+        media_type = submission.media_type
+    else:
+        # extra_media_urls는 PhotoPicker에서 업로드된 이미지입니다.
+        media_type = _infer_media_type(source_key)
 
     permanent_key = _build_permanent_media_key(
         user_id=current_user.user_id,
@@ -386,6 +444,11 @@ def create_community_post(
                 source_key=source_key,
                 destination_key=permanent_key,
             )
+    except CommunityVideoTranscodeTimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="커뮤니티 동영상 최적화 시간이 초과되었습니다.",
+        ) from exc
     except (BotoCoreError, ClientError, RuntimeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

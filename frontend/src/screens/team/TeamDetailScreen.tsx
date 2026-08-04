@@ -24,7 +24,7 @@ import {
   searchTeamInviteCandidates,
   TeamDetail,
   TeamInviteCandidate,
-  TeamMember,
+  TeamMemberListItem,
 } from '../../api/challenge';
 import {
   Avatar,
@@ -41,6 +41,7 @@ import {
   POPUP_CREAM,
   staggerDelay,
 } from './_parts';
+import useTeamHomeBack from './useTeamHomeBack';
 
 export default function TeamDetailScreen({ navigation, route }: any) {
   const toast = useToast();
@@ -48,7 +49,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
   const teamId = Number(route?.params?.teamId);
   const initialPassword = route?.params?.joinPassword as string | undefined;
   const [team, setTeam] = useState<TeamDetail | null>(null);
-  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [members, setMembers] = useState<TeamMemberListItem[]>([]);
   const [recommendations, setRecommendations] = useState<RecommendedUser[]>([]);
   const [isMember, setIsMember] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -72,6 +73,23 @@ export default function TeamDetailScreen({ navigation, route }: any) {
   >([]);
 
   const popupW = Math.min(360, width - 48);
+
+  const handleInnerBack = useCallback(() => {
+    if (view !== 'recommend') {
+      return false;
+    }
+
+    setView('detail');
+    return true;
+  }, [view]);
+
+  const {
+    goTeamHome,
+    handleBack,
+  } = useTeamHomeBack(
+    navigation,
+    handleInnerBack,
+  );
 
   const clearRecommendationLoadingTimers = useCallback(() => {
     recommendationLoadingTimers.current.forEach((timer) => {
@@ -149,7 +167,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
   const load = useCallback(async () => {
     if (!Number.isInteger(teamId) || teamId <= 0) {
       toast.show('올바른 팀 정보가 없습니다.');
-      navigation.goBack();
+      goTeamHome();
       return;
     }
     setLoading(true);
@@ -168,12 +186,31 @@ export default function TeamDetailScreen({ navigation, route }: any) {
     } finally {
       setLoading(false);
     }
-  }, [navigation, teamId, toast]);
+  }, [goTeamHome, teamId, toast]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   const leader = useMemo(() => members.find((member) => member.role_in_team === 'LEADER'), [members]);
   const normalMembers = useMemo(() => members.filter((member) => member.role_in_team !== 'LEADER'), [members]);
+
+  const openUserDetail = useCallback(
+    (member: TeamMemberListItem) => {
+      navigation.navigate('UserDetail', {
+        userId: member.user_id,
+        user: {
+          user_id: member.user_id,
+          name: member.nickname,
+          nickname: member.nickname,
+          grad:
+            AVATARS[
+              Math.abs(member.user_id)
+              % AVATARS.length
+            ],
+        },
+      });
+    },
+    [navigation],
+  );
 
   const onJoin = async () => {
     setJoining(true);
@@ -193,7 +230,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
     try {
       await leaveTeam(teamId);
       toast.show('팀에서 나갔습니다');
-      navigation.navigate('TeamList');
+      goTeamHome();
     } catch (error) {
       toast.show(getChallengeErrorMessage(error));
     }
@@ -254,14 +291,32 @@ export default function TeamDetailScreen({ navigation, route }: any) {
   };
 
   if (loading && !team) {
-    return <View style={styles.root}><HazeBackground /><MainHeader showBack title="팀 상세" onBack={() => navigation.goBack()} /><Text style={styles.loading}>팀 정보를 불러오는 중...</Text></View>;
+    return (
+      <View style={styles.root}>
+        <HazeBackground />
+
+        <MainHeader
+          showBack
+          title="팀 상세"
+          onBack={handleBack}
+        />
+
+        <Text style={styles.loading}>
+          팀 정보를 불러오는 중...
+        </Text>
+      </View>
+    );
   }
 
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
       <HazeBackground />
-      <MainHeader showBack title={view === 'detail' ? '팀 상세' : '친구 초대'} onBack={() => view === 'recommend' ? setView('detail') : navigation.goBack()} />
+      <MainHeader
+        showBack
+        title={view === 'detail' ? '팀 상세' : '친구 초대'}
+        onBack={handleBack}
+      />
 
       {reloading ? (
         <View style={styles.aiLoadingCard}>
@@ -289,25 +344,94 @@ export default function TeamDetailScreen({ navigation, route }: any) {
               <PixelTitle size={21}>{team.name}</PixelTitle>
               {!team.is_public ? <IconLock /> : null}
             </View>
-            <Text style={styles.teamSub}>{team.region} · 퀘스트 #{team.quest_id} · {team.current_members}/{team.max_members}명</Text>
-            <Text style={styles.status}>상태: {team.status}</Text>
+            <Text style={styles.teamSub}>
+              {team.region}
+              {' · '}
+              {team.quest_title}
+              {' · '}
+              {team.current_members}/{team.max_members}명
+            </Text>
 
-            <PixelTitle size={14} style={{ marginBottom: 8 }}>방장</PixelTitle>
-            {leader ? <View style={styles.leaderCard}>
-              <Avatar grad={AVATARS[0]} size={48} />
-              <View style={{ flex: 1 }}><Text style={styles.leaderName}>사용자 #{leader.user_id}</Text><Text style={styles.leaderMeta}>팀장</Text></View>
-              <StarPulse />
-            </View> : <Text style={styles.emptyText}>팀장 정보를 찾을 수 없습니다.</Text>}
+            <PixelTitle
+              size={14}
+              style={{
+                marginTop: 14,
+                marginBottom: 8,
+              }}
+            >
+              방장
+            </PixelTitle>
 
-            <PixelTitle size={14} style={{ marginBottom: 8 }}>팀원</PixelTitle>
+            {leader ? (
+              <SpringButton
+                pressScale={0.98}
+                style={styles.leaderCard}
+                onPress={() => openUserDetail(leader)}
+              >
+                <Avatar
+                  grad={AVATARS[0]}
+                  size={48}
+                />
+
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.leaderName}>
+                    {leader.nickname}
+                  </Text>
+
+                  <Text style={styles.leaderMeta}>
+                    팀장
+                  </Text>
+                </View>
+
+                <StarPulse />
+              </SpringButton>
+            ) : (
+              <Text style={styles.emptyText}>
+                팀장 정보를 찾을 수 없습니다.
+              </Text>
+            )}
+
+            <PixelTitle
+              size={14}
+              style={{ marginBottom: 8 }}
+            >
+              팀원
+            </PixelTitle>
+
             <View style={styles.memberList}>
-              {normalMembers.length === 0 ? <Text style={styles.emptyText}>아직 참가한 팀원이 없습니다.</Text> : normalMembers.map((member, i) => (
-                <Animated.View key={member.team_member_id} entering={FadeInDown.delay(staggerDelay(i)).duration(400)} style={styles.memberRow}>
-                  <Avatar grad={AVATARS[(i + 1) % AVATARS.length]} size={34} />
-                  <Text style={styles.memberName}>사용자 #{member.user_id}</Text>
-                  <Text style={styles.memberRole}>{member.role_in_team}</Text>
-                </Animated.View>
-              ))}
+              {normalMembers.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  아직 참가한 팀원이 없습니다.
+                </Text>
+              ) : (
+                normalMembers.map((member, i) => (
+                  <Animated.View
+                    key={member.team_member_id}
+                    entering={FadeInDown
+                      .delay(staggerDelay(i))
+                      .duration(400)}
+                  >
+                    <SpringButton
+                      pressScale={0.98}
+                      style={styles.memberRow}
+                      onPress={() => openUserDetail(member)}
+                    >
+                      <Avatar
+                        grad={AVATARS[(i + 1) % AVATARS.length]}
+                        size={34}
+                      />
+
+                      <Text style={styles.memberName}>
+                        {member.nickname}
+                      </Text>
+
+                      <Text style={styles.memberRole}>
+                        {member.role_in_team}
+                      </Text>
+                    </SpringButton>
+                  </Animated.View>
+                ))
+              )}
             </View>
           </> : <EmptyState icon="⚠️" message="팀 정보를 불러오지 못했습니다" />}
         </ScrollView>
@@ -413,28 +537,6 @@ export default function TeamDetailScreen({ navigation, route }: any) {
                       {user.current_level}
                     </Text>
 
-                    <View
-                      style={[
-                        styles.reasonSourceBadge,
-                        user.reason_source === 'LLM'
-                          ? styles.reasonSourceLlmBadge
-                          : styles.reasonSourceFallbackBadge,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.reasonSourceText,
-                          user.reason_source === 'LLM'
-                            ? styles.reasonSourceLlmText
-                            : styles.reasonSourceFallbackText,
-                        ]}
-                      >
-                        {user.reason_source === 'LLM'
-                          ? 'LLM 추천 이유'
-                          : '규칙 기반 이유'}
-                      </Text>
-                    </View>
-
                     <Text style={styles.userInfo}>
                       {user.recommendation_reason}
                     </Text>
@@ -478,7 +580,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
       <LightPopup visible={confirmLeave} onClose={() => setConfirmLeave(false)} width={popupW}>
         <View style={styles.popupContent}>
           <Text style={styles.leaveText}>정말 팀에서 나가시겠습니까?{leader ? '\n팀장이라면 가장 먼저 참가한 팀원에게 권한이 위임됩니다.' : ''}</Text>
-          <View style={styles.popupBtnRow}><PopupTealBtn label="나가기" onPress={() => void onLeave()} /><PopupOutlineBtn label="취소" onPress={() => setConfirmLeave(false)} /></View>
+          <View style={styles.popupBtnRow}><PopupTealBtn label="나가기" onPress={() => void onLeave()} /><PopupOutlineBtn label="취소" textStyle={styles.lightPopupCancelText} onPress={() => setConfirmLeave(false)} /></View>
         </View>
       </LightPopup>
     </View>
@@ -486,6 +588,7 @@ export default function TeamDetailScreen({ navigation, route }: any) {
 }
 
 const styles = StyleSheet.create({
+  lightPopupCancelText: { color: colors.primaryDark },
   root: { flex: 1, backgroundColor: colors.screenBg },
   loading: { textAlign: 'center', marginTop: 80, color: colors.textMuted, fontFamily: fonts.bodyR },
   aiLoadingCard: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginTop: 12, padding: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 12 },
@@ -497,7 +600,6 @@ const styles = StyleSheet.create({
   noticeText: { flex: 1, fontSize: 13, color: colors.primaryDark, fontFamily: fonts.bodyR },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   teamSub: { fontSize: 13, color: INFO, marginTop: 4, fontFamily: fonts.bodyR },
-  status: { fontSize: 12, color: colors.gold, marginTop: 4, marginBottom: 14, fontFamily: fonts.bodyM },
   leaderCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.parchment, borderWidth: 1, borderColor: colors.pixelBorder, borderRadius: 12, padding: 12, marginBottom: 16 },
   leaderName: { fontSize: 15, fontWeight: '600', color: colors.primaryDark, fontFamily: fonts.bodyM },
   leaderMeta: { fontSize: 13, color: colors.gold, fontFamily: fonts.bodyR },
@@ -527,10 +629,4 @@ const styles = StyleSheet.create({
   popupContent: { alignSelf: 'stretch', width: '100%' },
   popupBtnRow: { flexDirection: 'row', gap: 10 },
   leaveText: { textAlign: 'center', color: colors.primaryDark, fontFamily: fonts.bodyR, lineHeight: 22, marginBottom: 18 },
-  reasonSourceBadge: { alignSelf: 'flex-start', marginTop: 6, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3 },
-  reasonSourceLlmBadge: { backgroundColor: colors.cellHeader },
-  reasonSourceFallbackBadge: { backgroundColor: colors.parchment },
-  reasonSourceText: { fontSize: 10, fontFamily: fonts.bodyB },
-  reasonSourceLlmText: { color: colors.primaryDark },
-  reasonSourceFallbackText: { color: colors.gold },
 });

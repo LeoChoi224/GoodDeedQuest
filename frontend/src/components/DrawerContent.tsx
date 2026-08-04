@@ -58,14 +58,14 @@ const SECTIONS: Section[] = [
     { label: '레벨', screen: 'Level' },
     { label: '랭킹', screen: 'Rank' },
   ] },
-  { key: 'team', label: '팀 챌린지', route: 'TeamChallenge', children: [
+  { key: 'team', label: '팀 챌린지', icon: NAV_ICONS.team, route: 'TeamChallenge', children: [
     { label: '팀 챌린지 홈', screen: 'TeamHome' },
     { label: '방 찾기', screen: 'RoomFind' },
     { label: '팀 목록 · 생성', screen: 'TeamList' },
-  ] },
-  { key: 'shortform', label: '숏폼 만들기', route: 'Shortform', children: [
+  ],},
+  { key: 'shortform', label: '숏폼 만들기', icon: NAV_ICONS.shortform, route: 'Shortform', children: [
     { label: '사진 선택 · 생성', screen: 'PhotoSelect' },
-  ] },
+  ],},
 ];
 
 function Chevron({ open }: { open: boolean }) {

@@ -75,7 +75,29 @@ class ReportResponse(BaseModel):
     updated_at: datetime
 
 class ReportDetailResponse(ReportResponse):
-    """신고 대상 게시글 사진이 포함된 관리자 신고 상세 응답."""
+    """관리자 신고 상세 화면 응답."""
+
+    reporter_nickname: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="신고자 닉네임",
+    )
+
+    reported_user_nickname: str | None = Field(
+        default=None,
+        description="신고 대상 게시글 작성자 닉네임",
+    )
+
+    reviewer_nickname: str | None = Field(
+        default=None,
+        description="신고를 처리한 관리자 닉네임",
+    )
+
+    status_label: str = Field(
+        ...,
+        description="화면에 표시할 한글 신고 상태",
+    )
 
     post_media_url: str | None = Field(
         default=None,
