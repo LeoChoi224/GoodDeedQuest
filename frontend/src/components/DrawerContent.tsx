@@ -32,9 +32,10 @@ type Section = {
 };
 
 const SECTIONS: Section[] = [
+  // 【판단】 '진행중 · 추천 퀘스트'와 '퀘스트 상세'는 뺐다. 앞의 것은 홈 탭이 이미
+  // 같은 화면이라 중복이고, 뒤의 것은 어떤 퀘스트를 볼지 고르지 않은 채 들어가서
+  // 목록의 첫 번째로 가버린다. 퀘스트 상세는 목록에서 눌러 들어가는 게 맞다.
   { key: 'home', label: '홈 · 퀘스트', icon: NAV_ICONS.home, tab: 'Home', children: [
-    { label: '진행중 · 추천 퀘스트', screen: 'QuestHome' },
-    { label: '퀘스트 상세', screen: 'QuestDetail' },
     { label: '퀘스트 등록', screen: 'QuestRegister' },
     { label: 'AI 커스텀 추천', screen: 'AiRecommend' },
   ] },

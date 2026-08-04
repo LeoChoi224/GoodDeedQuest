@@ -74,11 +74,22 @@ export default function QuestVerifyScreen({ navigation, route }: any) {
         });
       } else {
         setStage('form')
-        toast.show(`인증 거절: ${result.reason}`, 4000);
+        // 서버가 사유를 안 준 경우까지 대비한다. 빈 토스트가 뜨면 사용자는
+        // 무엇이 잘못됐는지도 모른 채 같은 자료를 또 올리게 된다.
+        toast.show(`인증 거절: ${result.reason || '사유를 확인할 수 없습니다.'}`);
       }
     } catch (err: any) {
       setStage('form');
-      toast.show('인증 처리 중 오류가 발생했습니다. 다시 시도해 주세요.');
+      // 【판단】 서버가 보낸 사유를 그대로 띄운다. 원래는 전부 "오류가 발생했습니다"
+      //        하나로 뭉뚱그려서, 하루 제출 횟수 초과·잘못된 업로드 경로·AI 서버
+      //        장애가 화면에서 구분되지 않았다. 사용자는 왜 막혔는지 알아야
+      //        다시 시도할지 기다릴지 판단할 수 있다.
+      const detail = err?.response?.data?.detail;
+      toast.show(
+        typeof detail === 'string'
+          ? `인증 실패: ${detail}`
+          : '인증 처리 중 오류가 발생했습니다. 다시 시도해 주세요.'
+      );
     }
   };
 
