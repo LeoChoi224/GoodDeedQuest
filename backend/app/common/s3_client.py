@@ -7,6 +7,14 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import boto3
+from botocore.config import Config
+from backend.app.common.config import get_setting  # AWS_REGION, S3_BUCKET_NAME 등 환경설정
+
+import subprocess
+import tempfile
+from pathlib import Path
+
 # ---------------------------------------------------------------------------
 # S3 클라이언트 & Presigned URL
 #
@@ -15,14 +23,40 @@ from pathlib import Path
 # 직접 업로드/다운로드하게 해서 서버 부하를 줄이는 방식.
 # ---------------------------------------------------------------------------
 
+
+# ===================================================================
+# 변경: 키를 무조건 넘기던 것 → 있을 때만 넘기도록
+# 이유: EC2에 IAM Role을 붙이면 키 없이도 S3를 쓸 수 있다.
+#       키를 넘기지 않으면 boto3가 아래 순서로 자격증명을 찾는다.
+#         1) 환경변수  2) ~/.aws/credentials  3) EC2 IAM Role
+# ===================================================================
+def _create_s3_client():
+    """
+    S3 클라이언트를 만든다.
+
+    .env 에 AWS 키가 있으면 그 키를 쓰고(로컬 개발),
+    없으면 boto3가 스스로 자격증명을 찾게 둔다(EC2의 IAM Role).
+    """
+    setting = get_setting()
+
+    client_kwargs = {
+        "region_name": setting.AWS_REGION,
+        "config": Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+    }
+
+    access_key = setting.AWS_ACCESS_KEY_ID
+    secret_key = setting.AWS_SECRET_ACCESS_KEY
+
+    # 둘 다 있을 때만 넘긴다. 하나만 있으면 잘못된 설정이므로 넘기지 않는다.
+    if access_key and secret_key:
+        client_kwargs["aws_access_key_id"] = access_key.get_secret_value()
+        client_kwargs["aws_secret_access_key"] = secret_key.get_secret_value()
+
+    return boto3.client("s3", **client_kwargs)
+
+
 # boto3 S3 클라이언트는 모듈 로드 시 한 번만 생성해서 재사용 (매 요청마다 새로 만들지 않음)
-_s3_client = boto3.client(
-    "s3",
-    region_name=get_setting().AWS_REGION,
-    aws_access_key_id=get_setting().AWS_ACCESS_KEY_ID.get_secret_value(),
-    aws_secret_access_key=get_setting().AWS_SECRET_ACCESS_KEY.get_secret_value(),
-    config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"})
-)
+_s3_client = _create_s3_client()
 
 PRESIGNED_UPLOAD_EXPIRE_SECONDS = 300      # 5분 - 업로드용은 짧게 (클라이언트가 바로 씀)
 PRESIGNED_DOWNLOAD_EXPIRE_SECONDS = 3600   # 1시간 - 조회용은 폴링/재생 도중 만료되지 않도록 여유
