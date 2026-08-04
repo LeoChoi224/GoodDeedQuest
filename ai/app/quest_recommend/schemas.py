@@ -141,3 +141,19 @@ class QuestRecommendResponse(BaseModel):
         # "최종 5개 추천 퀘스트 리스트"
         description="List of top 5 recommended quest objects"
     )
+
+
+# ⭐ 수정: 신규 — 지도에서 바로 퀘스트로 변환할 때 단건 요약 요청/응답 DTO.
+# generate_volunteer_summaries()가 받는 dict 키(center_id/vol_title/vol_name/target/vol_act)와
+# 반환하는 (quest_title, quest_summary) 튜플을 그대로 감싼 형태.
+class VolunteerSummaryRequest(BaseModel):
+    center_id: int
+    vol_title: Optional[str] = None
+    vol_name: Optional[str] = None
+    target: Optional[str] = None
+    vol_act: Optional[str] = None
+
+
+class VolunteerSummaryResponse(BaseModel):
+    quest_title: str
+    quest_summary: str

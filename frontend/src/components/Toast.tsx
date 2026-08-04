@@ -16,7 +16,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [msg, setMsg] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const show = useCallback((m: string, ms = 1800) => {
+  // 【판단】 기본 1800ms 는 인증 거절 사유처럼 두세 줄짜리 안내를 읽기엔 짧다.
+  //        5초로 늘린다. 부르는 쪽에서 두 번째 인자로 따로 지정할 수도 있다.
+  const show = useCallback((m: string, ms = 5000) => {
     if (timer.current) clearTimeout(timer.current);
     setMsg(m);
     timer.current = setTimeout(() => setMsg(null), ms);

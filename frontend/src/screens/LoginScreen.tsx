@@ -36,11 +36,24 @@ import { MailIcon, LockIcon, SwordIcon, EyeOpen, EyeOff, HamburgerIcon, KakaoIco
 import { useToast } from '../components/Toast';
 import { useAuth } from '../context/AuthContext';
 import { login } from '../api/auth';
-import * as Google from 'expo-auth-session/providers/google'
-import * as WebBrowser from 'expo-web-browser'
 import { socialLogin } from '../api/auth';
 import { login as kakaoSDKLogin, getProfile as kakaoGetProfile } from '@react-native-seoul/kakao-login';
-WebBrowser.maybeCompleteAuthSession();
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
+/**
+ * 【판단】 구글도 카카오처럼 네이티브 SDK 를 쓴다. 원래는 expo-auth-session 으로
+ * 브라우저를 띄웠는데, 구글이 안드로이드의 맞춤 URI 스킴(com.xxx:/oauthredirect)을
+ * 앱 사칭 위험을 이유로 폐지해서 그 방식은 400 invalid_request 로 막힌다.
+ * 네이티브 SDK 는 브라우저를 거치지 않아 이 제약을 받지 않는다.
+ *
+ * 【기능】 configure 는 앱이 켜질 때 한 번만 하면 되므로 컴포넌트 밖에 둔다.
+ * webClientId 를 넣는 게 맞다. 안드로이드에서도 SDK 는 이 값으로 id_token 을
+ * 발급받고, 백엔드(verify_google_id_token)가 검증할 때 쓰는 값과 같아야 한다.
+ */
+GoogleSignin.configure({
+  webClientId: '530602948532-eoif1hq6bshlgb7tn5r1dcuruvelubsa.apps.googleusercontent.com',
+  iosClientId: '530602948532-3es8kq72k78i1nc5l5qve88q6tofg3ua.apps.googleusercontent.com',
+});
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 
@@ -83,15 +96,6 @@ export default function LoginScreen({ navigation }: Props) {
 const [ email, setEmail ] = useState('');
 const [ password, setPassword ] = useState('');
 const [loading, setLoading] = useState(false);
-const [request, response, promptAsync] = Google.useAuthRequest({
-  androidClientId: '530602948532-vl7l2n5no2bp5mt2ufkn86ji062opcki.apps.googleusercontent.com.apps.googleusercontent.com',
-  iosClientId: '530602948532-3es8kq72k78i1nc5l5qve88q6tofg3ua.apps.googleusercontent.com.apps.googleusercontent.com',
-  webClientId: '530602948532-eoif1hq6bshlgb7tn5r1dcuruvelubsa.apps.googleusercontent.com.apps.googleusercontent.com'
-})
-useEffect(() => {
-  console.log('보내는 redirectUri:', request?.redirectUri);
-}, [request]);
-
 const onLogin = async () => {
   if (!email.trim() || !password) {
     toast.show('이메일과 비밀번호를 입력해 주세요.');
@@ -110,29 +114,37 @@ const onLogin = async () => {
   }
 };
 
-useEffect(() => {
-  console.log('구글응답', JSON.stringify(response, null, 2));
-  if (response?.type === 'success') {
-    const idToken = response.params?.id_token;
-    console.log('idToken', idToken);
-    if (idToken) {
-      handleGoogle(idToken);
-    }
-  }
-}, [response])
-
-const handleGoogle = async (idToken: string) => {
+const handleGoogle = async () => {
   try {
-    const { token, isNewUser } = await socialLogin(idToken);
+    // 【기능】 구글 로그인은 기기의 Play 서비스를 통해 이뤄진다. 없거나 낡은
+    //        기기면 여기서 걸러져 아래 signIn 이 이상하게 실패하지 않는다.
+    await GoogleSignin.hasPlayServices();
+
+    const result = await GoogleSignin.signIn();
+
+    // 【문법】 v13 부터 signIn 은 {type, data} 를 돌려준다. 사용자가 창을 닫으면
+    //        예외가 아니라 type:'cancelled' 로 온다. 취소는 실패가 아니므로
+    //        아무 말 없이 끝낸다.
+    if (result.type !== 'success') return;
+
+    const idToken = result.data.idToken;
+    if (!idToken) {
+      toast.show('구글 로그인에 실패했습니다.');
+      return;
+    }
+
+    const { token, isNewUser } = await socialLogin(idToken, 'google');
     if (isNewUser) {
       // 【판단】 신규 가입자는 아직 프로필을 안 채웠다. 여기서 로그인 상태를
       //        켜버리면 화면 묶음이 바뀌면서 Profile 화면이 사라진다.
-      navigation.navigate('Profile');
+      // 【기능】 social:true 를 넘긴다. 소셜은 social-login 단계에서 계정이 이미
+      //        만들어졌으므로, Profile 화면이 register 를 부르면 422 가 난다.
+      navigation.navigate('Profile', { social: true });
     } else {
       await signIn(token);
     }
-  } catch (err: any){
-    toast.show('구글로그인에 실패했습니다')
+  } catch (err: any) {
+    toast.show('구글 로그인에 실패했습니다.');
   }
 }
 
@@ -144,7 +156,7 @@ const handleKakao = async () => {
       const { token, isNewUser } = await socialLogin(result.accessToken, 'kakao');
 
       if (isNewUser) {
-        navigation.navigate('Profile');
+        navigation.navigate('Profile', { social: true });
       } else {
         await signIn(token);
       }
@@ -254,7 +266,7 @@ const handleKakao = async () => {
   <KakaoIcon />
   <Text style={[styles.socialText, { color: colors.kakaoText }]}>카카오</Text>
 </SpringButton>
-            <SpringButton style={[styles.socialBtn, styles.googleBtn]} onPress={() => promptAsync()} disabled={!request}>
+            <SpringButton style={[styles.socialBtn, styles.googleBtn]} onPress={handleGoogle}>
               <GoogleIcon />
               <Text style={[styles.socialText, { color: colors.textPrimary }]}>구글</Text>
             </SpringButton>

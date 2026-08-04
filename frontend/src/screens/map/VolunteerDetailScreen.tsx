@@ -9,9 +9,11 @@
  * - 지도 중앙에 RN 아이콘을 고정 오버레이하던 이전 방식은 확대/이동 시 어긋나서 실제 좌표 마커로 교체.
  * 카드별로 vms_url이 있으면 "신청하기"가 외부 VMS로 연결, 없으면 안내 토스트.
  * 자격요건은 "/"로 구분된 원본 텍스트를 줄바꿈으로 바꿔서 표시(가독성).
+ * ⭐ 수정: 카드마다 "퀘스트 시작" 버튼 추가 — AI 추천을 거치지 않고 지도에서 바로 이 공고를
+ * 퀘스트로 변환(없으면 생성, 있으면 재사용) + 즉시 시작까지 한 번에 처리하고 QuestDetail로 이동.
  */
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Linking } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, Linking, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Line } from 'react-native-svg';
@@ -21,6 +23,7 @@ import MainHeader from '../../components/MainHeader';
 import { useToast } from '../../components/Toast';
 import KakaoMapView from '../../components/KakaoMapView';
 import { MapPinIcon, MAP } from './_parts';
+import { getOrCreateQuestFromVolunteerCenter, startQuest } from '../../api/quest'; // ⭐ 수정
 
 function DetailGrid() {
   return (
@@ -77,12 +80,40 @@ export default function VolunteerDetailScreen({ navigation, route }: any) {
   const latitude: number | null = route?.params?.latitude ?? items[0]?.latitude ?? null;
   const longitude: number | null = route?.params?.longitude ?? items[0]?.longitude ?? null;
 
+  // ⭐ 수정: 카드별로 "퀘스트 시작" 처리 중인지 표시할 상태 (center_id 기준)
+  const [startingCenterId, setStartingCenterId] = useState<number | null>(null);
+
   const handleApply = (vmsUrl?: string | null) => {
     if (!vmsUrl) {
       toast.show('연결된 신청 페이지가 없어요.');
       return;
     }
     Linking.openURL(vmsUrl).catch(() => toast.show('신청 페이지를 여는 데 실패했어요.'));
+  };
+
+  // ⭐ 수정: 지도에서 바로 퀘스트 시작 — 변환(또는 재사용) + 즉시 시작까지 한 번에 처리
+  const handleStartQuest = async (centerId?: number) => {
+    if (!centerId || startingCenterId != null) return;
+    setStartingCenterId(centerId);
+    try {
+      const quest = await getOrCreateQuestFromVolunteerCenter(centerId);
+      await startQuest(quest.quest_id);
+      navigation.navigate('QuestDetail', {
+        questId: quest.quest_id,
+        volunteerCenterId: quest.volunteer_center_id,
+        questType: quest.quest_type,
+        title: quest.quest_title,
+        category: quest.category_code,
+        desc: quest.quest_description,
+        point: quest.reward_point ?? 0,
+        exp: quest.reward_exp ?? 0,
+        active: true,
+      });
+    } catch (err) {
+      toast.show('퀘스트를 시작하지 못했어요.');
+    } finally {
+      setStartingCenterId(null);
+    }
   };
 
   return (
@@ -122,6 +153,8 @@ export default function VolunteerDetailScreen({ navigation, route }: any) {
           </View>
         ) : (
           items.map((it, i) => {
+            const centerId = it.center_id ?? it.centerId;
+            const starting = startingCenterId === centerId;
             const rows = [
               { label: '활동기간', value: it.vol_date ?? FALLBACK },
               { label: '봉사장소', value: it.vol_address ?? it.sub ?? address ?? FALLBACK },
@@ -130,7 +163,7 @@ export default function VolunteerDetailScreen({ navigation, route }: any) {
               { label: '활동설명', value: it.vol_act ?? FALLBACK },
             ];
             return (
-              <View key={it.center_id ?? it.centerId ?? i} style={styles.card}>
+              <View key={centerId ?? i} style={styles.card}>
                 {items.length > 1 ? (
                   <Text style={styles.cardTitle}>{it.vol_title ? it.vol_title : `모집 ${i + 1}`}</Text>
                 ) : it.vol_title ? (
@@ -142,12 +175,30 @@ export default function VolunteerDetailScreen({ navigation, route }: any) {
                     <Text style={styles.value}>{r.value}</Text>
                   </View>
                 ))}
-                <Pressable
-                  onPress={() => handleApply(it.vms_url)}
-                  style={({ pressed }) => [styles.applyBtn, pressed && { transform: [{ scale: 0.97 }] }]}
-                >
-                  <Text style={styles.applyText}>{it.vms_url ? '신청하기' : '신청 페이지 없음'}</Text>
-                </Pressable>
+                {/* ⭐ 수정: 신청하기(외부 VMS) / 퀘스트 시작(앱 내) 2분할 */}
+                <View style={styles.btnRow}>
+                  <Pressable
+                    onPress={() => handleApply(it.vms_url)}
+                    style={({ pressed }) => [styles.applyBtn, styles.btnHalf, pressed && { transform: [{ scale: 0.97 }] }]}
+                  >
+                    <Text style={styles.applyText}>{it.vms_url ? '신청하기' : '신청 페이지 없음'}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => handleStartQuest(centerId)}
+                    disabled={!centerId || starting}
+                    style={({ pressed }) => [
+                      styles.startBtn, styles.btnHalf,
+                      (!centerId || starting) && { opacity: 0.6 },
+                      pressed && { transform: [{ scale: 0.97 }] },
+                    ]}
+                  >
+                    {starting ? (
+                      <ActivityIndicator color={colors.parchment} size="small" />
+                    ) : (
+                      <Text style={styles.startText}>퀘스트 시작</Text>
+                    )}
+                  </Pressable>
+                </View>
               </View>
             );
           })
@@ -188,13 +239,23 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 12, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#EFE6CC' },
   label: { width: 64, fontFamily: fonts.pixel, fontSize: 13, color: colors.gold },
   value: { flex: 1, fontSize: 14, color: colors.primaryDark, lineHeight: 21, fontFamily: fonts.bodyR },
+  // ⭐ 수정: 기존 applyBtn(단독, height 46)을 btnRow 안 2분할로 변경
+  btnRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  btnHalf: { flex: 1 },
   applyBtn: {
     height: 46,
     borderRadius: 8,
     backgroundColor: colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 12,
   },
-  applyText: { fontFamily: fonts.pixel, fontSize: 15, color: colors.primaryDark },
+  applyText: { fontFamily: fonts.pixel, fontSize: 14, color: colors.primaryDark },
+  startBtn: {
+    height: 46,
+    borderRadius: 8,
+    backgroundColor: colors.primaryDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startText: { fontFamily: fonts.pixel, fontSize: 14, color: colors.parchment },
 });

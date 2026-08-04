@@ -68,7 +68,11 @@ def check_email(repository: UserRepository, email: str = Query(..., description=
 
 
 @router.get('/check-nickname', response_model=APIResponse[AvailabilityResponse])
-def check_nickname(repository: UserRepository, nickname: str = Query(..., description="가입에 쓸 닉네임")):
+def check_nickname(
+    repository: UserRepository,
+    nickname: str = Query(..., description="가입에 쓸 닉네임"),
+    token: str | None = Depends(oauth2_scheme),
+):
     """【기능】 닉네임을 쓸 수 있는지 미리 확인한다. 중복이어도 200 으로 답한다."""
     value = nickname.strip()
 
@@ -77,7 +81,21 @@ def check_nickname(repository: UserRepository, nickname: str = Query(..., descri
     if not (2 <= len(value) <= 50):
         return APIResponse.ok(data={"available": False}, message="닉네임은 2자 이상 50자 이하여야 합니다.")
 
-    if repository.get_by(nickname=value):
+    # 【판단】 로그인한 사람이면 "나"는 중복에서 뺀다. 소셜로 막 가입하면 계정이
+    # 이미 만들어져 있고 닉네임도 SDK 가 준 이름으로 채워져 있는데, 그 이름을
+    # 그대로 쓰려고 중복확인을 누르면 자기 자신에 걸려 "이미 사용 중"이 나왔다.
+    # 【문법】 oauth2_scheme 은 auto_error=False 라 토큰이 없으면 None 을 준다.
+    # 회원가입 전(토큰 없음)에도 이 API 를 그대로 쓸 수 있어야 하므로, 토큰이
+    # 없거나 만료됐으면 조용히 전체를 검사하는 원래 동작으로 돌아간다.
+    me = None
+    if token:
+        try:
+            me = repository.get_by(email=verify_token(token))
+        except Exception:
+            me = None
+
+    found = repository.get_by(nickname=value)
+    if found is not None and (me is None or found.user_id != me.user_id):
         return APIResponse.ok(data={"available": False}, message="이미 사용 중인 닉네임입니다.")
 
     return APIResponse.ok(data={"available": True}, message="사용 가능한 닉네임입니다.")
@@ -156,11 +174,27 @@ def update_my_profile(
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_db_user)
 ):
-    current_user.nickname = data.nickname
+    # 【판단】 닉네임 중복을 여기서도 검사한다. uq_user_nickname 제약이 걸려 있어
+    # 남의 닉네임을 넣으면 IntegrityError 가 그대로 터져 500 이 나간다.
+    # "!= current_user.nickname" 이 핵심이다. 자기 이름을 그대로 두는 것은
+    # 중복이 아니므로, 이 조건이 없으면 프로필을 저장할 때마다 자기 자신에
+    # 걸려서 아무것도 못 고치게 된다.
+    nickname = data.nickname.strip()
+    if nickname != current_user.nickname and repository.get_by(nickname=nickname):
+        raise HTTPException(status_code=400, detail="이미 사용 중인 닉네임입니다.")
+
+    current_user.nickname = nickname
     current_user.birthday = data.birthday
     current_user.category = data.category
     current_user.active_time = data.active_time
-    repository.session.commit()
+
+    try:
+        repository.session.commit()
+    except IntegrityError:
+        # 위 검사와 저장 사이에 남이 같은 닉네임을 차지한 경우.
+        repository.session.rollback()
+        raise HTTPException(status_code=400, detail="이미 사용 중인 닉네임입니다.")
+
     repository.session.refresh(current_user)
 
     trigger_embedding_if_needed(current_user, background_tasks)
