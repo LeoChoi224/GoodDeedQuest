@@ -64,6 +64,17 @@ settings = get_setting()
 ELIGIBLE_MEDIA_MAX_DAYS = 30  # ScriptGenerateRequest.selected_media_s3_keys 문서상 "최대 30일치"와 동일한 기준
 
 
+# ⭐ 수정: QuestSubmission.media_url을 항상 S3 key로 가정하고 무조건 presign하면,
+# 이미 완전한 URL로 저장된 값(레거시/외부 데이터 등)을 만났을 때 잘못된 key로
+# 서명된 URL이 만들어져 썸네일이 투명하게(로드 실패) 보이는 버그가 있었다.
+# community/service.py의 _to_download_url, admin/service.py의 동일 패턴과 맞춰
+# 이미 http(s)://로 시작하면 그대로 두고, 아니면 presign하도록 가드를 추가한다.
+def _to_thumbnail_url(stored_media_url: str) -> str:
+    if stored_media_url.startswith(("http://", "https://")):
+        return stored_media_url
+    return generate_download_presigned_url(stored_media_url)
+
+
 def get_eligible_media(
     db: Session,
     user_id: int,
@@ -101,7 +112,7 @@ def get_eligible_media(
             submission_id=submission.submission_id,
             quest_id=submission.quest_id,
             media_url=(
-                generate_download_presigned_url(submission.media_url)
+                _to_thumbnail_url(submission.media_url)
                 if submission.media_url
                 else None
             ),
