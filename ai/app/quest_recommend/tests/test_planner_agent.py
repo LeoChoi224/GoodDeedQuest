@@ -19,7 +19,7 @@ class TestPlannerAgent(unittest.TestCase):
             "user_profile": {
                 "interests": ["환경", "동물"],
                 "target_difficulty": "NORMAL",
-                "exclusions": [],
+                "recently_recommended": [],
                 "completed_history": []
             },
             "situation_context": {
@@ -62,7 +62,7 @@ class TestPlannerAgent(unittest.TestCase):
             "user_profile": {
                 "interests": ["교육"],
                 "target_difficulty": "NORMAL",
-                "exclusions": [],
+                "recently_recommended": [],
                 "completed_history": []
             },
             "situation_context": {

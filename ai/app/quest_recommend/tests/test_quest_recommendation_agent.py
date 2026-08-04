@@ -20,7 +20,7 @@ class TestQuestRecommendationAgent(unittest.TestCase):
             "user_profile": {
                 "interests": ["ENVIRONMENT", "ANIMAL"],
                 "target_difficulty": "NORMAL",
-                "exclusions": [],
+                "recently_recommended": [],
                 "completed_history": []
             },
             "situation_context": {
@@ -107,7 +107,7 @@ class TestQuestRecommendationAgent(unittest.TestCase):
             "recent_recommendations": [],
             "preferred_difficulty": "NORMAL",
             "request_message": None,
-            "user_profile": {"interests": ["ENVIRONMENT"], "target_difficulty": "NORMAL", "exclusions": [], "completed_history": []},
+            "user_profile": {"interests": ["ENVIRONMENT"], "target_difficulty": "NORMAL", "recently_recommended": [], "completed_history": []},
             "situation_context": {},
             "request_context": {},
             "recommendation_strategy": {},

@@ -74,8 +74,9 @@ async def recommend_quests(
     user_id = user["id"]
     logger.info(f"메인 백엔드 퀘스트 추천 및 DB 영속화 요청 수신. User ID: {user_id}")
 
-    # 기본 관심 분야 설정 (영문 규격 준수)
-    user_interests = req.interests if req.interests else ["VULNERABLE_GROUP", "ENVIRONMENT"]
+    # 기본 관심 분야. 프론트(theme.ts CATEGORY_DEFS)가 보내는 소문자 코드와 표기를 맞춘다.
+    # VULNERABLE_GROUP은 확정 카테고리에 없는 코드라 Critic이 범위를 몰라 봉사를 오반려했다.
+    user_interests = req.interests if req.interests else ["community", "environment"]
 
     # 요청에 좌표가 없으면 User 테이블 저장 좌표로 폴백 
     latitude = req.latitude

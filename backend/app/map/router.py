@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -139,6 +139,24 @@ def get_nearby_volunteer_centers(
     )
 
     return APIResponse.ok(data=centers, message=f"반경 {radius_km}km 내 봉사센터 조회 성공")
+
+
+@router.get("/volunteer-centers/{center_id}", response_model=APIResponse[VolunteerCenterResponse])
+def get_volunteer_center(
+    center_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """봉사 공고 단건 조회 - 퀘스트 상세에서 원본 공고로 이동할 때 사용
+
+    목록 조회(/volunteer-centers)는 좌표와 반경을 받으므로 center_id만 아는
+    퀘스트 상세 화면에서는 쓸 수 없다.
+    """
+    center = db.query(VolunteerCenter).filter(VolunteerCenter.center_id == center_id).first()
+    if not center:
+        raise HTTPException(status_code=404, detail="봉사 공고를 찾을 수 없습니다.")
+
+    return APIResponse.ok(data=center, message="봉사 공고 조회 성공")
 
 
 @router.get("/national-ranking")

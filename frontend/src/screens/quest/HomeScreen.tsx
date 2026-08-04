@@ -124,6 +124,7 @@ export default function HomeScreen({ navigation }: any) {
       category: q.category_code,
       point: q.reward_point ?? 0,
       exp: q.reward_exp ?? 0,
+      volunteerCenterId: q.volunteer_center_id,
       active,
     });
   };

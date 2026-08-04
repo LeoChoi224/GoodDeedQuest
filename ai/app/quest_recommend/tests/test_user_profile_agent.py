@@ -38,7 +38,7 @@ class TestUserProfileAgent(unittest.TestCase):
         self.assertEqual(user_profile["latitude"], 37.566)
         self.assertEqual(user_profile["longitude"], 126.978)
         self.assertEqual(user_profile["target_difficulty"], "NORMAL")
-        self.assertEqual(user_profile["exclusions"], ["엄마한테 사과하기"])
+        self.assertEqual(user_profile["recently_recommended"], ["엄마한테 사과하기"])
         self.assertEqual(user_profile["completed_history"], ["한강 플로깅"])
 
     def test_user_profile_analysis_fallback_difficulty(self):
