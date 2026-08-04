@@ -80,7 +80,7 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
   const insets = useSafeAreaInsets();
   const { navigation } = props;
   const [open, setOpen] = useState<string | null>('home');
-  const { signOut } = useAuth();
+  const { isAdmin, signOut } = useAuth();
   const { profile } = useProfile(); // ⭐ 수정: 마이페이지 프로필 헤더와 같은 Context
 
   const toggle = (key: string) => setOpen((cur) => (cur === key ? null : key));
@@ -95,6 +95,8 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
   };
 
   const goAdmin = () => {
+    if (!isAdmin) return;
+
     navigation.closeDrawer();
     navigation.navigate('Admin', { screen: 'Dashboard' });
   };
@@ -163,10 +165,12 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
         })}
 
         <View style={styles.divider} />
-        <Pressable style={styles.footRow} onPress={goAdmin}>
-          <Text style={styles.footText}>관리자 페이지</Text>
-          <Text style={styles.footChev}>›</Text>
-        </Pressable>
+        {isAdmin ? (
+          <Pressable style={styles.footRow} onPress={goAdmin}>
+            <Text style={styles.footText}>관리자 페이지</Text>
+            <Text style={styles.footChev}>›</Text>
+          </Pressable>
+        ) : null}
         <Pressable style={styles.footRow} onPress={logout}>
           <Text style={[styles.footText, { color: colors.danger }]}>로그아웃</Text>
           <Text style={[styles.footChev, { color: colors.danger }]}>›</Text>

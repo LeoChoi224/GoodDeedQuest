@@ -16,6 +16,7 @@ import DrawerContent from '../components/DrawerContent';
 import MainTabs from './MainTabs';
 import { TeamStack, ShortformStack, AdminStack } from './flowStacks';
 import { ProfileProvider } from '../context/ProfileContext'; // 마이페이지 프로필 헤더 ↔ 드로어 상단 실시간 동기화
+import { useAuth } from '../context/AuthContext';
 import { updateMyLocation } from '../api/auth';
 
 const Drawer = createDrawerNavigator();
@@ -24,6 +25,7 @@ const LOCATION_UPDATE_INTERVAL_MS = 10 * 60 * 1000; // 10분
 
 export default function AppDrawer() {
   const { width } = useWindowDimensions();
+  const { isAdmin } = useAuth();
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +69,9 @@ export default function AppDrawer() {
         <Drawer.Screen name="Main" component={MainTabs} />
         <Drawer.Screen name="TeamChallenge" component={TeamStack} />
         <Drawer.Screen name="Shortform" component={ShortformStack} />
-        <Drawer.Screen name="Admin" component={AdminStack} />
+        {isAdmin ? (
+          <Drawer.Screen name="Admin" component={AdminStack} />
+        ) : null}
       </Drawer.Navigator>
     </ProfileProvider>
   );

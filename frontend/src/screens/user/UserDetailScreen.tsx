@@ -36,6 +36,7 @@ import {
 import { ConicAvatar } from '../mypage/_parts';
 import { getFullImageUrl } from '../shop/_parts';
 import { adminApi, getAdminErrorMessage } from '../admin/adminApi';
+import { useAuth } from '../../context/AuthContext';
 
 function formatShortDate(iso: string): string {
   const date = new Date(iso);
@@ -59,10 +60,12 @@ function formatCompletedAt(iso: string): string {
 
 export default function UserDetailScreen({ navigation, route }: any) {
   const toast = useToast();
+  const { isAdmin } = useAuth();
 
   const initialUser = route?.params?.user ?? {};
   const userId = Number(route?.params?.userId ?? initialUser.user_id);
-  const moderation = Boolean(route?.params?.moderation);
+  const moderation =
+    Boolean(route?.params?.moderation) && isAdmin;
 
   const [profile, setProfile] = useState<CommunityUserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);

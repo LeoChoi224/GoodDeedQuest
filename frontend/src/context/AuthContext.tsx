@@ -10,10 +10,13 @@ import React, { createContext, useContext, useCallback, useEffect, useMemo, useS
 import * as SecureStore from 'expo-secure-store';
 import { TOKEN_KEY, REFRESH_TOKEN_KEY } from '../api/client';
 import { setUnauthorizedHandler } from '../api/authEvents';
+import { getMyProfile } from '../api/auth';
 
 type AuthValue = {
   /** 저장된 토큰. 없으면 로그인 안 된 상태 */
   token: string | null;
+  /** 현재 계정이 관리자인지. 확인 실패 시 안전하게 false로 둔다 */
+  isAdmin: boolean;
   /** 앱이 뜨면서 토큰을 확인하는 중인지. true 면 아직 아무 화면도 보여주면 안 된다 */
   booting: boolean;
   /** 로그인 성공 시 호출. 토큰을 저장하고 화면을 로그인 후 상태로 바꾼다 */
@@ -26,17 +29,29 @@ const AuthContext = createContext<AuthValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [booting, setBooting] = useState(true);
 
   // 앱이 뜰 때 딱 한 번, 주머니에 열쇠가 있는지 확인한다.
   useEffect(() => {
     (async () => {
       try {
-        setToken(await SecureStore.getItemAsync(TOKEN_KEY));
+        const storedToken = await SecureStore.getItemAsync(TOKEN_KEY);
+        setToken(storedToken);
+
+        if (storedToken) {
+          try {
+            const currentUser = await getMyProfile();
+            setIsAdmin(currentUser.role === 'ADMIN');
+          } catch {
+            setIsAdmin(false);
+          }
+        }
       } catch {
         // 【판단】 읽기에 실패하면 로그인 안 된 것으로 본다. 여기서 앱을 멈추면
         //        저장소 문제 하나로 아무것도 못 하게 된다.
         setToken(null);
+        setIsAdmin(false);
       } finally {
         setBooting(false);
       }
@@ -46,6 +61,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async (next: string) => {
     await SecureStore.setItemAsync(TOKEN_KEY, next);
     setToken(next);
+
+    try {
+      const currentUser = await getMyProfile();
+      setIsAdmin(currentUser.role === 'ADMIN');
+    } catch {
+      setIsAdmin(false);
+    }
   }, []);
 
   const signOut = useCallback(async () => {
@@ -56,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 【판단】 지우기에 실패해도 화면은 로그아웃으로 넘긴다. 토큰이 죽은 건
       //        이미 확정이라, 남겨두면 계속 401 만 받는 상태에 갇힌다.
       setToken(null);
+      setIsAdmin(false);
     }
   }, []);
 
@@ -67,8 +90,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [signOut]);
 
   const value = useMemo(
-    () => ({ token, booting, signIn, signOut }),
-    [token, booting, signIn, signOut],
+    () => ({ token, isAdmin, booting, signIn, signOut }),
+    [token, isAdmin, booting, signIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
