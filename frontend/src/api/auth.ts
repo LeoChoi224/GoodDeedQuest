@@ -79,14 +79,25 @@ export type ProfileCompletePayload = {
   category?: string[];
 }
 
+export type CurrentUser = {
+  user_id: number;
+  nickname: string;
+  email: string | null;
+  role: 'ADMIN' | 'USER';
+  point_balance: number;
+  current_level: number;
+  current_xp: number;
+  created_at: string;
+};
+
 export async function completeProfile(payload: ProfileCompletePayload) {
   const response = await api.patch('/auth/me', payload);
   return response.data;
 }
 
-export async function getMyProfile() {
+export async function getMyProfile(): Promise<CurrentUser> {
   const response = await api.get('/auth/me');
-    return response.data?.data || response.data;
+  return response.data?.data || response.data;
 }
 
 export async function updateMyLocation(latitude: number, longitude: number) {
