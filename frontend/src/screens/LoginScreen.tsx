@@ -137,7 +137,9 @@ const handleGoogle = async () => {
     if (isNewUser) {
       // 【판단】 신규 가입자는 아직 프로필을 안 채웠다. 여기서 로그인 상태를
       //        켜버리면 화면 묶음이 바뀌면서 Profile 화면이 사라진다.
-      navigation.navigate('Profile');
+      // 【기능】 social:true 를 넘긴다. 소셜은 social-login 단계에서 계정이 이미
+      //        만들어졌으므로, Profile 화면이 register 를 부르면 422 가 난다.
+      navigation.navigate('Profile', { social: true });
     } else {
       await signIn(token);
     }
@@ -154,7 +156,7 @@ const handleKakao = async () => {
       const { token, isNewUser } = await socialLogin(result.accessToken, 'kakao');
 
       if (isNewUser) {
-        navigation.navigate('Profile');
+        navigation.navigate('Profile', { social: true });
       } else {
         await signIn(token);
       }

@@ -21,7 +21,10 @@ import { CalIcon } from '../components/PixelIcons';
 import { useSignup } from '../context/SignupContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useToast } from '../components/Toast';
-import { register } from '../api/auth';
+import { register, completeProfile } from '../api/auth';
+import { useAuth } from '../context/AuthContext';
+import * as SecureStore from 'expo-secure-store';
+import { TOKEN_KEY } from '../api/client';
 import { Modal } from 'react-native';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
@@ -33,7 +36,10 @@ function formatDate(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
-export default function ProfileScreen({ navigation }: Props) {
+export default function ProfileScreen({ navigation, route }: Props) {
+  // 소셜 로그인으로 막 만들어진 계정인지. LoginScreen 이 넘겨준다.
+  const isSocial = !!route.params?.social;
+  const { signIn } = useAuth();
   const insets = useSafeAreaInsets();
   const s = useSignup();
   const toast = useToast();
@@ -67,14 +73,37 @@ export default function ProfileScreen({ navigation }: Props) {
 
     setSubmitting(true);
     try {
-      await register({
-        email: s.email,
-        password: s.password,
-        nickname: s.nickname,
-        birthday: formatDate(s.birthday),
-        category,
-        active_time,
-      });
+      if (isSocial) {
+        // 【판단】 소셜은 social-login 단계에서 계정이 이미 만들어졌다. 여기서
+        //        register 를 부르면 이메일·비밀번호가 빈 값이라 422 가 나고,
+        //        통과하더라도 계정이 두 개가 된다. 있는 계정에 프로필만 채운다.
+        await completeProfile({
+          nickname: s.nickname,
+          birthday: formatDate(s.birthday),
+          category,
+          active_time,
+        });
+
+        // 【판단】 소셜은 이미 토큰을 받아 SecureStore 에 넣어둔 상태다(socialLogin).
+        //        Complete 화면은 "로그인창으로 이동"으로 끝나는데, 이미 로그인된
+        //        사용자를 다시 로그인시키는 건 이상하다. 바로 로그인 상태를 켜서
+        //        메인으로 들어간다.
+        const token = await SecureStore.getItemAsync(TOKEN_KEY);
+        if (token) {
+          s.reset();
+          await signIn(token);
+          return;
+        }
+      } else {
+        await register({
+          email: s.email,
+          password: s.password,
+          nickname: s.nickname,
+          birthday: formatDate(s.birthday),
+          category,
+          active_time,
+        });
+      }
       navigation.navigate('Complete');
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
