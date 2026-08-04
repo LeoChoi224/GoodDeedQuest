@@ -23,7 +23,10 @@ export type RootStackParamList = {
   Login: undefined;
   Terms: undefined;
   Account: undefined;
-  Profile: undefined;
+  // 【판단】 social=true 면 소셜 로그인으로 막 만들어진 계정이다. 이 경우 Profile
+  //        화면은 계정을 새로 만들면(register) 안 되고, 이미 있는 계정에 프로필만
+  //        채워야(PATCH /auth/me) 한다.
+  Profile: { social?: boolean } | undefined;
   Complete: undefined;
   Main: undefined;
   UserDetail: { user?: any; moderation?: boolean } | undefined;
