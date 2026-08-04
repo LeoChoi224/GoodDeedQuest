@@ -30,9 +30,18 @@ DB 저장 방침 (마이그레이션 없이):
 주의:
 - VolunteerCenter.region_id 는 NOT NULL 이라, 카카오/VMS 텍스트 둘 다로 지역을
   못 찾으면 해당 공고는 저장을 건너뜀(스킵 로그 출력)
+
+# ⭐ 수정 1(병렬화): "3) 상세 수집" 단계를 ThreadPoolExecutor로 병렬화.
+# ⭐ 수정 2(varchar 초과 크래시 대응): detail_url을 seq 기반으로 짧게 재구성 + 모든 문자열
+# 필드를 컬럼 길이만큼 방어적으로 자르는 _trunc() 추가.
+# ⭐ 수정 3(속도 개선, 2026-08-04 실측 6280초/3969건): 같은 기관명이 여러 공고에 반복돼서
+# 카카오 검색을 매번 새로 하고 있었음 -> 쿼리 문자열 기준 캐시 추가. 실패 후보 대기시간을
+# 줄이려고 카카오 타임아웃 10초 -> 5초로 단축. max_workers 기본 8 -> 16.
 """
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
 import requests
@@ -141,14 +150,14 @@ def parse_list_page(html: str) -> list[dict]:
             "applied_count": applied_count,
             "capacity": capacity,
             "status_text": status_text,
-            "detail_url": f"https://www.vms.or.kr/partspace/{href}",
+            "detail_url": f"{DETAIL_URL}?seq={seq}",
         })
 
     return results
 
 
 def crawl_list_all(days_window: int = 30, page_size: int = 12, sleep_sec: float = 0.5,
-                    max_pages: int = 100) -> list[dict]:
+                    max_pages: int = 500) -> list[dict]:
     """오늘부터 days_window일 구간, 모집중(status=1)인 공고 전체를 페이지네이션하며 수집(목록 정보만)"""
     sttdte = date.today().isoformat()
     enddte = (date.today() + timedelta(days=days_window)).isoformat()
@@ -304,23 +313,41 @@ def _kakao_api_key() -> str | None:
     return key.get_secret_value() if hasattr(key, "get_secret_value") else key
 
 
+# ⭐ 신규: 쿼리 문자열 기준 카카오 검색 결과 캐시. 같은 기관이 공고를 여러 번 올리는 경우가
+# 많아서(예: "청주종합사회복지관"), 같은 검색어를 스레드 여러 개가 매번 새로 요청하는 낭비를 줄임.
+# 스레드풀에서 동시에 접근하므로 Lock으로 보호.
+_kakao_cache: dict[str, dict | None] = {}
+_kakao_cache_lock = threading.Lock()
+
+
 def kakao_keyword_search(query: str) -> dict | None:
     """카카오 로컬 키워드 검색 - 장소명으로 주소/좌표 조회. 검색결과 1순위만 사용.
-    키가 없거나 요청 실패하면 조용히 None 반환(전체 크롤링이 이거 때문에 멈추면 안 되니까)."""
+    키가 없거나 요청 실패하면 조용히 None 반환(전체 크롤링이 이거 때문에 멈추면 안 되니까).
+
+    # ⭐ 수정: 쿼리 문자열 캐시 추가 + 타임아웃 10초 -> 5초 (실패 후보들 기다리는 시간 단축)."""
+    with _kakao_cache_lock:
+        if query in _kakao_cache:
+            return _kakao_cache[query]
+
     api_key = _kakao_api_key()
     if not api_key or not query:
         return None
     headers = {"Authorization": f"KakaoAK {api_key}"}
     try:
         resp = requests.get(
-            KAKAO_KEYWORD_URL, params={"query": query, "size": 1}, headers=headers, timeout=10
+            KAKAO_KEYWORD_URL, params={"query": query, "size": 1}, headers=headers, timeout=5
         )
         resp.raise_for_status()
     except requests.RequestException as e:
         print(f"  (카카오 검색 실패: {query!r} - {e})")
+        with _kakao_cache_lock:
+            _kakao_cache[query] = None
         return None
     docs = (resp.json() or {}).get("documents") or []
-    return docs[0] if docs else None
+    result = docs[0] if docs else None
+    with _kakao_cache_lock:
+        _kakao_cache[query] = result
+    return result
 
 
 # 카카오는 시도명을 축약형으로 줌(예: "경남 창원시 진해구 ..."). 서울/부산/경기처럼
@@ -388,6 +415,21 @@ def clean_place_name(name: str | None) -> str | None:
     return cleaned or None
 
 
+def _kakao_candidates(place_name: str | None) -> list[str]:
+    """clean_place_name 결과로부터 검색 후보 문자열 리스트 생성 (resolve_via_kakao / kakao_lookup_raw 공용)."""
+    cleaned = clean_place_name(place_name)
+    if not cleaned:
+        return []
+    candidates = [cleaned]
+    no_space = cleaned.replace(" ", "")
+    if no_space != cleaned:
+        candidates.append(no_space)
+    first_word = cleaned.split()[0] if " " in cleaned else None
+    if first_word and len(first_word) >= 2:
+        candidates.append(first_word)
+    return candidates
+
+
 def resolve_via_kakao(db, place_name: str | None) -> dict | None:
     """장소명으로 카카오 검색 -> 주소 파싱 -> region_id까지 매칭.
     성공하면 {"region_id", "address_name", "lat", "lng"} 반환, 실패하면 None.
@@ -397,24 +439,40 @@ def resolve_via_kakao(db, place_name: str | None) -> dict | None:
     2) 공백까지 다 제거한 이름 (예: "거점 1호" -> "거점1호")
     3) 그래도 안 되면 첫 단어만 (예: "광안리해수욕장 광장" -> "광안리해수욕장")
        -> 뒤 단어가 부가 설명이고 앞 단어가 진짜 랜드마크인 경우가 많아서
-    """
-    cleaned = clean_place_name(place_name)
-    if not cleaned:
-        return None
 
-    candidates = [cleaned]
-    no_space = cleaned.replace(" ", "")
-    if no_space != cleaned:
-        candidates.append(no_space)
-    first_word = cleaned.split()[0] if " " in cleaned else None
-    if first_word and len(first_word) >= 2:
-        candidates.append(first_word)
+    # ⭐ 참고: 병렬 크롤링(run_crawl)에서는 이 함수를 직접 쓰지 않고, 네트워크 부분만 떼어낸
+    # kakao_lookup_raw() + DB 매칭만 하는 resolve_via_kakao_doc()로 나눠서 씀.
+    # 이 함수 자체는 backfill_missing_fields() 등 기존 순차 처리 코드가 그대로 쓰므로 유지.
+    """
+    candidates = _kakao_candidates(place_name)
+    if not candidates:
+        return None
 
     doc = None
     for query in candidates:
         doc = kakao_keyword_search(query)
         if doc is not None:
             break
+    if doc is None:
+        return None
+
+    return resolve_via_kakao_doc(db, doc, place_name or "")
+
+
+def kakao_lookup_raw(place_name: str | None) -> dict | None:
+    """장소명 후보들로 카카오 키워드 검색 '만' 수행 (DB 접근 없음, 네트워크만).
+    스레드풀에서 병렬 실행하기 위해 resolve_via_kakao()에서 네트워크 부분만 떼어낸 버전."""
+    candidates = _kakao_candidates(place_name)
+    for query in candidates:
+        doc = kakao_keyword_search(query)
+        if doc is not None:
+            return doc
+    return None
+
+
+def resolve_via_kakao_doc(db, doc: dict | None, place_name: str) -> dict | None:
+    """kakao_lookup_raw() 등으로 이미 받아온 카카오 검색결과(doc)로 region_id까지 매칭
+    (DB 접근만 함, 네트워크 요청 없음 -> 메인 스레드에서 순차 실행용)."""
     if doc is None:
         return None
 
@@ -523,17 +581,31 @@ def resolve_region_id(db, sido_full: str | None, gugun: str | None, extra_text: 
     return None  # 여전히 모호함 -> 스킵 (로그로 확인 후 수동 처리)
 
 
-def build_center_fields(db, list_item: dict, detail: dict) -> dict | None:
+def _trunc(text: str | None, max_len: int) -> str | None:
+    """DB 컬럼 길이 초과로 INSERT가 깨지는 것 방지용 방어적 자르기."""
+    if text is None:
+        return None
+    return text if len(text) <= max_len else text[:max_len]
+
+
+def build_center_fields(
+    db, list_item: dict, detail: dict,
+    kakao_result: dict | None = None, kakao_precomputed: bool = False,
+) -> dict | None:
     """목록+상세 파싱 결과를 VolunteerCenter 컬럼에 맞게 조립. region_id 못 찾으면 None 반환(스킵)
 
     지역/주소/좌표 확보 순서:
     1) 카카오 키워드 검색: 봉사장소명 -> 안되면 봉사활동처명으로 재시도
     2) 그래도 실패하면 VMS 봉사지역 텍스트 기반 파싱으로 폴백 (주소/좌표는 못 채움)
+
+    kakao_precomputed=True면 kakao_result 인자를 그대로 사용하고 이 함수 안에서 카카오 검색을
+    다시 하지 않음 (병렬 크롤링에서 스레드가 미리 계산해둔 결과 재사용용).
     """
-    kakao_result = (
-        resolve_via_kakao(db, detail.get("vol_place"))
-        or resolve_via_kakao(db, detail.get("vol_org"))
-    )
+    if not kakao_precomputed:
+        kakao_result = (
+            resolve_via_kakao(db, detail.get("vol_place"))
+            or resolve_via_kakao(db, detail.get("vol_org"))
+        )
 
     if kakao_result is not None:
         region_id = kakao_result["region_id"]
@@ -560,14 +632,14 @@ def build_center_fields(db, list_item: dict, detail: dict) -> dict | None:
 
     return {
         "region_id": region_id,
-        "vol_name": detail.get("vol_org") or list_item.get("org"),
-        "vol_title": detail.get("title") or list_item.get("title"),  # 봉사 모집글 제목
-        "vol_address": vol_address,
-        "target": detail.get("vol_target"),
-        "vms_url": list_item.get("detail_url"),
-        "vol_qual": vol_qual or None,
-        "vol_act": detail.get("content"),
-        "vol_date": detail.get("vol_period"),
+        "vol_name": _trunc(detail.get("vol_org") or list_item.get("org"), 200),
+        "vol_title": _trunc(detail.get("title") or list_item.get("title"), 500),
+        "vol_address": _trunc(vol_address, 255),
+        "target": _trunc(detail.get("vol_target"), 200),
+        "vms_url": _trunc(list_item.get("detail_url"), 500),
+        "vol_qual": _trunc(vol_qual or None, 500),
+        "vol_act": _trunc(detail.get("content"), 2000),
+        "vol_date": _trunc(detail.get("vol_period"), 1000),
         "latitude": latitude,
         "longitude": longitude,
     }
@@ -609,15 +681,36 @@ def delete_expired_centers(db):
 # 5. 전체 파이프라인
 # =========================================================
 
-def run_crawl(db, days_window: int = 30, sleep_sec: float = 0.5, max_pages: int = 100,
-              refetch_existing: bool = False):
+def fetch_item_bundle(item: dict, detail_sleep_sec: float = 0.1) -> dict:
+    """스레드풀에서 실행되는 작업 단위. 네트워크 요청(상세페이지 + 카카오 검색)만 하고
+    DB는 절대 건드리지 않음(SQLAlchemy Session은 스레드 세이프하지 않으므로)."""
+    seq = item["seq"]
+    try:
+        html = fetch_detail_page(seq)
+    except requests.RequestException as e:
+        return {"item": item, "detail": None, "kakao_doc": None, "error": str(e)}
+
+    detail = parse_detail_page(html)
+    kakao_doc = kakao_lookup_raw(detail.get("vol_place")) or kakao_lookup_raw(detail.get("vol_org"))
+
+    if detail_sleep_sec:
+        time.sleep(detail_sleep_sec)  # 서버 부담 줄이기용 최소한의 딜레이 (스레드별로 걸림)
+
+    return {"item": item, "detail": detail, "kakao_doc": kakao_doc, "error": None}
+
+
+def run_crawl(db, days_window: int = 30, sleep_sec: float = 0.5, max_pages: int = 500,
+              refetch_existing: bool = False, max_workers: int = 16, detail_sleep_sec: float = 0.1):
     """전체 파이프라인.
 
     refetch_existing=False(기본값)면 이미 DB에 저장돼 있는 seq는 상세페이지를 다시 안 가져오고
     건너뜀. 한번 등록된 공고 내용은 거의 안 바뀌고(마감은 delete_expired_centers가 별도 처리),
     이렇게 안 하면 5000건 넘는 데이터를 매번 전부 다시 상세크롤링하게 돼서 매일 도는 배치로는
-    너무 느림(건당 요청+0.5초 슬립이라 5000건이면 1시간 이상). 최초 1회만 전체를 다 긁고,
-    그 다음부터는 그날 새로 올라온 것만 상세크롤링하면 되므로 훨씬 빨라짐.
+    너무 느림. 최초 1회만 전체를 다 긁고, 그 다음부터는 그날 새로 올라온 것만 상세크롤링하면
+    되므로 훨씬 빨라짐.
+
+    # ⭐ 수정: max_workers 기본값 8 -> 16. 카카오 검색 캐시(_kakao_cache) + 타임아웃 단축(5초)이
+    # 같이 들어가서 동시처리를 늘려도 예전만큼 오래 대기하는 워커가 줄어들 것으로 기대.
     """
     print("=== 1) 마감 공고 정리 ===")
     delete_expired_centers(db)
@@ -633,24 +726,36 @@ def run_crawl(db, days_window: int = 30, sleep_sec: float = 0.5, max_pages: int 
         list_items = [item for item in list_items if item["seq"] not in existing_ids]
         print(f"이미 저장된 {before - len(list_items)}건은 상세크롤링 건너뜀 (남은 {len(list_items)}건만 진행)")
 
-    print("\n=== 3) 상세 수집 + DB 저장 ===")
+    total = len(list_items)
+    print(f"\n=== 3) 상세 수집(병렬 {max_workers}개) + DB 저장(순차) ===")
     saved, skipped = 0, 0
-    for i, item in enumerate(list_items, start=1):
-        seq = item["seq"]
-        try:
-            html = fetch_detail_page(seq)
-            detail = parse_detail_page(html)
-            fields = build_center_fields(db, item, detail)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(fetch_item_bundle, item, detail_sleep_sec): item
+            for item in list_items
+        }
+        for done_count, future in enumerate(as_completed(futures), start=1):
+            result = future.result()
+            item = result["item"]
+            seq = item["seq"]
+
+            if result["error"] is not None:
+                skipped += 1
+                print(f"[{done_count}/{total}] seq={seq} 요청 실패 -> 스킵 ({result['error']})")
+                continue
+
+            detail = result["detail"]
+            place_name = detail.get("vol_place") or detail.get("vol_org") or ""
+            kakao_result = resolve_via_kakao_doc(db, result["kakao_doc"], place_name)
+
+            fields = build_center_fields(db, item, detail, kakao_result=kakao_result, kakao_precomputed=True)
             if fields is None:
                 skipped += 1
-                print(f"[{i}/{len(list_items)}] seq={seq} region 매칭 실패 -> 스킵 (봉사지역: {detail.get('vol_region')})")
+                print(f"[{done_count}/{total}] seq={seq} region 매칭 실패 -> 스킵 (봉사지역: {detail.get('vol_region')})")
             else:
                 upsert_volunteer_center(db, seq, fields)
                 saved += 1
-        except requests.RequestException as e:
-            skipped += 1
-            print(f"[{i}/{len(list_items)}] seq={seq} 요청 실패 -> 스킵 ({e})")
-        time.sleep(sleep_sec)
 
     print(f"\n완료: 저장 {saved}건, 스킵 {skipped}건")
 
@@ -658,11 +763,6 @@ def run_crawl(db, days_window: int = 30, sleep_sec: float = 0.5, max_pages: int 
 def backfill_missing_fields(db, sleep_sec: float = 0.5):
     """이미 저장된 공고 중 vol_title이 비어있거나 latitude가 비어있는 것만 골라
     다시 상세크롤링+카카오 검색해서 채워넣는 일회성 백필 스크립트.
-
-    run_crawl()은 이미 저장된 seq는 상세크롤링을 건너뛰기 때문에:
-    - vol_title 컬럼을 나중에 추가하면 그 전에 저장된 행은 전부 vol_title=NULL로 남음
-    - 카카오 연동을 붙이기 전이나 region_name substring 버그가 있던 시절엔 위경도가 안 채워짐
-    이 함수는 그런 "구멍난" 행들만 골라 한 번 더 시도해서 채워줌. 전체를 다시 긁는 것보다 빠름.
 
     실행 예:
         python -c "from backend.app.common.database import SessionLocal; from backend.app.map.crawler.vms_crawler import backfill_missing_fields; db = SessionLocal(); backfill_missing_fields(db); db.close()"
@@ -710,9 +810,6 @@ def backfill_missing_fields(db, sleep_sec: float = 0.5):
 
 
 if __name__ == "__main__":
-    # NOTE: 실제 프로젝트 루트에서 `python -m backend.app.map.crawler.vms_crawler` 로 실행해야
-    # backend.app... import가 정상 동작함.
-    # SessionLocal 이름/경로는 실제 backend/app/common/database.py 구조에 맞춰 확인 필요.
     from backend.app.common.database import SessionLocal
 
     db = SessionLocal()
