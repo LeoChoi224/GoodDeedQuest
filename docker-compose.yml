@@ -1,4 +1,35 @@
+# ============================================================
+# x-app 은 서비스가 아니라 "재사용할 설정 묶음"이다.
+# & 로 이름표를 붙이고, 아래에서 << 로 가져다 쓴다.
+# ============================================================
+x-app: &app
+  # 이미지를 만드는 건 backend 서비스 한 곳뿐이다. 나머지 넷은 그 이미지를 쓰기만 한다.
+  # (다섯이 모두 build 를 가지면 같은 이름표를 동시에 붙이려다 충돌한다)
+  image: gooddeedquest:latest
+  # 이 이미지는 로컬에서 만든 것이다. Docker Hub 에서 받으려 시도하지 않는다.
+  pull_policy: never
+  env_file:
+    - .env
+  environment:
+    # .env 에는 localhost 로 적혀 있는데, 컨테이너 안에서 localhost 는 "자기 자신"이다.
+    # 컨테이너끼리는 compose 서비스 이름으로 부른다. 그래서 여기서 덮어쓴다.
+    # (environment 가 env_file 보다 우선한다)
+    DATABASE_URL: postgresql+psycopg://gooddeed:gooddeed@postgres:5432/gooddeedquest
+    REDIS_URL: redis://redis:6379/0
+    AI_SERVICE_URL: http://ai:8001
+    FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  # ★ 이 이름표가 붙은 서비스는 --profile app 을 줄 때만 뜬다.
+  #   팀원이 docker compose up -d 만 치면 postgres/redis 만 뜬다 (기존과 동일).
+  profiles: ["app"]
+
 services:
+  # ── 아래 두 개는 프로필이 없으므로 항상 뜬다 (팀원 로컬 개발용) ──
   postgres:
     image: pgvector/pgvector:pg17
     container_name: gdq-postgres
@@ -10,12 +41,71 @@ services:
       - "5432:5432"
     volumes:
       - gdq_postgres_data:/var/lib/postgresql/data
+    # DB가 "떴다"와 "접속을 받을 준비가 됐다"는 다르다.
+    # 이 검사가 통과해야 backend 가 뜨기 시작한다.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gooddeed -d gooddeedquest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7.4-alpine
     container_name: gdq-redis
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── 아래 네 개는 --profile app 을 줄 때만 뜬다 ──
+  backend:
+    <<: *app
+    # ★ 이미지를 만드는 곳은 여기 한 곳뿐
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gdq-backend
+    ports:
+      - "8000:8000"
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+
+  ai:
+    <<: *app
+    container_name: gdq-ai
+    ports:
+      - "8001:8001"
+    command: uvicorn ai.main:app --host 0.0.0.0 --port 8001
+
+  # 실제로 일을 하는 쪽. 큐에 들어온 작업을 꺼내서 실행한다.
+  celery-worker:
+    <<: *app
+    container_name: gdq-celery-worker
+    command: >
+      celery -A backend.app.challenge.celery_app:celery_app
+      worker --loglevel=info --queues=maintenance
+
+  # 알람시계. "지금 이 작업 돌릴 시간이야"를 큐에 넣기만 한다.
+  # 이게 없으면 worker 를 띄워도 10분마다 도는 보류 인증 재판정이 안 돈다.
+  celery-beat:
+    <<: *app
+    container_name: gdq-celery-beat
+    command: >
+      celery -A backend.app.challenge.celery_app:celery_app
+      beat --loglevel=info
+
+  # 숏폼 생성 전용 워커.
+  # Celery 앱이 challenge / short_form 두 개라서 워커도 따로 필요하다.
+  # (워커는 자기 앱에 등록된 task만 처리한다. 하나로 합칠 수 없다.)
+  # --queues 를 안 주면 이 앱의 기본 큐인 "celery" 를 듣는다.
+  celery-worker-shortform:
+    <<: *app
+    container_name: gdq-celery-shortform
+    command: >
+      celery -A backend.app.short_form.celery_app:celery_app
+      worker --loglevel=info
 
 volumes:
   gdq_postgres_data:
