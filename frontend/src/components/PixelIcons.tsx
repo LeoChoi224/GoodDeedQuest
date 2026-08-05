@@ -95,6 +95,16 @@ export const CheckMark = ({ size = 13, color = '#fff' }: IconProps) => (
   </Svg>
 );
 
+// 전체화면 버튼용 - 네 귀퉁이가 바깥으로 벌어지는 모양의 픽셀 스타일 확대 아이콘
+export const ExpandIcon = ({ size = 18, color = '#fff' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 10 10" fill="none" stroke={color} strokeWidth={1}>
+    <Path d="M1 3 V1 H3" />
+    <Path d="M7 1 H9 V3" />
+    <Path d="M9 7 V9 H7" />
+    <Path d="M3 9 H1 V7" />
+  </Svg>
+);
+
 /**
  * Status bar signal + battery glyphs (dark = #1A1A1A for light screens, light = #fff for hero).
  */
