@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.auth.enums import UserRole
 from backend.app.auth.models import User
+from backend.app.common.datetime_utils import to_utc_aware  # ⭐ 수정: 퀘스트 완료시간 KST 표시 버그 수정
 from backend.app.common.s3_client import (
     CommunityVideoTranscodeTimeoutError,
     copy_s3_object,
@@ -285,7 +286,7 @@ def get_community_user_quest_achievements(
             title=quest.quest_title,
             description=quest.quest_description,
             category_code=category_code,
-            completed_at=submission.submitted_at,
+            completed_at=to_utc_aware(submission.submitted_at),  # ⭐ 수정: naive UTC -> UTC-aware로 내려서 프론트가 KST로 정확히 변환하게 함
             reward_point=quest.reward_point,
             reward_exp=quest.reward_exp,
         )
@@ -338,7 +339,7 @@ def get_recent_accepted_quest_submissions(
                 if submission.media_url
                 else None
             ),
-            submitted_at=submission.submitted_at,
+            submitted_at=to_utc_aware(submission.submitted_at),  # ⭐ 수정: naive UTC -> UTC-aware로 내려서 프론트가 KST로 정확히 변환하게 함
         )
         for submission in submissions
     ]
