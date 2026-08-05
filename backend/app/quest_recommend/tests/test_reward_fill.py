@@ -4,8 +4,8 @@ import unittest
 import backend.app.models_registry  # noqa: F401
 
 from backend.app.common.database import SessionLocal
+from backend.app.common.tests.factories import create_test_user, delete_test_user
 from backend.app.common.enums import Difficulty
-from backend.app.auth.models import User
 from backend.app.quest.models import Category, Quest
 from backend.app.quest_recommend.models import AiRecommendation, AiRecommendationLog
 from backend.app.quest_recommend.service import save_recommendation_items
@@ -18,13 +18,18 @@ class TestRewardFill(unittest.TestCase):
         self.created_quest_ids = []
         self.created_log_ids = []
 
-        user = self.session.query(User).first()
-        category = self.session.query(Category).first()
-        if not user or not category:
-            self.session.close()
-            self.skipTest("테스트에 사용할 User 또는 Category 데이터가 DB에 없습니다.")
+        # 예전에는 DB에 아무 유저나 있으면 쓰고 없으면 skipTest 로 넘어갔다.
+        # 빈 DB(팀원 노트북, CI)에서는 조용히 건너뛰어 아무것도 검증하지 못했다.
+        self.test_user_id = create_test_user()
 
-        self.test_user_id = user.user_id
+        category = self.session.query(Category).first()
+        if not category:
+            self.session.close()
+            delete_test_user(self.test_user_id)
+            self.fail(
+                "Category 시드가 없습니다. "
+                "python -m backend.app.quest.seed_category 를 먼저 실행하세요."
+            )
 
         log = AiRecommendationLog(
             user_id=self.test_user_id,
@@ -53,6 +58,7 @@ class TestRewardFill(unittest.TestCase):
                 self.session.delete(quest)
         self.session.commit()
         self.session.close()
+        delete_test_user(self.test_user_id)
 
     def _save_and_fetch(self, items):
         """추천 항목을 저장하고 생성된 Quest 목록을 순서대로 반환하는 헬퍼"""
