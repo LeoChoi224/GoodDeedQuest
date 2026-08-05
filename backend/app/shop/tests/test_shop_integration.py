@@ -5,35 +5,39 @@ from sqlalchemy.orm import Session
 from backend.main import app
 from backend.app.common.database import SessionLocal
 from backend.app.common.auth import get_current_user
+from backend.app.common.tests.factories import create_test_user, delete_test_user
 from backend.app.auth.models import User, PointTransaction
 from backend.app.auth.enums import TransactionType
 from backend.app.shop.models import Purchase, Item
 
 
-# 유저 ID 2번 계정을 강제로 반환하는 테스트용 의존성 오버라이드 함수
-def override_get_current_user_id2():
-    return {"id": 2, "email": "user2@example.com", "name": "테스트유저2"}
-
 
 class TestShopE2EIntegration(unittest.TestCase):
     def setUp(self):
         # 1. get_current_user 의존성을 유저 ID 2번으로 오버라이딩
-        app.dependency_overrides[get_current_user] = override_get_current_user_id2
+        # 예전에는 user_id=2 를 그대로 썼다. 그 유저가 없는 환경(빈 DB, CI)에서는
+        # 구매 적재가 전부 외래키 위반으로 실패했다.
+        self.test_user_id = create_test_user(point_balance=10000)
+
+        app.dependency_overrides[get_current_user] = lambda: {
+            "id": self.test_user_id,
+            "email": "pytest@example.com",
+            "name": "테스트유저",
+        }
         self.client = TestClient(app)
         self.db: Session = SessionLocal()
 
-        # 2. 유저 ID 2번 포인트 10,000P 충전 및 기존 자식(PointTransaction) -> 부모(Purchase) 안전 삭제
-        user = self.db.get(User, 2)
-        if user:
-            user.point_balance = 10000
-
-        self.db.query(PointTransaction).filter(PointTransaction.user_id == 2).delete()
-        self.db.query(Purchase).filter(Purchase.user_id == 2).delete()
+        # 포인트 10,000P 는 create_test_user 에서 이미 넣었다.
+        # 아래 삭제는 새 유저라 지울 게 없지만, 혹시 이전 실행이 남긴 게 있어도
+        # 안전하도록 자식(PointTransaction) -> 부모(Purchase) 순서로 정리한다.
+        self.db.query(PointTransaction).filter(PointTransaction.user_id == self.test_user_id).delete()
+        self.db.query(Purchase).filter(Purchase.user_id == self.test_user_id).delete()
         self.db.commit()
 
     def tearDown(self):
         app.dependency_overrides.clear()
         self.db.close()
+        delete_test_user(self.test_user_id)
 
     def test_shop_e2e_full_flow(self):
         """
@@ -74,22 +78,24 @@ class TestShopE2EIntegration(unittest.TestCase):
         self.assertEqual(buy_response.status_code, 200)
         buy_json = buy_response.json()
         self.assertTrue(buy_json["success"])
-        self.assertEqual(buy_json["data"]["user_id"], 2)
+        self.assertEqual(buy_json["data"]["user_id"], self.test_user_id)
         self.assertEqual(buy_json["data"]["item_id"], target_item_id)
         self.assertEqual(buy_json["data"]["status"], "COMPLETED")
 
         # =========================================================================
         # 4단계: 유저 포인트 잔액 차감 & PointTransaction 원장 DB 정합성 100% 검증
         # =========================================================================
-        # DB 직조회를 통해 잔액 및 원장 데이터 확인
-        user_in_db = self.db.get(User, 2)
+        # DB 직조회를 통해 잔액 및 원장 데이터 확인.
+        # 구매 API 가 다른 세션에서 커밋했으므로 이 세션의 캐시를 비우고 다시 읽는다.
+        self.db.expire_all()
+        user_in_db = self.db.get(User, self.test_user_id)
         expected_balance = 10000 - target_price
         self.assertEqual(user_in_db.point_balance, expected_balance)
 
         # 최신 생성된 거래 원장 레코드 조회
         latest_tx = (
             self.db.query(PointTransaction)
-            .filter(PointTransaction.user_id == 2)
+            .filter(PointTransaction.user_id == self.test_user_id)
             .order_by(PointTransaction.transaction_id.desc())
             .first()
         )

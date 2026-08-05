@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from backend.main import app
 from backend.app.common.auth import get_current_user
 from backend.app.common.database import SessionLocal
+from backend.app.common.tests.factories import create_test_user, delete_test_user
 from backend.app.common.enums import Difficulty
 from backend.app.auth.models import User
 from backend.app.auth.router import get_current_db_user
@@ -22,14 +23,20 @@ class TestQuestStart(unittest.TestCase):
         self.session = SessionLocal()
         self.created_quest_ids = []
 
-        user = self.session.query(User).first()
-        category = self.session.query(Category).first()
-        if not user or not category:
-            self.session.close()
-            self.skipTest("테스트에 사용할 User 또는 Category 데이터가 DB에 없습니다.")
+        # 예전에는 DB에 아무 유저나 있으면 그걸 쓰고, 없으면 skipTest 로 넘어갔다.
+        # 빈 DB(팀원 노트북, CI)에서는 조용히 건너뛰어서 아무것도 검증하지 못했다.
+        # 이제 테스트가 자기 유저를 만든다.
+        self.test_user_id = create_test_user()
+        self.test_user = self.session.get(User, self.test_user_id)
 
-        self.test_user = user
-        self.test_user_id = user.user_id
+        category = self.session.query(Category).first()
+        if not category:
+            self.session.close()
+            delete_test_user(self.test_user_id)
+            self.fail(
+                "Category 시드가 없습니다. "
+                "python -m backend.app.quest.seed_category 를 먼저 실행하세요."
+            )
 
         quest = Quest(
             category_id=category.category_id,
@@ -51,7 +58,7 @@ class TestQuestStart(unittest.TestCase):
 
         app.dependency_overrides[get_current_user] = lambda: {
             "id": self.test_user_id,
-            "email": user.email,
+            "email": self.test_user.email,
             "level": 3
         }
         app.dependency_overrides[get_current_db_user] = lambda: self.test_user
@@ -71,6 +78,7 @@ class TestQuestStart(unittest.TestCase):
         self.session.commit()
         self.session.close()
         app.dependency_overrides.clear()
+        delete_test_user(self.test_user_id)
 
     def test_start_creates_record_and_returns_in_progress(self):
         """시작 요청이 quest_start에 기록을 남기고 IN_PROGRESS를 반환하는지 검증"""

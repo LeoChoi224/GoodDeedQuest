@@ -5,24 +5,29 @@ from sqlalchemy.orm import Session
 from backend.main import app
 from backend.app.common.database import SessionLocal
 from backend.app.common.auth import get_current_user
+from backend.app.common.tests.factories import create_test_user, delete_test_user
 from backend.app.auth.models import PointTransaction
 from backend.app.shop.models import Purchase
 
 
-# 유저 ID 2번 계정을 반환하는 테스트용 의존성 오버라이드 함수
-def override_get_current_user_id2():
-    return {"id": 2, "email": "user2@example.com", "name": "테스트유저2"}
-
 
 class TestShopPurchaseHistoryAPI(unittest.TestCase):
     def setUp(self):
-        app.dependency_overrides[get_current_user] = override_get_current_user_id2
+        # 예전에는 user_id=2 를 그대로 썼다. 그 유저가 없는 환경(빈 DB, CI)에서는
+        # 구매 적재가 전부 외래키 위반으로 실패했다.
+        self.test_user_id = create_test_user(point_balance=10000)
+
+        app.dependency_overrides[get_current_user] = lambda: {
+            "id": self.test_user_id,
+            "email": "pytest@example.com",
+            "name": "테스트유저",
+        }
         self.client = TestClient(app)
         self.db: Session = SessionLocal()
 
         # 기존 유저 ID 2번 데이터 정리 (자식 PointTransaction ➡️ 부모 Purchase 순)
-        self.db.query(PointTransaction).filter(PointTransaction.user_id == 2).delete()
-        self.db.query(Purchase).filter(Purchase.user_id == 2).delete()
+        self.db.query(PointTransaction).filter(PointTransaction.user_id == self.test_user_id).delete()
+        self.db.query(Purchase).filter(Purchase.user_id == self.test_user_id).delete()
         self.db.commit()
 
         # 상품 동적 target_item_id 획득
@@ -35,6 +40,7 @@ class TestShopPurchaseHistoryAPI(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
         self.db.close()
+        delete_test_user(self.test_user_id)
 
     def test_get_my_purchases_success(self):
         """GET /api/v1/shop/purchases 구매 후 구매 내역 목록 조회 200 OK 검증"""

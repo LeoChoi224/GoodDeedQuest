@@ -25,11 +25,14 @@ from backend.app.auth.models import User
 from backend.app.common.database import SessionLocal
 
 
-def create_test_user() -> int:
+def create_test_user(point_balance: int = 0) -> int:
     """테스트 전용 유저를 만들고 user_id 를 반환한다.
 
     email/nickname 에 임의 접미사를 붙여서 여러 테스트가 동시에 돌아도
     unique 제약에 걸리지 않게 한다.
+
+    Args:
+        point_balance: 상점 구매처럼 잔액이 필요한 테스트에서 지정한다.
     """
     suffix = uuid4().hex[:12]
 
@@ -38,6 +41,7 @@ def create_test_user() -> int:
             email=f"pytest-{suffix}@example.com",
             password_hash="pytest-not-a-real-hash",
             nickname=f"pytest-{suffix}",
+            point_balance=point_balance,
         )
         db.add(user)
         db.commit()

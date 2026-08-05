@@ -5,25 +5,30 @@ from sqlalchemy.orm import Session
 from backend.main import app
 from backend.app.common.database import SessionLocal
 from backend.app.common.auth import get_current_user
+from backend.app.common.tests.factories import create_test_user, delete_test_user
 from backend.app.auth.models import PointTransaction
 from backend.app.shop.models import Purchase
 
-
-# 유저 ID 2번 계정을 강제로 반환하는 테스트용 의존성 오버라이드 함수
-def override_get_current_user_id2():
-    return {"id": 2, "email": "user2@example.com", "name": "테스트유저2"}
 
 
 class TestShopPurchaseAPI(unittest.TestCase):
     def setUp(self):
         # get_current_user 의존성을 유저 ID 2번으로 오버라이딩
-        app.dependency_overrides[get_current_user] = override_get_current_user_id2
+        # 예전에는 user_id=2 를 그대로 썼다. 그 유저가 없는 환경(빈 DB, CI)에서는
+        # 구매 적재가 전부 외래키 위반으로 실패했다.
+        self.test_user_id = create_test_user(point_balance=10000)
+
+        app.dependency_overrides[get_current_user] = lambda: {
+            "id": self.test_user_id,
+            "email": "pytest@example.com",
+            "name": "테스트유저",
+        }
         self.client = TestClient(app)
         self.db: Session = SessionLocal()
 
         # 자식 테이블(PointTransaction) ➡️ 부모 테이블(Purchase) 순서로 안전하게 초기화
-        self.db.query(PointTransaction).filter(PointTransaction.user_id == 2).delete()
-        self.db.query(Purchase).filter(Purchase.user_id == 2).delete()
+        self.db.query(PointTransaction).filter(PointTransaction.user_id == self.test_user_id).delete()
+        self.db.query(Purchase).filter(Purchase.user_id == self.test_user_id).delete()
         self.db.commit()
 
         # 상점 목록 조회를 통한 동적 target_item_id 획득
@@ -36,6 +41,7 @@ class TestShopPurchaseAPI(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
         self.db.close()
+        delete_test_user(self.test_user_id)
 
     def test_purchase_item_success(self):
         """POST /api/v1/shop/purchase 유저 ID 2번 계정 정상 아이템 구매 200 OK 검증"""
@@ -45,7 +51,7 @@ class TestShopPurchaseAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         json_data = response.json()
         self.assertTrue(json_data["success"])
-        self.assertEqual(json_data["data"]["user_id"], 2)
+        self.assertEqual(json_data["data"]["user_id"], self.test_user_id)
         self.assertEqual(json_data["data"]["item_id"], self.target_item_id)
         self.assertEqual(json_data["data"]["status"], "COMPLETED")
 
