@@ -179,6 +179,17 @@ def _analyze_one_media(media_key: str) -> VisionAnalysisResult | None:
 
 
 def vision_agent(state: ShortFormState) -> ShortFormState:
+    # ⭐ 추가: 렌더링 트리거 경로(/generate-video)는 backend가 캡션(edited_captions)과
+    # BGM(bgm_match)을 이미 확정해서 넘긴다. 이 둘이 다 있으면 llm_story_agent는
+    # 재생성을 스킵하고(edited_captions 사용), rag_agent도 graph.py의
+    # route_after_vision에서 건너뛰어서 vision_results를 쓸 곳이 어디에도 없다
+    # (validation_agent도 generated_captions/bgm_match만 봄). 그런데도 매 렌더링마다
+    # Gemini/OpenAI Vision 호출이 그대로 실행되고 있어 렌더링 시작이 불필요하게
+    # 20~40초 이상 늦어지는 원인이었다 - 아무도 안 쓰는 결과이므로 아예 스킵한다.
+    if state.get("edited_captions") and state.get("bgm_match"):
+        print("[VisionAgent] edited_captions/bgm_match 이미 확정 -> 분석 스킵")
+        state["vision_results"] = []
+        return state
 
     media_keys = state["media_keys"]
     print(f"[VisionAgent] media_keys={media_keys}")

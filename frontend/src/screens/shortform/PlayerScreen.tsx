@@ -4,8 +4,8 @@
  * 다운로드 → useToast('다운로드 완료') + "영상이 저장되었습니다!" 성공 칩 · 공유.
  * Video aspect follows the design source (08_shortform_flow.dc.html) 16:9 player.
  */
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Share, Platform, ActivityIndicator } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Share, Platform, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { ZoomIn } from 'react-native-reanimated';
@@ -20,13 +20,14 @@ import HazeBackground from '../../components/HazeBackground';
 import MainHeader from '../../components/MainHeader';
 import SpringButton from '../../components/SpringButton';
 import { useToast } from '../../components/Toast';
-import { CheckMark } from '../../components/PixelIcons';
+import { CheckMark, ExpandIcon } from '../../components/PixelIcons';
 import { colors, fonts } from '../../theme';
 import { PlayTri, PauseBars } from './_parts';
 import { markPlayerShown } from './completionFlag';
 
 export default function PlayerScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
   const toast = useToast();
   const [saved, setSaved] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -46,6 +47,8 @@ export default function PlayerScreen({ navigation, route }: any) {
     p.loop = true;
     p.timeUpdateEventInterval = 0.25;
   });
+  const videoRef = useRef<VideoView>(null);
+  const onEnterFullscreen = () => videoRef.current?.enterFullscreen();
 
   const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
   const { currentTime } = useEvent(player, 'timeUpdate', {
@@ -114,11 +117,12 @@ export default function PlayerScreen({ navigation, route }: any) {
         <Text style={styles.done}>✓ 생성 완료</Text>
 
         {/* 세로형 숏폼 결과 · 영상 플레이어 */}
-        <View style={styles.player}>
+        <View style={[styles.player, { height: Math.round(screenHeight * 0.5) }]}>
           <VideoView
+            ref={videoRef}
             player={player}
             style={StyleSheet.absoluteFill}
-            contentFit="cover"
+            contentFit="contain"
             nativeControls={false}
           />
           <SpringButton onPress={togglePlay} style={styles.playBtn} pressScale={0.9}>
@@ -127,6 +131,9 @@ export default function PlayerScreen({ navigation, route }: any) {
             ) : (
               <PlayTri size={26} color={colors.primaryDark} />
             )}
+          </SpringButton>
+          <SpringButton onPress={onEnterFullscreen} style={styles.fullscreenBtn} pressScale={0.85}>
+            <ExpandIcon size={16} color="#fff" />
           </SpringButton>
           <View style={styles.progTrack}>
             <View style={[styles.progFill, { width: `${progress * 100}%` }]} />
@@ -165,7 +172,12 @@ const styles = StyleSheet.create({
 
   player: {
     width: '100%',
-    aspectRatio: 16 / 9,
+    // ⭐ 수정: 처음엔 실제 영상 비율(9:16)에 맞춰 aspectRatio를 줬더니, width:'100%'
+    // 기준으로 세로 길이가 화면 거의 전체를 차지해서 다운로드 아래 공유하기 버튼이
+    // 화면 밖으로 밀려났다. 우측 상단에 전체화면 버튼이 이미 있으니, 미리보기 박스는
+    // 화면 높이의 절반 정도로 제한하고(아래 JSX에서 height override), contentFit
+    // ="contain"이 그 안에서 9:16 비율 그대로 레터박스로 넣어줘 잘림/자막 손실 없이
+    // 보여준다. aspectRatio는 이제 안 쓰므로 제거.
     backgroundColor: '#000',
     borderRadius: 12,
     overflow: 'hidden',
@@ -178,6 +190,17 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fullscreenBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
   },
