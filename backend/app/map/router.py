@@ -282,8 +282,9 @@ def get_region_detail_ranking(
 ):
     """시군구별 상세 랭킹페이지 - 개인 랭킹 + AI 부족봉사 추천(ai_category 기반 실집계).
     부족한 카테고리는 '이 지역'을 기준으로 판단하지만, 추천 시설은 그 카테고리가 부족한 바로 이 지역이 아니라
-    '다른 지역'에서 찾아서 보여줌 (같은 지역에서 찾으면 애초에 부족하다고 판단된 카테고리라 항상 텅 비거나
-    의미 없는 결과가 나오기 때문 - "우리 동네엔 없지만 다른 동네엔 이런 봉사가 있다"는 참고용 추천).
+    '같은 시/도 내 다른 지역'에서 찾아서 보여줌 (같은 지역에서 찾으면 애초에 부족하다고 판단된 카테고리라
+    항상 텅 비거나 의미 없는 결과가 나오기 때문 - "우리 동네엔 없지만 같은 시/도 다른 동네엔 이런 봉사가
+    있다"는 참고용 추천. 시/도 밖 지역까지 추천하면 실제로 가기 어려워서 시/도 범위로 제한함).
     정산 중에도 조회 가능"""
     competition = _get_current_competition(db, include_settling=True)
     if competition is None:
@@ -333,7 +334,7 @@ def get_region_detail_ranking(
     category_counts = {cat: raw_counts.get(cat, 0) for cat in ALL_VOLUNTEER_CATEGORIES}
     lacking_category = min(category_counts, key=category_counts.get)
 
-    # 추천은 '다른 지역'에서 같은 카테고리 시설을 찾음 (이유는 위 docstring 참고)
+    # 추천은 '같은 시/도 내 다른 지역'에서 같은 카테고리 시설을 찾음 (이유는 위 docstring 참고)
     # 안내 문구에 지역명을 넣기 위해 Region을 조인해서 region_name도 함께 가져옴
     recommended = (
         db.query(VolunteerCenter, Region.region_name)
@@ -341,6 +342,7 @@ def get_region_detail_ranking(
         .filter(
             VolunteerCenter.ai_category == lacking_category,
             VolunteerCenter.region_id != region_id,
+            Region.city_id == region.city_id,
         )
         .limit(3)
         .all()
