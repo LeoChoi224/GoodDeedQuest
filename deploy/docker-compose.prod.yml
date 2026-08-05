@@ -1,0 +1,59 @@
+# EC2 배포용. 로컬과 달리 postgres 서비스가 없다 (RDS 사용).
+# 이미지는 여기서 만들지 않고 Docker Hub 에서 받는다.
+x-app: &app
+  image: leochoi224/gooddeedquest:latest
+  env_file:
+    - .env
+  environment:
+    REDIS_URL: redis://redis:6379/0
+    AI_SERVICE_URL: http://ai:8001
+    FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: gdq-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    <<: *app
+    container_name: gdq-backend
+    ports:
+      - "8000:8000"
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+
+  # ai 는 포트를 밖으로 열지 않는다. backend 가 컨테이너 안에서만 부른다.
+  ai:
+    <<: *app
+    container_name: gdq-ai
+    command: uvicorn ai.main:app --host 0.0.0.0 --port 8001
+
+  celery-worker:
+    <<: *app
+    container_name: gdq-celery-worker
+    command: >
+      celery -A backend.app.challenge.celery_app:celery_app
+      worker --loglevel=info --queues=maintenance
+
+  celery-beat:
+    <<: *app
+    container_name: gdq-celery-beat
+    command: >
+      celery -A backend.app.challenge.celery_app:celery_app
+      beat --loglevel=info
+
+  celery-worker-shortform:
+    <<: *app
+    container_name: gdq-celery-shortform
+    command: >
+      celery -A backend.app.short_form.celery_app:celery_app
+      worker --loglevel=info
