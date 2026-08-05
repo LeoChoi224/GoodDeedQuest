@@ -1,6 +1,13 @@
 import unittest
+
+import pytest
+
 from ai.app.quest_recommend.state import RecommendState
 from ai.app.quest_recommend.graph import run_recommendation_flow
+
+# 그래프 전체를 실제로 돌리므로 LLM 을 여러 번 호출한다(실측 57초).
+# CI 는 가짜 키라 인증 실패 후 재시도만 반복한다.
+pytestmark = pytest.mark.live_llm
 
 class TestGraphAssembly(unittest.TestCase):
     def test_full_recommendation_flow_e2e(self):

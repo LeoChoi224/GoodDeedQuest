@@ -1,7 +1,12 @@
 import unittest
+
+import pytest
 from fastapi.testclient import TestClient
 
 from ai.main import app
+
+# /ai/recommend 엔드포인트가 추천 그래프 전체를 돌리므로 LLM 을 호출한다(실측 28초).
+pytestmark = pytest.mark.live_llm
 
 class TestQuestRecommendAPI(unittest.TestCase):
     def setUp(self):

@@ -3,11 +3,15 @@ from unittest.mock import patch
 
 import httpx
 import openai
+import pytest
 
 from ai.app.quest_recommend.state import RecommendState
 from ai.app.quest_recommend.nodes.good_deed_agent import create_good_deeds
 
 class TestQuestRecommendationAgent(unittest.TestCase):
+    # 이 메서드만 실제 LLM 을 호출한다(실측 12초).
+    # 같은 클래스의 Gemini 폴백 테스트는 목을 쓰므로 CI 에서 계속 돈다.
+    @pytest.mark.live_llm
     def test_create_good_deeds_normal(self):
         """정상 조건 하에서 6개의 순수 AI 일상 선행(GOOD_DEED) 창작 및 스키마/점수/카테고리 검증"""
         mock_state: RecommendState = {
