@@ -47,6 +47,7 @@ from backend.app.community.scoring import (
     calculate_freshness_score,
     calculate_region_score,
 )
+from backend.app.quest_verification.enums import MediaType
 
 
 REFERENCE_TIME = datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc)
@@ -67,6 +68,7 @@ def make_user(
     is_active: bool = True,
     category: list[int | str] | None = None,
     region_id: int | None = 1,
+    trust_score: int = 50,
 ) -> SimpleNamespace:
     """테스트용 사용자 객체를 생성합니다."""
 
@@ -77,6 +79,9 @@ def make_user(
         is_active=is_active,
         category=category if category is not None else [1],
         region_id=region_id,
+        # User.trust_score는 기본값 50인 필수 컬럼이다.
+        # 개인화 피드가 작성자 신뢰도를 추천 점수에 반영하므로 가짜 객체에도 필요하다.
+        trust_score=trust_score,
     )
 
 
@@ -124,13 +129,42 @@ def make_comment(
 def make_post_request(
     *,
     submission_id: int = 100,
+    selected_media_index: int = 0,
 ) -> CommunityPostCreate:
-    """승인 인증과 연결된 게시글 생성 요청을 만듭니다."""
+    """승인 인증과 연결된 게시글 생성 요청을 만듭니다.
+
+    클라이언트는 media_url을 보내지 않습니다. 어떤 미디어를 쓸지는
+    selected_media_index로만 고르고, 실제 S3 key는 서버가 인증 기록에서
+    찾아옵니다.
+    """
 
     return CommunityPostCreate(
         submission_id=submission_id,
-        media_url="https://example.com/post.jpg",
+        selected_media_index=selected_media_index,
         caption="퀘스트 완료 인증",
+    )
+
+
+def make_submission(
+    *,
+    submission_id: int = 100,
+    user_id: int = 1,
+    quest_id: int = 50,
+) -> SimpleNamespace:
+    """게시글에 연결할 승인된 퀘스트 인증 객체를 만듭니다.
+
+    media_url은 URL이 아니라 S3 key여야 합니다. 서비스가
+    submission/{user_id}/{quest_id}/ 로 시작하는지 검사해서, 남의 인증
+    미디어를 가져다 쓰는 것을 막기 때문입니다.
+    """
+
+    return SimpleNamespace(
+        submission_id=submission_id,
+        user_id=user_id,
+        quest_id=quest_id,
+        media_url=f"submission/{user_id}/{quest_id}/verify.jpg",
+        media_type=MediaType.PHOTO,
+        extra_media_urls=[],
     )
 
 
@@ -184,7 +218,12 @@ class CommunityPostPolicyTest(TestCase):
         )
 
     def test_accepted_submission_creates_post(self) -> None:
-        """본인의 승인 인증으로 게시글을 생성합니다."""
+        """본인의 승인 인증으로 게시글을 생성합니다.
+
+        게시글의 media_url은 요청에서 오지 않습니다. 인증 기록의 S3 key를
+        community/ 아래로 복사한 결과가 쓰입니다. 인증 원본은 30일 뒤
+        만료되지만 게시글은 남아야 하기 때문입니다.
+        """
 
         db = make_db_mock()
         request = make_post_request()
@@ -193,16 +232,15 @@ class CommunityPostPolicyTest(TestCase):
             user_id=1,
             submission_id=100,
         )
+        submission = make_submission()
 
         with (
             patch.object(
                 service.CommunityRepository,
                 "get_accepted_submission_by_id",
-                return_value=SimpleNamespace(
-                    submission_id=100,
-                    user_id=1,
-                ),
+                return_value=submission,
             ),
+            patch.object(service, "copy_s3_object") as copy_object,
             patch.object(
                 service.CommunityRepository,
                 "create_post",
@@ -216,15 +254,58 @@ class CommunityPostPolicyTest(TestCase):
             )
 
         self.assertEqual(result.post_id, 30)
-        create_post.assert_called_once_with(
-            db=db,
-            user_id=1,
-            submission_id=100,
-            media_url="https://example.com/post.jpg",
-            caption="퀘스트 완료 인증",
+
+        # 원본은 인증 key, 사본은 community/{user_id}/{submission_id}/ 아래로 간다.
+        copy_object.assert_called_once()
+        copy_kwargs = copy_object.call_args.kwargs
+        self.assertEqual(copy_kwargs["source_key"], submission.media_url)
+        self.assertTrue(
+            copy_kwargs["destination_key"].startswith("community/1/100/")
         )
+        self.assertTrue(copy_kwargs["destination_key"].endswith(".jpg"))
+
+        # 게시글에는 요청값이 아니라 복사된 영구 key가 저장된다.
+        create_post.assert_called_once()
+        create_kwargs = create_post.call_args.kwargs
+        self.assertEqual(create_kwargs["db"], db)
+        self.assertEqual(create_kwargs["user_id"], 1)
+        self.assertEqual(create_kwargs["submission_id"], 100)
+        self.assertEqual(
+            create_kwargs["media_url"], copy_kwargs["destination_key"]
+        )
+        self.assertEqual(create_kwargs["caption"], "퀘스트 완료 인증")
+
         db.commit.assert_not_called()
         db.rollback.assert_not_called()
+
+    def test_other_users_media_key_is_rejected(self) -> None:
+        """남의 경로를 가리키는 인증 미디어는 거부합니다."""
+
+        db = make_db_mock()
+        submission = make_submission()
+        # 로그인 사용자는 1번인데 미디어 key는 2번 사용자 경로다.
+        submission.media_url = "submission/2/50/verify.jpg"
+
+        with (
+            patch.object(
+                service.CommunityRepository,
+                "get_accepted_submission_by_id",
+                return_value=submission,
+            ),
+            patch.object(service, "copy_s3_object") as copy_object,
+        ):
+            with self.assertRaises(HTTPException) as error:
+                service.create_community_post(
+                    db=db,
+                    request=make_post_request(),
+                    current_user=make_user(),
+                )
+
+        self.assertEqual(
+            error.exception.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        copy_object.assert_not_called()
 
     def test_same_submission_can_be_used_for_multiple_posts(self) -> None:
         """동일 승인 인증으로 여러 게시글을 작성할 수 있습니다."""
@@ -236,11 +317,9 @@ class CommunityPostPolicyTest(TestCase):
             patch.object(
                 service.CommunityRepository,
                 "get_accepted_submission_by_id",
-                return_value=SimpleNamespace(
-                    submission_id=100,
-                    user_id=1,
-                ),
+                return_value=make_submission(),
             ) as get_submission,
+            patch.object(service, "copy_s3_object") as copy_object,
             patch.object(
                 service.CommunityRepository,
                 "create_post",
@@ -273,6 +352,12 @@ class CommunityPostPolicyTest(TestCase):
         self.assertEqual(second_result.post_id, 31)
         self.assertEqual(get_submission.call_count, 2)
         self.assertEqual(create_post.call_count, 2)
+
+        # 같은 인증을 재사용해도 사본 key는 매번 달라야 한다.
+        # 같으면 두 번째 게시글이 첫 번째 파일을 덮어써 버린다.
+        first_key = copy_object.call_args_list[0].kwargs["destination_key"]
+        second_key = copy_object.call_args_list[1].kwargs["destination_key"]
+        self.assertNotEqual(first_key, second_key)
 
 
 class CommunityScoringTest(TestCase):
@@ -347,12 +432,14 @@ class CommunityScoringTest(TestCase):
     def test_engagement_score_applies_comment_weight(self) -> None:
         """댓글 가중치를 반영하여 반응도 점수를 계산합니다."""
 
+        # 좋아요 1 + 댓글 2×2 = 5 → 5점 이상 구간이므로 8점.
+        # (같은 반응 수라도 좋아요만 3개면 3 → 4점 구간에 머문다)
         self.assertEqual(
             calculate_engagement_score(
                 like_count=1,
                 comment_count=2,
             ),
-            10,
+            8,
         )
 
     def test_engagement_score_caps_at_maximum(self) -> None:
@@ -388,6 +475,8 @@ class CommunityScoringTest(TestCase):
             created_at=REFERENCE_TIME,
             like_count=100,
             comment_count=100,
+            # 작성자 신뢰도 100 → 신뢰 점수 15점 만점
+            author_trust_score=100,
             reference_time=REFERENCE_TIME,
         )
 
@@ -689,6 +778,9 @@ class RecentAcceptedSubmissionServiceTest(TestCase):
             submission_id=100,
             quest_id=50,
             media_url="https://example.com/submission.jpg",
+            # 응답 변환 시 media_type을 읽는다(service.py:336).
+            # None이면 media_url 확장자로 종류를 추론한다.
+            media_type=None,
             submitted_at=REFERENCE_TIME,
         )
 

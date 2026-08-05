@@ -5,23 +5,28 @@ from fastapi.testclient import TestClient
 from backend.main import app
 from backend.app.common.auth import get_current_user
 from backend.app.common.database import SessionLocal, get_db
+from backend.app.common.tests.factories import create_test_user, delete_test_user
 from backend.app.quest_recommend.models import AiRecommendationLog
 from backend.app.quest_recommend.service import save_recommendation_log
 
 class TestAiRecommendationLogging(unittest.TestCase):
     def setUp(self):
-        """인증 의존성 및 DB 의존성 Mocking / TestClient 초기화"""
+        """테스트 전용 유저 생성 / 인증 의존성 Mocking / TestClient 초기화"""
+        # 예전에는 "DB에 user_id=1 이 있다"고 가정했다. 그 유저가 사라지자
+        # 로그 적재가 전부 외래키 위반으로 실패했다. 이제 스스로 만든다.
+        self.test_user_id = create_test_user()
+
         app.dependency_overrides[get_current_user] = lambda: {
-            "id": 1,
+            "id": self.test_user_id,
             "email": "test@example.com",
             "level": 3
         }
         self.client = TestClient(app)
-        self.test_user_id = 1
 
     def tearDown(self):
-        """의존성 초기화"""
+        """의존성 초기화 및 테스트 유저 정리"""
         app.dependency_overrides.clear()
+        delete_test_user(self.test_user_id)
 
     def test_save_recommendation_log_direct_service(self):
         """service.py의 save_recommendation_log 함수에 DB 세션 주입하여 적재 테스트"""
