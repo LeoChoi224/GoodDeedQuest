@@ -1,0 +1,89 @@
+name: CI (dev) 및 main 자동 승격
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  smoke-test:
+    name: 빌드 · 기동 · 테스트 검증
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Buildx 준비
+        uses: docker/setup-buildx-action@v3
+
+      # 서버가 "뜨는지"만 보는 검증이라 진짜 API 키가 필요 없다.
+      # DATABASE_URL / REDIS_URL 은 compose 의 environment 가 덮어쓴다.
+      - name: 검증용 .env 생성
+        run: |
+          cat > .env <<'EOF'
+          SECRET_KEY=ci-dummy-secret
+          DATABASE_URL=postgresql+psycopg://gooddeed:gooddeed@postgres:5432/gooddeedquest
+          REDIS_URL=redis://redis:6379/0
+          AI_SERVICE_URL=http://ai:8001
+          OPENAI_API_KEY=ci-dummy
+          GEMINI_API_KEY=ci-dummy
+          AWS_REGION=ap-northeast-2
+          S3_BUCKET_NAME=ci-dummy
+          EOF
+
+      - name: 전체 스택 기동
+        run: docker compose --profile app up -d --build
+
+      - name: backend / ai 응답 확인
+        run: |
+          for i in $(seq 1 40); do
+            if curl -fs http://localhost:8000/ >/dev/null && curl -fs http://localhost:8001/ >/dev/null; then
+              echo "backend, ai 모두 응답함"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "120초 안에 응답이 없음"
+          docker compose ps
+          docker compose logs --tail=60
+          exit 1
+
+      - name: 마이그레이션
+        run: docker compose exec -T backend alembic -c backend/alembic.ini upgrade head
+
+      # 테스트가 카테고리 외래키를 참조하는 경로가 있어 미리 채워둔다.
+      - name: 카테고리 시드
+        run: docker compose exec -T backend python -m backend.app.quest.seed_category
+
+      - name: Celery 워커 등록 확인
+        run: |
+          docker compose logs celery-worker | grep -q "maintenance" \
+            || (echo "정비 워커 큐가 없음"; docker compose logs celery-worker --tail=40; exit 1)
+          docker compose logs celery-worker-shortform | grep -q "short_form.render_shortform_task" \
+            || (echo "숏폼 워커 태스크가 없음"; docker compose logs celery-worker-shortform --tail=40; exit 1)
+          echo "워커 2종 정상"
+
+      # 컨테이너 안에서 돌린다. DATABASE_URL 이 postgres 서비스를 가리키기 때문에
+      # 러너에서 직접 돌리면 그 호스트명을 못 찾는다.
+      - name: 테스트
+        run: docker compose exec -T backend python -m pytest -q
+
+      - name: 정리
+        if: always()
+        run: docker compose --profile app down -v
+
+  promote:
+    name: main 으로 자동 승격
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    steps:
+      # 기본 GITHUB_TOKEN 으로 push 하면 GitHub 이 deploy.yml 을 깨우지 않는다.
+      # (워크플로우 무한 루프를 막으려는 정책) 그래서 PAT 로 체크아웃하고 PAT 로 push 한다.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: dev → main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git push origin HEAD:main
