@@ -208,9 +208,26 @@ def generate_script(req: GenerateScriptRequest):
     except Exception:
         logger.exception("[ShortFormRouter] BGM 자동 매칭 실패, bgm_id 없이 대본만 반환합니다.")
 
-    captions = [
-        GenerateScriptCaptionResponse(media_s3_key=media_key, order=idx, caption=caption)
-        for idx, (media_key, caption) in enumerate(zip(req.media_keys, state["generated_captions"]))
-    ]
+    # vision_results[i]는 generated_captions[i]와 1:1 대응한다 (llm_story_agent가
+    # vision_results 순서 그대로 캡션을 만들기 때문). req.media_keys로 매칭하면 Vision
+    # Agent가 스킵한 영상 때문에 캡션이 한 칸씩 밀려 엉뚱한 미디어에 붙는 버그가 있었음
+    # (media_keys=[사진1, 영상, 사진2] → 캡션이 [사진1, 영상]에 붙고 사진2는 누락).
+    # 실제로 분석된 media_key 기준으로 짝지어야 정확하다.
+    if state["vision_results"]:
+        captions = [
+            GenerateScriptCaptionResponse(
+                media_s3_key=vision_result["media_key"], order=idx, caption=caption
+            )
+            for idx, (vision_result, caption) in enumerate(
+                zip(state["vision_results"], state["generated_captions"])
+            )
+        ]
+    else:
+        # 분석된 미디어가 하나도 없을 때(전부 영상이거나 Vision 전부 실패) fallback -
+        # llm_story_agent가 만든 기본 캡션(scene_count=1)을 첫 번째 선택 미디어에 붙인다.
+        captions = [
+            GenerateScriptCaptionResponse(media_s3_key=req.media_keys[0], order=0, caption=caption)
+            for caption in state["generated_captions"]
+        ]
 
     return GenerateScriptResponse(title="", captions=captions, bgm_id=bgm_id, bgm_title=bgm_title)

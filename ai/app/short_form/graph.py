@@ -5,8 +5,7 @@ short_form AI 파이프라인 LangGraph 뼈대
 Vision Agent -> RAG Agent -> LLM Story Agent -> Validation Agent -> FFmpeg Render Agent
 
 Validation 실패 시 Render 단계로 안 넘어가고 그대로 종료 (status=FAILED).
-지금은 각 Agent가 더미 로직이라 그래프 연결/State 전달만 검증하는 용도.
-실제 로직은 agents/*.py 파일 안의 TODO를 채우면 됨.
+각 Agent(vision/rag/llm_story/validation/render)는 전부 실제 로직으로 구현되어 있음.
 """
 from langgraph.graph import StateGraph, END
 # StateGraph: LangGraph의 핵심 클래스. "어떤 State 타입을 쓸지"를 지정해서
