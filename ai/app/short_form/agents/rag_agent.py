@@ -51,7 +51,7 @@ def rag_agent(state: ShortFormState) -> ShortFormState:
         logger.exception("[RagAgent] BackgroundMusic 쿼리 실패, 하드 fallback으로 대체")
         # DB 쿼리 자체가 실패한 경우(연결 끊김 등) — bgm_id NOT NULL 제약 때문에
         # 파이프라인을 죽이는 대신 최후의 fallback으로 처리.
-        # TODO: 재시도 전략은 별도 이슈에서 검토 (지금은 1회 실패 = 즉시 fallback)
+        # 알려진 제약: 재시도 없이 1회 실패 = 즉시 fallback.
         state["bgm_match"] = _hard_fallback()
 
     logger.info(f"[RagAgent] bgm_match={state['bgm_match']}")
@@ -125,8 +125,9 @@ def _pick_fallback(session: Session, mood_tags: list[str]) -> BgmMatchResult:
 def _hard_fallback() -> BgmMatchResult:
     """
     DB 쿼리 자체가 실패했을 때(연결 끊김 등) 사용하는 최후의 fallback.
-    ⚠️ bgm_id=1이 실제 DB에 존재하는 레코드인지 반드시 확인 필요.
-    TODO: 하드코딩 대신 설정값(config)으로 분리 검토
+    ⚠️ bgm_id=1이 실제 DB에 존재하는 레코드인지 반드시 확인 필요 — 하드코딩된 값이라
+    없으면 여기서도 NOT NULL 제약 위반으로 다시 실패함. 설정값(config)으로 분리하지 않고
+    상수로 유지 중.
     """
     return {
         "bgm_id": 1,

@@ -1,6 +1,12 @@
 import unittest
+
+import pytest
+
 from ai.app.quest_recommend.state import RecommendState
 from ai.app.quest_recommend.nodes.planner_agent import analyze_strategy
+
+# analyze_strategy 가 LLM 을 호출한다(planner_agent.py 에 호출 지점 3곳).
+pytestmark = pytest.mark.live_llm
 
 class TestPlannerAgent(unittest.TestCase):
     def test_analyze_strategy_sunny_weekend(self):

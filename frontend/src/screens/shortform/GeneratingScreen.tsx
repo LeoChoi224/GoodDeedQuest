@@ -1,7 +1,9 @@
 /**
  * SCREEN 08-4 · 숏폼 생성 로딩 (route: Generating — fade in, no back while generating).
- * 진입 시 /generate 호출 후 /status를 4초 간격으로 폴링한다.
+ * 진입 시 /generate 호출 후 /status를 20초 간격으로, 최대 MAX_POLL_DURATION_MS까지 폴링한다.
  * COMPLETED면 Player로 replace, FAILED면 error_message를 보여주고 뒤로 갈 수 있게 한다.
+ * 그 시간이 지나도 안 끝나면 폴링을 멈추고 타임아웃 에러로 전환한다(워커가 죽는 등
+ * 서버 쪽 문제로 상태가 영영 안 바뀔 때 클라이언트가 무한 폴링하는 것을 막기 위함).
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
@@ -14,7 +16,11 @@ import { colors, fonts } from '../../theme';
 import { GeneratingProgressBar } from './_parts'; // ⭐ 수정: 원형 스피너 제거, 진행 바만 사용
 import { createShortform, generateScript, generateVideo, getShortformStatus, CaptionItem } from '../../api/shortform';
 
-const POLL_INTERVAL_MS = 4000;
+const POLL_INTERVAL_MS = 20000;
+// ⭐ 추가: 렌더링이 이 시간 안에 안 끝나면(워커 다운 등 비정상 상황) 폴링을 멈추고
+// 타임아웃 에러로 전환한다 - 상한이 없으면 서버가 응답 못 하는 상태에서도 클라이언트가
+// 화면을 닫을 때까지 영원히 요청을 계속 보내게 된다.
+const MAX_POLL_DURATION_MS = 5 * 60 * 1000; // 5분
 
 // ⭐ 수정: 기존엔 폴링 틱(4초)마다 한 단계씩 넘어가는 연출이라, 4틱(16초)만 지나면
 // 진행바가 100%를 찍어버리고 그 뒤로 실제 렌더링이 한참 더 걸려도 그대로 멈춰 있었다
@@ -77,6 +83,14 @@ export default function GeneratingScreen({ navigation, route }: any) {
 
     const startPolling = (pollShortsId: number) => {
       pollTimer.current = setInterval(async () => {
+        if (Date.now() - startedAt >= MAX_POLL_DURATION_MS) {
+          stopPolling();
+          if (!stopped.current) {
+            setErrorMessage('영상 생성이 너무 오래 걸리고 있어요. 잠시 후 다시 시도해주세요.');
+          }
+          return;
+        }
+
         try {
           const result = await getShortformStatus(pollShortsId);
           if (stopped.current) return;
@@ -88,14 +102,12 @@ export default function GeneratingScreen({ navigation, route }: any) {
             setErrorMessage(result.error_message ?? '영상 생성에 실패했습니다.');
           }
           // 진행 중이면 아무것도 안 함 - 단계 문구/진행률은 elapsedMs 타이머가 계속 계산한다.
-        } catch (error: any) {
-          // ⭐ 임시 진단 로깅 (이슈 #196) - 원인 파악되면 제거
-          console.error('숏폼 상태 조회 실패:', {
-            message: error?.message,
-            code: error?.code,
-            url: error?.config?.url,
-            baseURL: error?.config?.baseURL,
-          });
+        } catch {
+          // ⭐ 수정(이슈 #196 원인 파악 완료, 진단 로그 제거): 폴링 중 일시적 네트워크
+          // 오류(백엔드 개발 서버 reload로 인한 순간적 연결 끊김 등)는 다음 폴링 틱에서
+          // 자연히 재시도되어 회복되므로 실패가 아니다. console.error/warn 둘 다 Expo/RN의
+          // LogBox를 통해 화면에 에러 배너로 노출되어 사용자에게 혼란을 주므로 아무것도
+          // 로그하지 않고 조용히 다음 틱을 기다린다.
         }
       }, POLL_INTERVAL_MS);
     };

@@ -1,4 +1,5 @@
 import logging
+from typing import Final
 
 import boto3
 from botocore.config import Config
@@ -6,7 +7,7 @@ from botocore.exceptions import ClientError
 
 from .config import settings
 
-logger = logging.getLogger(__name__)
+logger: Final = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # S3 클라이언트
@@ -15,14 +16,36 @@ logger = logging.getLogger(__name__)
 # backend와 달리 presigned URL은 발급하지 않는다.
 # ---------------------------------------------------------------------------
 
+
+# ===================================================================
+# 변경: 키·리전을 무조건 넘기던 것 → 있을 때만 넘기도록
+# 이유: backend/app/common/s3_client.py 와 동일 (EC2 IAM Role 지원)
+#       리전까지 감싸는 이유는 ai 쪽 AWS_REGION 기본값이 "" 이기 때문.
+#       빈 문자열을 넘기면 boto3가 인스턴스 메타데이터에서 리전을 못 읽는다.
+# ===================================================================
+def _create_s3_client():
+    """
+    S3 클라이언트를 만든다.
+
+    .env 에 AWS 키가 있으면 그 키를 쓰고(로컬 개발),
+    없으면 boto3가 스스로 자격증명을 찾게 둔다(EC2의 IAM Role).
+    """
+    client_kwargs = {
+        "config": Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+    }
+
+    if settings.AWS_REGION:
+        client_kwargs["region_name"] = settings.AWS_REGION
+
+    if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+        client_kwargs["aws_access_key_id"] = settings.AWS_ACCESS_KEY_ID
+        client_kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
+
+    return boto3.client("s3", **client_kwargs)
+
+
 # boto3 S3 클라이언트는 모듈 로드 시 한 번만 생성해서 재사용 (매 요청마다 새로 만들지 않음)
-_s3_client = boto3.client(
-    "s3",
-    region_name=settings.AWS_REGION,
-    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-    config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
-)
+_s3_client = _create_s3_client()
 
 
 def download_file_from_s3(s3_key: str, local_path: str) -> None:

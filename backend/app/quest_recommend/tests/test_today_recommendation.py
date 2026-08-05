@@ -7,19 +7,22 @@ from backend.main import app
 from backend.app.common.auth import get_current_user
 from backend.app.common.database import SessionLocal
 from backend.app.common.enums import Difficulty
+from backend.app.common.tests.factories import create_test_user, delete_test_user
 from backend.app.quest.enums import QuestSource, QuestStatus, QuestTarget, QuestType
 from backend.app.quest.models import Category, Quest
 from backend.app.quest_recommend.models import AiRecommendation, AiRecommendationLog
 from backend.app.quest_recommend.service import get_today_recommendation
 
-TEST_USER_ID = 2
-
 
 class TestTodayRecommendation(unittest.TestCase):
     def setUp(self):
-        """인증 의존성 Mocking / TestClient 및 DB 세션 초기화"""
+        """테스트 전용 유저 생성 / 인증 의존성 Mocking / DB 세션 초기화"""
+        # 예전에는 user_id=2 를 상수로 박아 썼다. 그 유저가 없는 환경(빈 DB, CI)에서는
+        # 추천 로그 적재가 전부 외래키 위반으로 실패했다.
+        self.test_user_id = create_test_user()
+
         app.dependency_overrides[get_current_user] = lambda: {
-            "id": TEST_USER_ID,
+            "id": self.test_user_id,
             "email": "user@example.com",
             "level": 3
         }
@@ -48,12 +51,13 @@ class TestTodayRecommendation(unittest.TestCase):
 
         self.session.close()
         app.dependency_overrides.clear()
+        delete_test_user(self.test_user_id)
 
     def _create_quest(self, title):
         """검증용 Quest 레코드를 생성하고 정리 대상에 등록하는 헬퍼"""
         quest = Quest(
             category_id=self.category_id,
-            creator_id=TEST_USER_ID,
+            creator_id=self.test_user_id,
             quest_title=title,
             quest_description="테스트용 추천 퀘스트입니다.",
             quest_target=QuestTarget.SOLO,
@@ -75,7 +79,7 @@ class TestTodayRecommendation(unittest.TestCase):
     def _create_log(self, created_at):
         """지정한 생성 일시로 AiRecommendationLog를 적재하는 헬퍼"""
         log = AiRecommendationLog(
-            user_id=TEST_USER_ID,
+            user_id=self.test_user_id,
             request_context={"interests": ["ENVIRONMENT"]},
             response_context={"success": True},
             created_at=created_at
@@ -112,7 +116,7 @@ class TestTodayRecommendation(unittest.TestCase):
         self._create_item(log.ai_log_id, quest, rank=1)
         self.session.commit()
 
-        result = get_today_recommendation(db=self.session, user_id=TEST_USER_ID)
+        result = get_today_recommendation(db=self.session, user_id=self.test_user_id)
         self.assertIsNone(result)
 
     def test_returns_quests_in_rank_order(self):
@@ -128,7 +132,7 @@ class TestTodayRecommendation(unittest.TestCase):
         self._create_item(log.ai_log_id, second, rank=2)
         self.session.commit()
 
-        result = get_today_recommendation(db=self.session, user_id=TEST_USER_ID)
+        result = get_today_recommendation(db=self.session, user_id=self.test_user_id)
 
         self.assertIsNotNone(result)
         self.assertEqual(
@@ -144,7 +148,7 @@ class TestTodayRecommendation(unittest.TestCase):
         quest.is_deleted = True
         self.session.commit()
 
-        result = get_today_recommendation(db=self.session, user_id=TEST_USER_ID)
+        result = get_today_recommendation(db=self.session, user_id=self.test_user_id)
         self.assertIsNone(result)
 
     def test_api_returns_quest_schema_with_quest_id(self):

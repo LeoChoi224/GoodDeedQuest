@@ -27,7 +27,8 @@ from langchain_core.messages import HumanMessage
 from ..state import ShortFormState, VisionAnalysisResult
 from ...common.vision_fallback import invoke_vision_with_fallback  # ⭐ 수정
 
-# TODO: ai/app/common 에 S3 client가 추가되면 그걸 재사용하도록 교체
+# 현재는 이 파일 전용 S3 client를 직접 생성해서 씀. ai/app/common에 공용 S3 client가
+# 생기면 그걸로 교체 가능(지금은 존재하지 않아 재사용할 대상이 없음).
 S3_BUCKET = os.getenv("S3_BUCKET_NAME")
 _s3_client = boto3.client("s3", region_name=os.getenv("AWS_REGION"))
 
@@ -66,8 +67,11 @@ def _call_gemini_vision(local_path: str, media_key: str):
     suffix = Path(media_key).suffix.lower()
 
     if suffix in VIDEO_EXTENSIONS:
-        # TODO: 영상 입력 처리 방식 결정 (프레임 추출 후 이미지로 넘길지, 영상 그대로 처리할지)
-        print(f"[VisionAgent] 영상 파일 감지({media_key}) - 처리 방식 미정, 스킵")
+        # 알려진 제약: 영상 소재는 Vision Agent의 무드 분석 대상에서 제외됨(스킵).
+        # render_agent는 영상 소재를 실제 렌더링에 반영하지만, 여기서는 분석하지 않으므로
+        # 사진+영상이 섞인 소재를 고르면 vision_results 개수가 media_keys보다 적어져
+        # LLM Story Agent가 만드는 캡션 개수와 render_agent의 씬 개수가 어긋날 수 있음.
+        print(f"[VisionAgent] 영상 파일 감지({media_key}) - 무드 분석 미지원, 스킵")
         return None
 
     if suffix not in IMAGE_EXTENSIONS:
@@ -169,7 +173,8 @@ def _analyze_one_media(media_key: str) -> VisionAnalysisResult | None:
         return _parse_vision_response(response_text, media_key)  # ⭐ 수정: _extract_text_from_content 제거(정규화가 헬퍼 내부로 이동)
 
     except Exception as e:
-        # TODO(후속): 실패한 media_key를 모아서 state["error_message"]/status에 반영할지 결정
+        # 알려진 제약: 실패한 media_key는 state["error_message"]/status에 반영하지 않고
+        # 로그만 남긴 채 조용히 스킵함(한 장 실패가 전체 파이프라인을 막지 않도록).
         print(f"[VisionAgent] {media_key} 처리 중 오류 발생: {e}")
         return None
 
@@ -179,6 +184,17 @@ def _analyze_one_media(media_key: str) -> VisionAnalysisResult | None:
 
 
 def vision_agent(state: ShortFormState) -> ShortFormState:
+    # ⭐ 추가: 렌더링 트리거 경로(/generate-video)는 backend가 캡션(edited_captions)과
+    # BGM(bgm_match)을 이미 확정해서 넘긴다. 이 둘이 다 있으면 llm_story_agent는
+    # 재생성을 스킵하고(edited_captions 사용), rag_agent도 graph.py의
+    # route_after_vision에서 건너뛰어서 vision_results를 쓸 곳이 어디에도 없다
+    # (validation_agent도 generated_captions/bgm_match만 봄). 그런데도 매 렌더링마다
+    # Gemini/OpenAI Vision 호출이 그대로 실행되고 있어 렌더링 시작이 불필요하게
+    # 20~40초 이상 늦어지는 원인이었다 - 아무도 안 쓰는 결과이므로 아예 스킵한다.
+    if state.get("edited_captions") and state.get("bgm_match"):
+        print("[VisionAgent] edited_captions/bgm_match 이미 확정 -> 분석 스킵")
+        state["vision_results"] = []
+        return state
 
     media_keys = state["media_keys"]
     print(f"[VisionAgent] media_keys={media_keys}")

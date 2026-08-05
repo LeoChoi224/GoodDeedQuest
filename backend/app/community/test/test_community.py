@@ -43,7 +43,9 @@ def make_post(*, post_id: int = 10, user_id: int = 2, is_active: bool = True) ->
     return SimpleNamespace(
         post_id=post_id,
         user_id=user_id,
-        submission_id=None,
+        # 게시글은 승인된 퀘스트 인증과 반드시 연결된다.
+        # CommunityFeedItemResponse.submission_id 가 int 필수라 None 이면 검증에 걸린다.
+        submission_id=100,
         media_url="https://example.com/post.jpg",
         caption="게시글",
         is_active=is_active,

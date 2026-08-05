@@ -47,6 +47,11 @@ import {
 const PERIODS = ['전체', '이번주', '1주전', '2주전', '3주전'];
 const PERIOD_DAYS: (number | null)[] = [null, 7, 14, 21, 28];
 const DEFAULT_TITLE = '나의 선행 숏폼';
+// ⭐ 추가: 백엔드 short_form/service.py의 MAX_CAPTION_COUNT(캡션 개수 상한)와 동일한 값.
+// 여기서 선택 자체를 막아야, 다 고르고 "AI 대본 생성"을 누른 뒤에야 개수 초과로
+// 거부당하는(그마저도 예전엔 AI 서버가 사진을 전부 분석한 "뒤"에 실패해서 시간만
+// 낭비하던) 상황을 미리 방지할 수 있다.
+const MAX_MEDIA_SELECTION = 20;
 
 export default function PhotoSelectScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -175,9 +180,14 @@ export default function PhotoSelectScreen({ navigation }: any) {
   }, [mediaKeysKey]);
 
   const toggle = (mediaS3Key: string) =>
-    setSelectedIds((cur) =>
-      cur.includes(mediaS3Key) ? cur.filter((x) => x !== mediaS3Key) : [...cur, mediaS3Key],
-    );
+    setSelectedIds((cur) => {
+      if (cur.includes(mediaS3Key)) return cur.filter((x) => x !== mediaS3Key);
+      if (cur.length >= MAX_MEDIA_SELECTION) {
+        toast.show(`사진은 최대 ${MAX_MEDIA_SELECTION}장까지 선택할 수 있어요.`);
+        return cur;
+      }
+      return [...cur, mediaS3Key];
+    });
 
   // 백엔드는 quest_title을 문자열 하나로만 받아서, 서로 다른 퀘스트 사진을 섞어
   // 선택하면 전부 나열하지 않고 "A, B" / 3개 이상이면 "A 외 N건"으로 요약한다.
@@ -377,7 +387,10 @@ export default function PhotoSelectScreen({ navigation }: any) {
               return (
                 <Animated.View
                   key={key}
-                  entering={ZoomIn.delay(30 + i * 40).duration(360)}
+                  // ⭐ 수정: 인덱스 기반 지연을 완전히 제거 - 계단식으로 순차 등장하는
+                  // 연출 자체가 "로딩이 오래 걸린다"는 인상을 줘서, 데이터가 도착하는
+                  // 즉시 전부 한꺼번에 나타나게 한다.
+                  entering={ZoomIn.duration(360)}
                   style={{ width: cell, height: cell }}
                 >
                   <Pressable

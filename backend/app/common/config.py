@@ -43,10 +43,15 @@ class Settings(BaseSettings):
     KAKAO_REST_API_KEY: SecretStr | None = None  # .env 파일에 적으세요
 
 
+    # ===================================================================
     # AWS S3
+    # 변경: 필수(SecretStr) → 선택(SecretStr | None)
+    # 이유: EC2에서 IAM Role을 쓰면 .env에 키가 없다.
+    #       필수로 두면 키가 없을 때 서버가 아예 안 뜬다.
+    # ===================================================================
     AWS_REGION: str = "ap-northeast-2"
-    AWS_ACCESS_KEY_ID: SecretStr # 위와같은 이유로 바꿈 .env 파일에 적으세요
-    AWS_SECRET_ACCESS_KEY: SecretStr # 위와같은 이유로 바꿈 .env 파일에 적으세요
+    AWS_ACCESS_KEY_ID: SecretStr | None = None      # 없으면 IAM Role 사용
+    AWS_SECRET_ACCESS_KEY: SecretStr | None = None  # 없으면 IAM Role 사용
     S3_BUCKET_NAME: str = ""
 
     

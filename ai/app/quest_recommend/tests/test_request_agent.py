@@ -1,6 +1,12 @@
 import unittest
+
+import pytest
+
 from ai.app.quest_recommend.state import RecommendState
 from ai.app.quest_recommend.nodes.request_agent import analyze_request
+
+# analyze_request 가 LLM 을 호출한다(request_agent.py 에 호출 지점 2곳).
+pytestmark = pytest.mark.live_llm
 
 class TestRequestAgent(unittest.TestCase):
     def test_analyze_request_empty(self):

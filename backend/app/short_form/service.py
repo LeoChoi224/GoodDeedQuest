@@ -22,6 +22,7 @@ from fastapi import HTTPException  # ⭐ 수정: AI 서버 타임아웃/장애�
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import NoResultFound  # .one() 조회 시 결과가 없으면 발생하는 예외 (라우터에서 404로 변환 예정)
 
+from backend.app.common.datetime_utils import to_utc_aware  # ⭐ 수정: 퀘스트 완료시간 KST 표시 버그 수정
 from backend.app.short_form.models import ShortForm, BackgroundMusic, ShortFormStatus
 from backend.app.short_form.schemas import (
     ShortFormCreateRequest,
@@ -38,6 +39,7 @@ from backend.app.common.s3_client import (
     generate_upload_presigned_url,
     generate_download_presigned_url,
     get_video_thumbnail_key,
+    get_photo_preview_key,
 )  # S3 presigned URL 발급 함수 (공용 모듈로 분리됨 - 다른 도메인도 재사용)
 
 # 사진 선택 화면용 인증 이미지 조회 대상 테이블. community 도메인과 조회 대상은
@@ -136,14 +138,21 @@ def get_eligible_media(
         photo_keys.extend((key, False) for key in (submission.extra_media_urls or []))
 
         for key, is_video in photo_keys:
+            # ⭐ 수정: 사진 원본(카메라 촬영본, 보통 수 MB)을 그리드 표시에 그대로 썼더니
+            # 동영상 대표 프레임(이미 480px로 축소됨)보다 훨씬 느리게 로드돼, 그리드
+            # 진입 시 동영상만 먼저 뜨고 사진들은 하나씩 늦게 나타나는 것처럼 보였다.
+            # media_s3_key(렌더링에 실제로 쓰일 원본)는 그대로 두고, 화면 표시용
+            # media_url만 축소 미리보기로 바꾼다 (동영상은 이미 thumbnail_key 자체가
+            # 축소본이라 변경 없음).
+            display_key = key if is_video else get_photo_preview_key(key)
             items.append(
                 EligibleMediaItem(
                     submission_id=submission.submission_id,
                     quest_id=submission.quest_id,
-                    media_url=_to_thumbnail_url(key),
+                    media_url=_to_thumbnail_url(display_key),
                     media_s3_key=key,
                     is_video=is_video,
-                    submitted_at=submission.submitted_at,
+                    submitted_at=to_utc_aware(submission.submitted_at),  # ⭐ 수정: naive UTC -> UTC-aware로 내려서 프론트가 KST로 정확히 변환하게 함
                 )
             )
 
@@ -161,14 +170,16 @@ def _resolve_bgm_id_for_auto_mode(db: Session, request: ShortFormCreateRequest) 
     ShortForm.bgm_id는 NOT NULL 컬럼이므로, insert 전에 반드시 값이 확정되어야 함
     (그래서 create_shortform 안에서 insert 직전에 이 함수를 호출).
 
-    실제 RAG 매칭 로직(LangChain RAG Agent 호출: 사용자가 선택한 이미지의 무드를
-    벡터화해서 BackgroundMusic의 mood_tag와 유사도 비교)은 AI 파이프라인 구현
-    단계에서 별도 모듈(예: app.shortform.ai.bgm_matcher)로 분리할 예정.
-    지금은 서비스 레이어에서 이 함수를 호출하는 "자리"만 먼저 확보해둔 상태.
+    실제 RAG 매칭(사용자가 선택한 이미지의 무드 태그로 BackgroundMusic 매칭)은
+    AI 서버의 /generate-script 엔드포인트가 vision_agent+rag_agent를 돌려서 이미
+    수행하고, 그 결과 bgm_id를 응답으로 내려준다 — 프론트는 그 값을 그대로
+    ShortFormCreateRequest.bgm_id에 실어보내므로 정상 경로에서는 이 함수가
+    호출되지 않는다. 이 함수는 request.bgm_id가 그래도 None으로 온 경우
+    (RAG 매칭 실패, 수동 경로 등)에만 쓰이는 2차 fallback이다.
     """
-    # TODO: RAG Agent 연동 (무드 벡터 검색 → 최적 BGM 매칭)으로 아래 쿼리 대체
-    # 임시 fallback: 가장 최근에 등록된 BGM 하나를 그냥 가져옴 (실제 매칭 로직 아님)
-    # ⚠️ 주의: 지금은 사용자가 선택한 이미지 무드와 무관하게 항상 같은 결과가 나옴
+    # 2차 fallback: 가장 최근에 등록된 BGM 하나를 그냥 가져옴 (무드 매칭 아님)
+    # ⚠️ 주의: 사용자가 선택한 이미지 무드와 무관하게 항상 같은 결과가 나옴 — 정상
+    # 경로에서는 타지 않는 안전망이므로 감수함.
     matched_bgm = (
         db.query(BackgroundMusic)
         .order_by(BackgroundMusic.created_at.desc())  # 최신 등록순 정렬 → 첫 번째가 가장 최근 것
@@ -335,7 +346,14 @@ def queue_shortform_generation(
 # stateless이며 DB에 쓰기 작업을 하지 않는다 (조회는 필요 시에만 수행).
 # ---------------------------------------------------------------------------
 
-AI_SCRIPT_GENERATE_TIMEOUT_SECONDS = 60.0  # ⭐ 수정: Gemini 할당량 초과 시 OpenAI 폴백까지 걸리는 시간을 감안해 30 → 60초로 상향
+AI_SCRIPT_GENERATE_TIMEOUT_SECONDS = 150.0
+# ⭐ 수정: Gemini 할당량 초과 시 OpenAI 폴백까지 걸리는 시간을 감안해 30 → 60초로 상향했었으나,
+# 여러 퀘스트 인증 사진을 한꺼번에(예: 8장) 골라 대본을 생성하는 실제 사례에서 60초를 넘겨
+# FAILED 처리됐다 - AI서버 로그 확인 결과 Vision/Story 단계 모두 정상적으로 끝까지 완료됐는데도
+# 백엔드가 먼저 타임아웃으로 포기해버린 것(작업 자체는 성공, 응답만 못 받은 낭비).
+# vision_agent.py의 MAX_CONCURRENT_VISION_CALLS=4로 인해 사진이 4장을 넘으면 여러 배치로
+# 나뉘어 순차 처리되고, 여기에 LLM Story Agent 호출까지 더해지면 60초로는 빠듯하다.
+# MAX_CAPTION_COUNT(20장)까지 고려해 여유 있게 150초로 상향.
 MAX_CAPTION_COUNT = 20          # 30초 영상 기준 상한 (자막이 너무 많으면 화면이 복잡해짐 방지)
 MAX_CAPTION_TEXT_LENGTH = 40    # 9:16 세로 화면에서 한 줄로 표시 가능한 대략적인 글자 수 상한
 
@@ -364,6 +382,19 @@ def generate_ai_script(
         .one()
     )
 
+    # ⭐ 추가: 사진 개수가 MAX_CAPTION_COUNT를 넘으면 AI 서버는 어차피 나중에
+    # _validate_captions()에서 거부될 캡션을 만들게 된다. 그런데 그 시점은 이미
+    # Vision Agent가 사진 전부를 분석하고 LLM Story Agent까지 다 돌린 "뒤"라서,
+    # 개수 초과는 시간과 API 호출만 낭비하고 결국 실패한다 - 사진이 많을수록
+    # AI_SCRIPT_GENERATE_TIMEOUT_SECONDS도 함께 압박해서 504로 이어지기도 쉽다.
+    # 여기서 미리 걸러내면 AI 서버 호출 자체를 안 하니 즉시, 저렴하게 실패시킬 수 있다.
+    if len(request.selected_media_s3_keys) > MAX_CAPTION_COUNT:
+        raise HTTPException(
+            status_code=422,
+            detail=f"사진은 최대 {MAX_CAPTION_COUNT}장까지 선택할 수 있습니다. "
+            f"(현재 {len(request.selected_media_s3_keys)}장)",
+        )
+
     # AI 서버가 대본을 생성하는 데 필요한 최소 정보만 payload로 구성
     # ⭐ 수정: request.media_keys/request.mood_tag는 ScriptGenerateRequest에 없는 필드였음
     # → 실제 스키마 필드인 selected_media_s3_keys로 수정 (mood_tag는 스키마에 없어 제거)
@@ -375,8 +406,9 @@ def generate_ai_script(
     }
 
     try:
-        # 동기(sync) 방식 호출. 만약 라우터가 async def라면 httpx.AsyncClient로
-        # 바꿔서 이벤트 루프를 블로킹하지 않도록 검토 필요 (현재는 라우터 미구현 상태)
+        # 동기(sync) 방식 호출. 이 라우터(generate_ai_script_endpoint)는 def(sync)로
+        # 구현되어 있어 이벤트 루프 블로킹 문제는 없음. 라우터를 async def로 바꾸는
+        # 경우에만 httpx.AsyncClient로 교체 검토.
         response = httpx.post(
             f"{settings.AI_SERVICE_URL}/generate-script",
             json=payload,

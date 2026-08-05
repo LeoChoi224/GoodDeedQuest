@@ -1,0 +1,43 @@
+# ============================================================
+# Docker 빌드 컨텍스트에서 제외할 것들
+# 여기 적힌 건 이미지 안에 들어가지 않는다.
+# ============================================================
+
+# ─── 비밀값: 절대 이미지에 들어가면 안 된다 ───
+# 설정은 docker-compose의 env_file/environment로 주입한다
+.env
+frontend/.env
+
+# ─── 파이썬 캐시 ───
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# ─── 프론트엔드 전체 (서버 이미지에 불필요) ───
+# node_modules 451개 + package-lock.json 354KB
+frontend/
+
+# ─── 에이전트 작업 폴더 ───
+# .claude/worktrees 만 63MB
+.claude/
+.agents/
+
+# ─── 문서 (런타임에 읽지 않음을 확인함) ───
+docs/
+*.md
+
+# ─── git 히스토리 ───
+.git/
+.gitignore
+
+# ─── 개인용 평가 도구 ───
+ai/eval/
+
+# ─── 에디터 / OS ───
+.vscode/
+.DS_Store
+FETCH_HEAD
+
+# ─── 테두리 원본 이미지 ───
+backend/app/static/borders/*.jpg

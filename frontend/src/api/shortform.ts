@@ -2,12 +2,12 @@ import api from './client';
 
 // AI 서버가 Vision → RAG → LLM Story 체인을 거쳐야 해서 백엔드 자체 타임아웃보다
 // 여유 있게 잡는다. 클라이언트가 먼저 포기하면 서버는 처리 중인데 화면엔 실패로 뜬다.
-// ⭐ 수정: 백엔드 AI_SCRIPT_GENERATE_TIMEOUT_SECONDS가 (Gemini 할당량 초과 시 OpenAI
-// 폴백까지 감안해) 30 → 60초로 올라갔는데 여긴 안 따라 올라가서 정확히 60초로 같아져
-// 있었다 - AI 호출이 오래 걸리는 경우(폴백 케이스) 백엔드가 정상 응답하기도 전에
-// 클라이언트가 먼저 타임아웃돼 "AI 대본 생성 실패: Network Error"로 보이던 버그.
-// 백엔드보다 확실히 여유 있게(+15초) 잡는다.
-const SCRIPT_TIMEOUT = 75000;
+// ⭐ 수정: 백엔드 AI_SCRIPT_GENERATE_TIMEOUT_SECONDS가 60 → 150초로 올라갔다 (여러 퀘스트
+// 인증 사진을 한꺼번에(예: 8장) 골라 대본 생성 시 Vision 배치 처리 + Story 호출 누적으로
+// 60초를 넘겨 FAILED 처리되던 실사례 확인됨). 여기도 안 따라 올라가면 다시 클라이언트가
+// 먼저 타임아웃돼 "AI 대본 생성 실패: Network Error"로 보이는 동일한 버그가 재발하므로
+// 백엔드보다 확실히 여유 있게(+15초) 맞춘다.
+const SCRIPT_TIMEOUT = 165000;
 
 export type ShortFormStatus = 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED';
 
