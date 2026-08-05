@@ -92,8 +92,14 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT }}
 
+      # main 에는 dev 에 없는 커밋(초기 뼈대, 동기화 커밋)이 있어서 두 브랜치가 갈라져 있다.
+      # 그래서 push HEAD:main 은 non-fast-forward 로 거부된다.
+      # 병합으로 올리면 갈라져 있어도 되고, 앞으로 누가 main 에 직접 손대도 안 깨진다.
+      # -X theirs: 배포 대상의 정답은 언제나 dev 이므로 충돌 시 dev 쪽을 택한다.
       - name: dev → main
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git push origin HEAD:main
+          git checkout -B main origin/main
+          git merge --no-edit -X theirs ${{ github.sha }}
+          git push origin main
