@@ -31,6 +31,15 @@ from backend.app.admin.schema import ReportDetailResponse, ReportResponse
 from backend.app.common.s3_client import generate_download_presigned_url
 
 KST = ZoneInfo("Asia/Seoul")
+REPORT_STATUS_LABELS: dict[
+    UserReportStatus,
+    str,
+] = {
+    UserReportStatus.PENDING: "처리 대기 중",
+    UserReportStatus.APPROVED: "승인 완료",
+    UserReportStatus.REJECTED: "반려",
+    UserReportStatus.EXPIRED: "처리 기한 만료",
+}
 
 # 신고 목록을 조회하는 Service 함수.
 def get_report_list(
@@ -57,12 +66,27 @@ def get_report_detail_with_post(
     *,
     report_id: int,
 ) -> ReportDetailResponse:
-    """신고 정보와 신고 대상 게시글 사진을 함께 조회합니다."""
+    """신고 정보와 화면 표시용 닉네임, 게시물 사진을 조회합니다."""
 
-    report = get_report_detail(
-        db=db,
-        report_id=report_id,
+    detail = (
+        repository.get_report_detail_display_data(
+            db=db,
+            report_id=report_id,
+        )
     )
+
+    if detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="신고 정보를 찾을 수 없습니다.",
+        )
+
+    (
+        report,
+        reporter_nickname,
+        reported_user_nickname,
+        reviewer_nickname,
+    ) = detail
 
     post = None
 
@@ -77,17 +101,33 @@ def get_report_detail_with_post(
     if post is not None and post.media_url:
         stored_media_url = post.media_url.strip()
 
-        if stored_media_url.startswith(("http://", "https://")):
+        if stored_media_url.startswith(
+            ("http://", "https://")
+        ):
             post_media_url = stored_media_url
         else:
-            post_media_url = generate_download_presigned_url(
-                stored_media_url,
+            post_media_url = (
+                generate_download_presigned_url(
+                    stored_media_url,
+                )
             )
 
-    report_data = ReportResponse.model_validate(report).model_dump()
+    report_data = (
+        ReportResponse
+        .model_validate(report)
+        .model_dump()
+    )
 
     return ReportDetailResponse(
         **report_data,
+        reporter_nickname=reporter_nickname,
+        reported_user_nickname=(
+            reported_user_nickname
+        ),
+        reviewer_nickname=reviewer_nickname,
+        status_label=REPORT_STATUS_LABELS[
+            report.status
+        ],
         post_media_url=post_media_url,
     )
 

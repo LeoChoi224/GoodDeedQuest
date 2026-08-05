@@ -25,7 +25,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import Select, func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from backend.app.auth.models import User
 from backend.app.admin.models import Report
@@ -78,6 +78,74 @@ def get_report_by_id(
     result = db.execute(query)
     return result.scalar_one_or_none()      # 신고가 존재하면 Report 객체를, 없으면 None을 반환합니다.
 
+def get_report_detail_display_data(
+    db: Session,
+    report_id: int,
+) -> tuple[
+    Report,
+    str,
+    str | None,
+    str | None,
+] | None:
+    """신고 상세에 표시할 사용자 닉네임을 함께 조회합니다."""
+
+    reporter = aliased(User)
+    reported_user = aliased(User)
+    reviewer = aliased(User)
+
+    query = (
+        select(
+            Report,
+            reporter.nickname.label(
+                "reporter_nickname"
+            ),
+            reported_user.nickname.label(
+                "reported_user_nickname"
+            ),
+            reviewer.nickname.label(
+                "reviewer_nickname"
+            ),
+        )
+        .join(
+            reporter,
+            reporter.user_id == Report.reporter_id,
+        )
+        .outerjoin(
+            CommunityPost,
+            CommunityPost.post_id == Report.post_id,
+        )
+        .outerjoin(
+            reported_user,
+            reported_user.user_id
+            == CommunityPost.user_id,
+        )
+        .outerjoin(
+            reviewer,
+            reviewer.user_id == Report.reviewed_by,
+        )
+        .where(
+            Report.report_id == report_id,
+        )
+    )
+
+    row = db.execute(query).one_or_none()
+
+    if row is None:
+        return None
+
+    (
+        report,
+        reporter_nickname,
+        reported_user_nickname,
+        reviewer_nickname,
+    ) = row
+
+    return (
+        report,
+        reporter_nickname,
+        reported_user_nickname,
+        reviewer_nickname,
+    )
 
 def update_report_review(
     db: Session,

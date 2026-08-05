@@ -49,6 +49,9 @@ from backend.app.badge.models import Badge, UserBadge
 from backend.app.shop.enums import PurchaseStatus
 from backend.app.shop.models import Item, Purchase
 
+class DuplicateCommunityPostError(Exception):
+    """이미 커뮤니티 게시글에 사용된 인증일 때 발생합니다."""
+
 class CommunityRepository:
     @staticmethod
     def get_user_by_id(
@@ -174,19 +177,37 @@ class CommunityRepository:
         submission_id: int,
         user_id: int,
     ) -> QuestSubmission | None:
-        """현재 사용자의 승인된 퀘스트 인증 내역을 조회합니다."""
+        """게시글 생성에 사용할 현재 사용자의 승인 인증을 조회합니다."""
 
-        query: Select[tuple[QuestSubmission]] = select(
-            QuestSubmission
-        ).where(
-            QuestSubmission.submission_id == submission_id,
-            QuestSubmission.user_id == user_id,
-            QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
+        query: Select[tuple[QuestSubmission]] = (
+            select(QuestSubmission)
+            .where(
+                QuestSubmission.submission_id == submission_id,
+                QuestSubmission.user_id == user_id,
+                QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
+            )
+            # 동일 인증으로 동시에 게시글을 생성하지 못하도록
+            # 해당 인증 행을 현재 트랜잭션이 끝날 때까지 잠급니다.
+            .with_for_update()
         )
 
-        result = db.execute(query)
+        submission = db.execute(query).scalar_one_or_none()
 
-        return result.scalar_one_or_none()
+        if submission is None:
+            return None
+
+        duplicate_query = select(
+            exists().where(
+                CommunityPost.submission_id == submission_id,
+            )
+        )
+
+        already_posted = db.execute(duplicate_query).scalar_one()
+
+        if already_posted:
+            raise DuplicateCommunityPostError
+
+        return submission
 
     @staticmethod
     # 사용자가 작성한 새 커뮤니티 게시글을 DB에 생성.
@@ -803,6 +824,10 @@ class CommunityRepository:
                 QuestSubmission.user_id == user_id,
                 QuestSubmission.final_status == SubmissionStatus.ACCEPTED,
                 QuestSubmission.submitted_at >= submitted_after,
+                ~exists().where(
+                    CommunityPost.submission_id
+                    == QuestSubmission.submission_id,
+                ),
             )
             .order_by(
                 QuestSubmission.submitted_at.desc(),

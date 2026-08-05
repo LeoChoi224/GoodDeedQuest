@@ -60,6 +60,11 @@ _s3_client = _create_s3_client()
 
 PRESIGNED_UPLOAD_EXPIRE_SECONDS = 300      # 5분 - 업로드용은 짧게 (클라이언트가 바로 씀)
 PRESIGNED_DOWNLOAD_EXPIRE_SECONDS = 3600   # 1시간 - 조회용은 폴링/재생 도중 만료되지 않도록 여유
+COMMUNITY_VIDEO_TRANSCODE_TIMEOUT_SECONDS = 120
+
+
+class CommunityVideoTranscodeTimeoutError(RuntimeError):
+    """커뮤니티 동영상 변환 제한 시간을 초과했을 때 발생합니다."""
 
 
 def generate_upload_presigned_url(s3_key: str, content_type: str) -> str:
@@ -190,7 +195,14 @@ def transcode_s3_video_for_community(
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=COMMUNITY_VIDEO_TRANSCODE_TIMEOUT_SECONDS,
             )
+        except subprocess.TimeoutExpired as exc:
+            raise CommunityVideoTranscodeTimeoutError(
+                "커뮤니티 동영상 변환 제한 시간인 "
+                f"{COMMUNITY_VIDEO_TRANSCODE_TIMEOUT_SECONDS}초를 "
+                "초과했습니다."
+            ) from exc
         except FileNotFoundError as exc:
             raise RuntimeError(
                 "커뮤니티 동영상 변환에 필요한 FFmpeg를 찾을 수 없습니다."

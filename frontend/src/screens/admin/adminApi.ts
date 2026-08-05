@@ -75,7 +75,12 @@ export interface AdminReport {
   updated_at: string;
 }
 
-export interface AdminReportDetail extends AdminReport {
+export interface AdminReportDetail
+  extends AdminReport {
+  reporter_nickname: string;
+  reported_user_nickname: string | null;
+  reviewer_nickname: string | null;
+  status_label: string;
   post_media_url: string | null;
 }
 

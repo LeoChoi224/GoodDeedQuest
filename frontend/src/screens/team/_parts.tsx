@@ -272,8 +272,12 @@ const ft = StyleSheet.create({
  * Popup buttons (DotGothic16) — three variants matching the .dc.html popups.
  * Kept local (not shared PopupButtons) to preserve the pixel/teal/gold look 1:1.
  * ------------------------------------------------------------------ */
-type BtnProps = { label: string; onPress?: () => void; style?: StyleProp<ViewStyle> };
-
+type BtnProps = {
+  label: string;
+  onPress?: () => void;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
+};
 /** 딥틸 bg + 골드 테두리 + 파치먼트 텍스트 (방 찾기 / 입력완료 / 돌아가기 / 예) */
 export function PopupTealBtn({ label, onPress, style }: BtnProps) {
   return (
@@ -293,10 +297,30 @@ export function PopupGoldBtn({ label, onPress, style }: BtnProps) {
 }
 
 /** 투명 + 미묘한 테두리 + 크림 텍스트 (아니오) */
-export function PopupOutlineBtn({ label, onPress, style }: BtnProps) {
+export function PopupOutlineBtn({
+  label,
+  onPress,
+  style,
+  textStyle,
+}: BtnProps) {
   return (
-    <PressBtn onPress={onPress} style={[pbtn.base, pbtn.outline, style]}>
-      <Text style={[pbtn.text, { color: POPUP_CREAM }]}>{label}</Text>
+    <PressBtn
+      onPress={onPress}
+      style={[
+        pbtn.base,
+        pbtn.outline,
+        style,
+      ]}
+    >
+      <Text
+        style={[
+          pbtn.text,
+          { color: POPUP_CREAM },
+          textStyle,
+        ]}
+      >
+        {label}
+      </Text>
     </PressBtn>
   );
 }

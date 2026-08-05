@@ -128,6 +128,37 @@ class TeamRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
+    def get_team_with_quest_title(
+        session: Session,
+        *,
+        team_id: int,
+    ) -> tuple[Team, str] | None:
+        """팀 상세 화면에 필요한 팀 정보와 퀘스트명을 함께 조회합니다."""
+
+        stmt = (
+            select(
+                Team,
+                Quest.quest_title,
+            )
+            .join(
+                Quest,
+                Quest.quest_id == Team.quest_id,
+            )
+            .where(
+                Team.team_id == team_id,
+            )
+        )
+
+        row = session.execute(stmt).one_or_none()
+
+        if row is None:
+            return None
+
+        team, quest_title = row
+
+        return team, quest_title
+
+    @staticmethod
     # 검색·필터·정렬 조건에 맞는 팀 목록과 현재 인원을 조회.
     def get_teams(
         session: Session,
@@ -498,24 +529,29 @@ class TeamInviteRepository:
         return list(result.all())
 
     @staticmethod
-    # 특정 사용자가 받은 대기 중 초대 목록을 조회.
     def get_user_pending_invites(
         session: Session,
         *,
         user_id: int,
         offset: int = 0,
         limit: int = 20,
-    ) -> list[TeamInvite]:
-        """
-        사용자가 받은 처리 대기 중인 초대 목록을 조회합니다.
-
-        초대한 사용자 목록을 팀장에게 보여주는 기능은 없으므로
-        팀 기준 초대 목록 조회 메서드는 포함하지 않았습니다.
-        """
+    ) -> list[tuple[TeamInvite, str, str]]:
+        """사용자가 받은 대기 중 초대와 팀 이름, 초대자 닉네임을 조회합니다."""
 
         stmt = (
-            # 조회할 모델 또는 계산값을 SELECT 대상에 지정.
-            select(TeamInvite)
+            select(
+                TeamInvite,
+                Team.name.label("team_name"),
+                User.nickname.label("inviter_nickname"),
+            )
+            .join(
+                Team,
+                Team.team_id == TeamInvite.team_id,
+            )
+            .join(
+                User,
+                User.user_id == Team.leader_id,
+            )
             .where(
                 TeamInvite.user_id == user_id,
                 TeamInvite.status
@@ -531,7 +567,18 @@ class TeamInviteRepository:
 
         result = session.execute(stmt)
 
-        return list(result.scalars().all())
+        return [
+            (
+                invite,
+                team_name,
+                inviter_nickname,
+            )
+            for (
+                invite,
+                team_name,
+                inviter_nickname,
+            ) in result.all()
+        ]
 
     @staticmethod
     # 팀 초대의 상태값을 변경.
@@ -717,6 +764,40 @@ class TeamMemberRepository:
 
         return list(result.scalars().all())
 
+    @staticmethod
+    def get_team_members_with_nicknames(
+        session: Session,
+        *,
+        team_id: int,
+    ) -> list[tuple[TeamMember, str]]:
+        """팀 멤버와 화면에 표시할 사용자 닉네임을 함께 조회합니다."""
+
+        stmt = (
+            select(
+                TeamMember,
+                User.nickname,
+            )
+            .join(
+                User,
+                User.user_id == TeamMember.user_id,
+            )
+            .where(
+                TeamMember.team_id == team_id,
+            )
+            .order_by(
+                TeamMember.role_in_team.asc(),
+                TeamMember.joined_at.asc(),
+                TeamMember.team_member_id.asc(),
+            )
+        )
+
+        rows = session.execute(stmt).all()
+
+        return [
+            (member, nickname)
+            for member, nickname in rows
+        ]
+    
     @staticmethod
     # 특정 팀의 현재 참가 인원을 숫자로 조회.
     def count_team_members(

@@ -169,6 +169,7 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
     user_id: int
+    role: UserRole
 
     point_balance: int = 0
     current_level: int = 1
