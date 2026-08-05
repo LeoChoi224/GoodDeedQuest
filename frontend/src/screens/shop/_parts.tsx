@@ -19,8 +19,13 @@ import { colors, fonts } from '../../theme';
 // =========================================================================
 // [추가] 백엔드 정적 이미지 URL 변환 헬퍼 (Expo 에뮬레이터 / 실물기기 자동 대응)
 // =========================================================================
-const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0] || 'localhost';
-export const BACKEND_BASE_URL = `http://${debuggerHost}:8000`;
+// client.ts 와 같은 이유. 상점 테두리 이미지가 /static 경로로 서빙된다.
+const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0];
+const configuredApiUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
+
+export const BACKEND_BASE_URL = debuggerHost
+  ? `http://${debuggerHost}:8000`
+  : (configuredApiUrl ?? '');
 
 export const getFullImageUrl = (url?: string): string => {
   if (!url) return '';
