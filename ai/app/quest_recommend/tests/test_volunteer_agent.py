@@ -1,10 +1,13 @@
 import unittest
 from unittest.mock import patch, MagicMock
 
-from ai.app.quest_recommend.nodes.volunteer_agent import (
-    retrieve_volunteers,
-    VOLUNTEER_FETCH_LIMIT,
-)
+from ai.app.quest_recommend.nodes.volunteer_agent import retrieve_volunteers
+
+# 예전에는 VOLUNTEER_FETCH_LIMIT(=10)으로 조회량을 잘랐지만 #245에서 없앴다.
+# 반경 내 52건 중 앞 10건만 검색 대상이 되어 환경 관심사 사용자에게
+# 환경 공고가 0건 올라오는 문제가 있었기 때문이다.
+# 이제는 반경 내 전부를 인덱싱하므로, 아래 값은 "충분히 많은 건수"라는 뜻일 뿐이다.
+MANY_DOCS = 10
 
 MODULE = "ai.app.quest_recommend.nodes.volunteer_agent"
 
@@ -84,20 +87,25 @@ class TestRetrieveVolunteers(unittest.TestCase):
         self.assertEqual(len(result["retrieved_volunteers"]), 2)
         self.assertTrue(result["skip_volunteer_agent"])
 
-    def test_skip_flag_false_when_fetch_reaches_limit(self):
-        """조회량이 상한에 도달하면 아직 남은 공고가 있을 수 있으므로 재수색 여지를 남겨야 함"""
-        docs = make_docs(VOLUNTEER_FETCH_LIMIT)
+    def test_skip_flag_true_even_when_many_docs_fetched(self):
+        """반경 내 공고를 한 번에 전부 가져오므로 조회량과 무관하게 재수색을 생략해야 함
+
+        예전에는 조회량이 상한에 닿으면 '아직 남은 공고가 있을 수 있다'고 보고
+        재수색 여지를 남겼다. 지금은 조회 상한이 없어서 첫 조회에서 이미 소진이고,
+        재시도해봐야 exclude_ids 때문에 0건이 된다.
+        """
+        docs = make_docs(MANY_DOCS)
         self.mock_loader.return_value = docs
         self.mock_adapter.hybrid_search.return_value = docs[:5]
 
         result = retrieve_volunteers(build_state())
 
         self.assertEqual(len(result["retrieved_volunteers"]), 5)
-        self.assertFalse(result["skip_volunteer_agent"])
+        self.assertTrue(result["skip_volunteer_agent"])
 
     def test_skip_flag_true_when_hybrid_search_returns_nothing(self):
         """공고는 있으나 하이브리드 수색이 끝내 0건이면 무한 재수색을 막기 위해 종료해야 함"""
-        self.mock_loader.return_value = make_docs(VOLUNTEER_FETCH_LIMIT)
+        self.mock_loader.return_value = make_docs(MANY_DOCS)
         # 1차 수색과 관심사 기반 2차 수색 모두 0건
         self.mock_adapter.hybrid_search.return_value = []
 
@@ -119,13 +127,22 @@ class TestRetrieveVolunteers(unittest.TestCase):
 
     def test_previous_ids_passed_as_exclude_ids(self):
         """누적 조회 이력이 DB 조회의 제외 목록(exclude_ids)으로 그대로 전달되어야 함"""
-        self.mock_loader.return_value = make_docs(2, start_id=21)
+        captured: dict = {}
+
+        def _capture_exclude_ids(db, **kwargs):
+            # 프로덕션은 searched_ids 리스트를 그대로 넘긴 뒤 이번 회차 공고를
+            # 같은 리스트에 extend 한다. mock 은 그 리스트를 참조로 들고 있어서
+            # 호출이 끝난 뒤 call_args 를 보면 이미 값이 늘어나 있다.
+            # 그래서 호출 시점에 복사해둬야 "무엇을 넘겼는지"를 정확히 검증할 수 있다.
+            captured["exclude_ids"] = list(kwargs["exclude_ids"])
+            return make_docs(2, start_id=21)
+
+        self.mock_loader.side_effect = _capture_exclude_ids
         self.mock_adapter.hybrid_search.return_value = make_docs(2, start_id=21)
 
         retrieve_volunteers(build_state(searched_volunteer_ids=[7, 8]))
 
-        _, kwargs = self.mock_loader.call_args
-        self.assertEqual(kwargs["exclude_ids"], [7, 8])
+        self.assertEqual(captured["exclude_ids"], [7, 8])
 
     def test_fallback_search_uses_interest_keyword(self):
         """1차 수색이 0건이면 사용자 관심사 첫 항목으로 2차 수색을 수행해야 함"""

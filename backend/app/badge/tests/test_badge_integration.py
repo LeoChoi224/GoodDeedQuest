@@ -6,20 +6,25 @@ from sqlalchemy.orm import Session
 from backend.main import app
 from backend.app.common.database import SessionLocal
 from backend.app.common.auth import get_current_user
+from backend.app.common.tests.factories import create_test_user, delete_test_user
 from backend.app.badge.models import Badge, UserBadge
 
 # 테스트로 생성한 임시 배지를 식별/정리하기 위한 마커
 TEST_BADGE_CATEGORY = "TEST_BADGE_167"
 
-# 유저 ID 1번 계정을 강제로 반환하는 테스트용 의존성 오버라이드 함수
-# (DB에 실제 존재하는 유일한 유저: user_id=1, test@naver.com)
-def override_get_current_user_id1():
-    return {"id": 1, "email": "test@naver.com", "name": "테스트유저1"}
-
 
 class TestBadgeE2EIntegration(unittest.TestCase):
     def setUp(self):
-        app.dependency_overrides[get_current_user] = override_get_current_user_id1
+        # 예전에는 "DB에 실제 존재하는 유일한 유저: user_id=1"을 그대로 썼다.
+        # 그 유저가 지워지자 UserBadge 적재가 외래키 위반으로 실패했고,
+        # 빈 DB(팀원 노트북/CI)에서는 처음부터 돌지 않았다.
+        self.test_user_id = create_test_user()
+
+        app.dependency_overrides[get_current_user] = lambda: {
+            "id": self.test_user_id,
+            "email": "pytest@example.com",
+            "name": "테스트유저",
+        }
         self.client = TestClient(app)
         self.db: Session = SessionLocal()
 
@@ -62,6 +67,34 @@ class TestBadgeE2EIntegration(unittest.TestCase):
         self._cleanup_test_data()
         app.dependency_overrides.clear()
         self.db.close()
+        delete_test_user(self.test_user_id)
+
+    def _count_equipped(self) -> int:
+        """이 테스트가 만든 배지 중 장착 중인 개수를 새 세션으로 센다.
+
+        전체 장착 수를 세면 안 된다. 마지막 배지를 해제하면 서비스가 기본 칭호를
+        자동으로 장착하기 때문이다(service.py:217 ensure_default_badge_equipped).
+        그건 의도된 동작이므로, 여기서는 "테스트 배지 A/B/C 중 몇 개가 장착
+        중인가"만 본다.
+
+        조회를 새 세션으로 하는 이유는, self.db 가 API 호출 사이에 트랜잭션을
+        열어둔 채 남아 있어 다른 세션의 커밋을 제때 못 볼 수 있어서다.
+        """
+        test_badge_ids = [
+            self.badge_a.badge_id,
+            self.badge_b.badge_id,
+            self.badge_c.badge_id,
+        ]
+        with SessionLocal() as db:
+            return (
+                db.query(UserBadge)
+                .filter(
+                    UserBadge.user_id == self.test_user_id,
+                    UserBadge.badge_id.in_(test_badge_ids),
+                    UserBadge.is_equipped.is_(True),
+                )
+                .count()
+            )
 
     def _cleanup_test_data(self):
         """TEST_BADGE_CATEGORY로 마킹된 테스트 전용 Badge/UserBadge 데이터를 정리한다."""
@@ -100,11 +133,15 @@ class TestBadgeE2EIntegration(unittest.TestCase):
             self.assertFalse(badges_by_id[badge_id]["is_owned"])
 
         # =========================================================================
-        # 2. 유저(user_id=1)에게 배지 A, B를 UserBadge로 부여(테스트용) 후 GET /badges/my 확인
+        # 2. 테스트 유저에게 배지 A, B를 UserBadge로 부여(테스트용) 후 GET /badges/my 확인
         #    (배지 C는 의도적으로 부여하지 않음 - 이후 "미보유 배지" 시나리오에 사용)
         # =========================================================================
-        user_badge_a = UserBadge(user_id=1, badge_id=self.badge_a.badge_id, is_equipped=False)
-        user_badge_b = UserBadge(user_id=1, badge_id=self.badge_b.badge_id, is_equipped=False)
+        user_badge_a = UserBadge(
+            user_id=self.test_user_id, badge_id=self.badge_a.badge_id, is_equipped=False
+        )
+        user_badge_b = UserBadge(
+            user_id=self.test_user_id, badge_id=self.badge_b.badge_id, is_equipped=False
+        )
         self.db.add_all([user_badge_a, user_badge_b])
         self.db.commit()
 
@@ -149,12 +186,7 @@ class TestBadgeE2EIntegration(unittest.TestCase):
         self.assertFalse(user_badge_a.is_equipped)
         self.assertTrue(user_badge_b.is_equipped)
 
-        equipped_count = (
-            self.db.query(UserBadge)
-            .filter(UserBadge.user_id == 1, UserBadge.is_equipped == True)
-            .count()
-        )
-        self.assertEqual(equipped_count, 1)
+        self.assertEqual(self._count_equipped(), 1)
 
         # =========================================================================
         # 5. PATCH /badges/{badge_b}/unequip -> 완전히 미장착(0개) 상태
@@ -164,12 +196,7 @@ class TestBadgeE2EIntegration(unittest.TestCase):
         unequip_json = unequip_response.json()
         self.assertFalse(unequip_json["data"]["is_equipped"])
 
-        equipped_count_after_unequip = (
-            self.db.query(UserBadge)
-            .filter(UserBadge.user_id == 1, UserBadge.is_equipped == True)
-            .count()
-        )
-        self.assertEqual(equipped_count_after_unequip, 0)
+        self.assertEqual(self._count_equipped(), 0)
 
         # =========================================================================
         # 6. 존재하지 않는 badge_id로 equip/unequip 시도 -> 404

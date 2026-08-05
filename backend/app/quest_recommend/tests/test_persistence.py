@@ -5,22 +5,27 @@ from fastapi.testclient import TestClient
 from backend.main import app
 from backend.app.common.auth import get_current_user
 from backend.app.common.database import SessionLocal
+from backend.app.common.tests.factories import create_test_user, delete_test_user
 from backend.app.quest_recommend.models import AiRecommendationLog, AiRecommendation
 from backend.app.quest.models import Quest
 from backend.app.quest_recommend.service import save_recommendation_log, save_recommendation_items
 
 class TestRecommendationPersistence(unittest.TestCase):
     def setUp(self):
+        # 추천 로그·추천 항목·퀘스트가 모두 user_id 외래키를 갖는다.
+        # 실제로 존재하는 유저가 있어야 저장이 된다.
+        self.test_user_id = create_test_user()
+
         app.dependency_overrides[get_current_user] = lambda: {
-            "id": 1,
+            "id": self.test_user_id,
             "email": "test@example.com",
             "level": 3
         }
         self.client = TestClient(app)
-        self.test_user_id = 1
 
     def tearDown(self):
         app.dependency_overrides.clear()
+        delete_test_user(self.test_user_id)
 
     def test_save_recommendation_items_location_based_volunteer(self):
         """location 장소 주소가 존재하는 경우 VOLUNTEER 타입 및 VOLUNTEER 카테고리로 자동 부여되는지 검증"""
