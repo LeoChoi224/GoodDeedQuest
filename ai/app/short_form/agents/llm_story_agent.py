@@ -45,7 +45,7 @@ def _parse_story_response(raw_text: str, scene_count: int, user_name: str, quest
         captions = [p.strip() for p in parts if p.strip()]
 
     if not captions:
-        # TODO: 아래 기본 문구는 임시 예시이며 추후 조정 가능
+        # 1차/2차 파싱이 모두 실패했을 때만 쓰는 최종 fallback 문구
         captions = [f"{user_name}님의 '{quest_title}' 완수!" for _ in range(scene_count)]
 
     return captions
