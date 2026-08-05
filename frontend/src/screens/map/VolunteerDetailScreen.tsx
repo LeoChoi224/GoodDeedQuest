@@ -2,9 +2,11 @@
  * SCREEN 05·9 · 봉사활동 상세정보.
  * VolSearchScreen에서 { items: VolunteerCenter[], place, address, latitude, longitude } 형태로 넘어옴
  * (실데이터, 같은 기관에 모집공고가 여러 건이면 items에 전부 담겨서 옴 - 카드로 전부 나열).
- * RegionDetailsScreen의 "추천 봉사시설" 카드는 아직 { item: { name, sub, centerId } } 축약 형태로
- * 넘어오는데(주소/좌표/활동 상세가 없음), 그 경로도 안 깨지게 함께 처리 - 좌표가 없으면 지도 대신
- * 장식용 그리드를 보여줌.
+ * RegionDetailsScreen의 "추천 봉사시설" 카드는 { item: { name, sub, centerId } } 축약 형태로
+ * 넘어옴(주소/좌표/활동 상세가 없음) - center_id는 없고 centerId(camelCase)만 있는 것으로 이 경로를
+ * 구분한다. ⭐ 수정: 예전엔 이 축약 데이터를 그대로 렌더링해서 활동기간/봉사대상/자격요건/활동설명이
+ * 전부 "정보 없음"으로 뜨고 지도도 장식용 그리드만 나왔음(좌표가 없어서) - 이제 마운트 시
+ * getVolunteerCenter(centerId)로 실제 상세를 채워 넣어서, 로딩 끝나면 실제 지도/정보로 바뀐다.
  * 위치 핀은 VolSearchScreen과 동일한 봉사센터 마커 이미지(KakaoMapView의 CustomOverlay)를 사용함
  * - 지도 중앙에 RN 아이콘을 고정 오버레이하던 이전 방식은 확대/이동 시 어긋나서 실제 좌표 마커로 교체.
  * 카드별로 vms_url이 있으면 "신청하기"가 외부 VMS로 연결, 없으면 안내 토스트.
@@ -12,7 +14,7 @@
  * ⭐ 수정: 카드마다 "퀘스트 시작" 버튼 추가 — AI 추천을 거치지 않고 지도에서 바로 이 공고를
  * 퀘스트로 변환(없으면 생성, 있으면 재사용) + 즉시 시작까지 한 번에 처리하고 QuestDetail로 이동.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Linking, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -24,6 +26,7 @@ import { useToast } from '../../components/Toast';
 import KakaoMapView from '../../components/KakaoMapView';
 import { MapPinIcon, MAP } from './_parts';
 import { getOrCreateQuestFromVolunteerCenter, startQuest } from '../../api/quest'; // ⭐ 수정
+import { getVolunteerCenter } from '../../api/map'; // ⭐ 수정: 축약 데이터 상세 채우기용
 
 function DetailGrid() {
   return (
@@ -58,6 +61,7 @@ type RawItem = {
 };
 
 const FALLBACK = '정보 없음';
+const LOADING_LABEL = '불러오는 중...';
 
 // "만 19세 이상/성별무관/차량가능자" 같은 "/" 구분 텍스트를 줄바꿈으로 - 자격요건이 한 줄로 붙어 있으면 읽기 불편해서
 function formatQual(text: string | null | undefined): string {
@@ -69,11 +73,61 @@ function formatQual(text: string | null | undefined): string {
     .join('\n');
 }
 
+// ⭐ 수정: RegionDetailsScreen의 축약 카드({ name, sub, centerId })인지 판별.
+// 실데이터 경로(VolSearchScreen)는 center_id(snake_case)가 항상 채워져서 오고,
+// 축약 경로는 centerId(camelCase)만 있고 center_id/vol_date 등 나머지 필드가 전부 없다(undefined).
+function isSkeletonItem(it: RawItem): boolean {
+  return it.center_id === undefined && it.centerId !== undefined;
+}
+
 export default function VolunteerDetailScreen({ navigation, route }: any) {
   const toast = useToast();
   const paramItems: RawItem[] | undefined = route?.params?.items;
   const singleItem: RawItem | undefined = route?.params?.item;
-  const items: RawItem[] = paramItems && paramItems.length > 0 ? paramItems : singleItem ? [singleItem] : [];
+  const initialItems: RawItem[] = paramItems && paramItems.length > 0 ? paramItems : singleItem ? [singleItem] : [];
+
+  // ⭐ 수정: 축약 카드로 들어온 항목을 실제 상세로 채워 넣기 위한 상태.
+  // 처음엔 넘어온 그대로 보여주고, 상세 조회가 끝나면 해당 인덱스만 갱신됨.
+  const [items, setItems] = useState<RawItem[]>(initialItems);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  useEffect(() => {
+    const targets = items
+      .map((it, idx) => ({ it, idx }))
+      .filter(({ it }) => isSkeletonItem(it));
+
+    if (targets.length === 0) return;
+
+    let cancelled = false;
+    setLoadingDetail(true);
+
+    Promise.all(
+      targets.map(({ it, idx }) =>
+        getVolunteerCenter(it.centerId as number)
+          .then((full) => ({ idx, full }))
+          .catch(() => null),
+      ),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        setItems((prev) => {
+          const next = [...prev];
+          results.forEach((r) => {
+            if (r) next[r.idx] = { ...next[r.idx], ...r.full };
+          });
+          return next;
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDetail(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // 최초 진입한 route.params 기준으로 한 번만 채우면 되므로 items 변화엔 재실행하지 않음
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const place: string = route?.params?.place ?? items[0]?.vol_name ?? items[0]?.name ?? '이름 미상';
   const address: string | null = route?.params?.address ?? items[0]?.vol_address ?? items[0]?.sub ?? null;
@@ -123,7 +177,7 @@ export default function VolunteerDetailScreen({ navigation, route }: any) {
       <MainHeader showBack title="봉사활동 상세" />
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        {/* 위치 지도 - 좌표가 있으면 실제 카카오맵 + 봉사센터 핀마커, 없으면(추천 시설 카드 경로 등) 장식용 그리드 */}
+        {/* 위치 지도 - 좌표가 있으면 실제 카카오맵 + 봉사센터 핀마커, 없으면(추천 시설 카드 등, 상세 로딩 전) 장식용 그리드 */}
         <View style={styles.mapBox}>
           {latitude != null && longitude != null ? (
             <KakaoMapView
@@ -138,7 +192,7 @@ export default function VolunteerDetailScreen({ navigation, route }: any) {
               <LinearGradient colors={[MAP.canvasA, MAP.canvasB]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
               <DetailGrid />
               <View style={styles.pinCenter}>
-                <MapPinIcon size={40} />
+                {loadingDetail ? <ActivityIndicator color={colors.primaryDark} /> : <MapPinIcon size={40} />}
               </View>
             </>
           )}
@@ -155,12 +209,14 @@ export default function VolunteerDetailScreen({ navigation, route }: any) {
           items.map((it, i) => {
             const centerId = it.center_id ?? it.centerId;
             const starting = startingCenterId === centerId;
+            const pending = loadingDetail && isSkeletonItem(it);
+            const fallback = pending ? LOADING_LABEL : FALLBACK;
             const rows = [
-              { label: '활동기간', value: it.vol_date ?? FALLBACK },
-              { label: '봉사장소', value: it.vol_address ?? it.sub ?? address ?? FALLBACK },
-              { label: '봉사대상', value: it.target ?? FALLBACK },
-              { label: '자격요건', value: formatQual(it.vol_qual) },
-              { label: '활동설명', value: it.vol_act ?? FALLBACK },
+              { label: '활동기간', value: it.vol_date ?? fallback },
+              { label: '봉사장소', value: it.vol_address ?? it.sub ?? address ?? fallback },
+              { label: '봉사대상', value: it.target ?? fallback },
+              { label: '자격요건', value: pending ? fallback : formatQual(it.vol_qual) },
+              { label: '활동설명', value: it.vol_act ?? fallback },
             ];
             return (
               <View key={centerId ?? i} style={styles.card}>
@@ -181,7 +237,7 @@ export default function VolunteerDetailScreen({ navigation, route }: any) {
                     onPress={() => handleApply(it.vms_url)}
                     style={({ pressed }) => [styles.applyBtn, styles.btnHalf, pressed && { transform: [{ scale: 0.97 }] }]}
                   >
-                    <Text style={styles.applyText}>{it.vms_url ? '신청하기' : '신청 페이지 없음'}</Text>
+                    <Text style={styles.applyText}>{pending ? LOADING_LABEL : it.vms_url ? '신청하기' : '신청 페이지 없음'}</Text>
                   </Pressable>
                   <Pressable
                     onPress={() => handleStartQuest(centerId)}
