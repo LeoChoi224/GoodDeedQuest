@@ -22,6 +22,7 @@ from fastapi import HTTPException  # ⭐ 수정: AI 서버 타임아웃/장애�
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import NoResultFound  # .one() 조회 시 결과가 없으면 발생하는 예외 (라우터에서 404로 변환 예정)
 
+from backend.app.common.datetime_utils import to_utc_aware  # ⭐ 수정: 퀘스트 완료시간 KST 표시 버그 수정
 from backend.app.short_form.models import ShortForm, BackgroundMusic, ShortFormStatus
 from backend.app.short_form.schemas import (
     ShortFormCreateRequest,
@@ -143,7 +144,7 @@ def get_eligible_media(
                     media_url=_to_thumbnail_url(key),
                     media_s3_key=key,
                     is_video=is_video,
-                    submitted_at=submission.submitted_at,
+                    submitted_at=to_utc_aware(submission.submitted_at),  # ⭐ 수정: naive UTC -> UTC-aware로 내려서 프론트가 KST로 정확히 변환하게 함
                 )
             )
 
