@@ -6,14 +6,7 @@ from backend.app.common.config import get_setting  # AWS_REGION, S3_BUCKET_NAME 
 import subprocess
 import tempfile
 from pathlib import Path
-
-import boto3
-from botocore.config import Config
-from backend.app.common.config import get_setting  # AWS_REGION, S3_BUCKET_NAME 등 환경설정
-
-import subprocess
-import tempfile
-from pathlib import Path
+from PIL import Image
 
 # ---------------------------------------------------------------------------
 # S3 클라이언트 & Presigned URL
@@ -269,6 +262,14 @@ def get_video_thumbnail_key(video_key: str) -> str:
             str(source_path),
             "-frames:v",
             "1",
+            # ⭐ 추가: 원본 동영상 해상도 그대로 프레임을 뽑으면(스케일 없음) 파일 크기가
+            # 커서, 사진 선택 화면 그리드에서 이 썸네일만 로드가 오래 걸리거나 다른
+            # 사진들보다 먼저/늦게 뜨는 등 로딩 속도가 들쭉날쭉해 보였다. 그리드 셀
+            # 표시 용도로는 큰 해상도가 필요 없으므로 긴 변 기준 480px로 축소한다
+            # (get_photo_preview_key와 동일한 상한을 둬서 사진/동영상 썸네일 로딩
+            # 속도를 비슷하게 맞춘다).
+            "-vf",
+            "scale=480:480:force_original_aspect_ratio=decrease",
             "-q:v",
             "3",
             str(output_path),
@@ -294,6 +295,49 @@ def get_video_thumbnail_key(video_key: str) -> str:
         )
 
     return thumbnail_key
+
+
+# ⭐ 추가: 사진 선택 화면 그리드는 원본 사진(카메라 촬영본, 보통 수 MB)을 그대로
+# 내려받아 표시하고 있었다 - 동영상 대표 프레임(get_video_thumbnail_key, 480px로 축소)보다
+# 파일이 훨씬 커서, 그리드에 진입했을 때 동영상 썸네일은 금방 뜨는데 사진들은 원본 용량
+# 그대로라 하나씩 늦게 뜨는 것처럼 보였다. 원본은 media_s3_key로 그대로 남겨(렌더링 시
+# 화질 유지) 그리드 표시(media_url)에만 쓸 축소 미리보기를 별도로 만들어 캐싱한다.
+def get_photo_preview_key(photo_key: str) -> str:
+    """
+    사진 S3 key에서 그리드 표시용 축소 미리보기(긴 변 기준 480px)를 만들어 저장하고
+    그 S3 key를 돌려준다. 이미 만들어둔 미리보기가 있으면 재생성하지 않고 재사용한다.
+    """
+    bucket_name = get_setting().S3_BUCKET_NAME
+    base_key, _, _extension = photo_key.rpartition(".")
+    preview_key = f"{base_key or photo_key}_preview.jpg"
+
+    try:
+        _s3_client.head_object(Bucket=bucket_name, Key=preview_key)
+        return preview_key
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") not in ("404", "NoSuchKey"):
+            raise
+
+    with tempfile.TemporaryDirectory() as temp_directory:
+        temp_path = Path(temp_directory)
+        source_path = temp_path / "source"
+        output_path = temp_path / "preview.jpg"
+
+        _s3_client.download_file(bucket_name, photo_key, str(source_path))
+
+        with Image.open(source_path) as image:
+            image = image.convert("RGB")  # PNG 등 알파 채널이 있으면 JPEG 저장 시 에러 방지
+            image.thumbnail((480, 480))   # 원본 비율 유지한 채 긴 변 기준 480px 이하로 축소
+            image.save(output_path, "JPEG", quality=75)
+
+        _s3_client.upload_file(
+            str(output_path),
+            bucket_name,
+            preview_key,
+            ExtraArgs={"ContentType": "image/jpeg"},
+        )
+
+    return preview_key
 
 def generate_download_presigned_url(s3_key: str) -> str:
     """

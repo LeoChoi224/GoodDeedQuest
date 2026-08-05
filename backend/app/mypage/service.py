@@ -33,6 +33,7 @@ from backend.app.shop.models import Purchase, Item  # ⭐ 수정: 장착 중인 
 from backend.app.shop.enums import PurchaseStatus
 from backend.app.common.repository import DatabaseRepository  # ⭐ 수정
 from backend.app.common.s3_client import generate_upload_presigned_url, generate_download_presigned_url
+from backend.app.common.datetime_utils import to_utc_aware  # ⭐ 수정: 완료 시간 KST 표시 버그 수정
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -61,7 +62,7 @@ def get_my_quest_achievements(db: Session, user_id: int) -> List[MyQuestAchievem
             title=quest.quest_title,
             description=quest.quest_description,
             category_code=quest.category.code,
-            completed_at=submission.submitted_at,
+            completed_at=to_utc_aware(submission.submitted_at),  # ⭐ 수정: naive UTC -> UTC-aware로 내려서 프론트가 KST로 정확히 변환하게 함
             reward_point=quest.reward_point,
             reward_exp=quest.reward_exp,
         )

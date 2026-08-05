@@ -458,7 +458,7 @@ export function MusicSheet({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null); // ⭐ 수정: 이제 인덱스가 아니라 expanded/previewing 중인 track의 bgm_id
-  const skipFirstFetch = useRef(true);
+  const prevVisible = useRef(false);
 
   // ⭐ 수정: 카테고리(mood_tag)별로 묶어서 "카테고리 제목" 아래에 "카테고리 노래1, 노래2..."
   // 형태로 나열 — 전체 탭에서는 신나는/발랄한/차분한 등 카테고리별 섹션으로 구분되고,
@@ -477,48 +477,33 @@ export function MusicSheet({
     return order.map((category) => ({ category, items: map.get(category)! }));
   }, [tracks]);
 
-  // 시트를 열 때마다 전체 목록을 다시 받아와 트랙 + mood_tag 카테고리 칩을 구성한다.
-  // (이전에 특정 카테고리로 필터링한 채 닫았어도 다음에 열면 '전체'로 리셋)
+  // ⭐ 수정: 예전엔 "시트가 열릴 때 cat을 0으로 리셋"과 "cat이 바뀌면 목록을 다시 조회"를
+  // 별도의 useEffect 두 개로 나누고, skipFirstFetch 플래그로 리셋 직후의 중복 조회를
+  // 걸러내려 했다. 그런데 시트를 닫을 때 cat이 이미 0이었으면 setCat(0)이 "같은 값으로
+  // 설정"이라 리렌더/이펙트가 아예 안 일어나고, 그 결과 skipFirstFetch가 true로 남는다.
+  // 그 상태에서 사용자가 실제로 다른 카테고리를 눌러 cat이 바뀌면, 그 이펙트가 남아있던
+  // skipFirstFetch를 대신 소비해버려서 정작 그 클릭의 조회 요청이 통째로 씹혔다
+  // (한 번 눌러선 반영 안 되고 다른 칩 눌렀다 돌아와야 반영되는 것처럼 보인 버그의 원인).
+  // "시트가 방금 열렸는지"를 별도 ref(prevVisible)로 직접 추적해서, 리셋이 필요한
+  // 시점과 사용자가 실제로 카테고리를 누른 시점을 확실히 구분한다.
   useEffect(() => {
+    const justOpened = visible && !prevVisible.current;
+    prevVisible.current = visible;
+
     if (!visible) {
       // 시트를 닫아도 BottomSheet의 Modal은 visible prop만 바뀔 뿐 자식은 계속 마운트돼
       // 있으므로, 재생 중이던 미리듣기가 있으면 여기서 명시적으로 정지시켜야 한다.
       setOpen(null);
       return;
     }
-    skipFirstFetch.current = true;
-    setCat(0);
-    let mounted = true;
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await getBackgroundMusicList();
-        if (!mounted) return;
-        const moodTags = Array.from(
-          new Set(result.items.map((t) => t.mood_tag).filter((t): t is string => !!t)),
-        );
-        setCategories(['전체', ...moodTags]);
-        setTracks(result.items);
-      } catch (e) {
-        console.error('배경음악 목록 조회 실패:', e);
-        if (mounted) setError('음악 목록을 불러오지 못했습니다.');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
 
-  // 카테고리 칩 선택 시 해당 mood_tag로 다시 조회한다 (최초 전체 조회 직후 1회는 건너뜀).
-  useEffect(() => {
-    if (skipFirstFetch.current) {
-      skipFirstFetch.current = false;
+    // 시트가 막 열렸는데 이전에 특정 카테고리로 필터링해뒀던 상태면, 먼저 '전체'로
+    // 리셋만 하고 조회는 그 리셋으로 인한 다음 이펙트 실행(cat 변경)에서 하도록 미룬다.
+    if (justOpened && cat !== 0) {
+      setCat(0);
       return;
     }
+
     let mounted = true;
     (async () => {
       try {
@@ -526,7 +511,16 @@ export function MusicSheet({
         setError(null);
         const moodTag = cat === 0 ? undefined : categories[cat];
         const result = await getBackgroundMusicList(moodTag);
-        if (mounted) setTracks(result.items);
+        if (!mounted) return;
+        setTracks(result.items);
+        if (cat === 0) {
+          // '전체' 조회 결과로만 카테고리 칩 목록을 다시 구성한다 (필터링된 응답은
+          // 그 카테고리 트랙만 담고 있어 전체 mood_tag 목록을 복원할 수 없음).
+          const moodTags = Array.from(
+            new Set(result.items.map((t) => t.mood_tag).filter((t): t is string => !!t)),
+          );
+          setCategories(['전체', ...moodTags]);
+        }
       } catch (e) {
         console.error('배경음악 목록 조회 실패:', e);
         if (mounted) setError('음악 목록을 불러오지 못했습니다.');
@@ -538,7 +532,7 @@ export function MusicSheet({
       mounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cat]);
+  }, [visible, cat]);
 
   return (
     <BottomSheet
