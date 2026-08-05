@@ -1,5 +1,9 @@
 import unittest
 from unittest.mock import patch
+
+import httpx
+import openai
+
 from ai.app.quest_recommend.state import RecommendState
 from ai.app.quest_recommend.nodes.good_deed_agent import create_good_deeds
 
@@ -74,7 +78,12 @@ class TestQuestRecommendationAgent(unittest.TestCase):
     @patch("ai.app.quest_recommend.nodes.good_deed_agent.invoke_gemini_fallback")
     def test_create_good_deeds_fallback_to_gemini(self, mock_gemini_fallback, mock_get_openai):
         """OpenAI API 예외 발생 시 무소음 Gemini 백업 모델이 가동되어 6개 후보를 반환하는지 검증"""
-        mock_get_openai.side_effect = Exception("OpenAI API Connection Timeout")
+        # 실제 연결 시간 초과는 openai.APITimeoutError(= OpenAIError 하위)로 올라온다.
+        # good_deed_agent 는 OpenAIError 계열만 잡아서 Gemini 로 넘기므로(good_deed_agent.py:183),
+        # 맨 Exception 을 던지면 현실에 없는 경로를 검증하게 된다.
+        mock_get_openai.side_effect = openai.APITimeoutError(
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+        )
         
         class DummyOutput:
             quests = [

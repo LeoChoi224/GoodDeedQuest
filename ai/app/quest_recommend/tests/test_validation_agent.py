@@ -1,5 +1,7 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+from langchain_core.runnables import RunnableLambda
 
 from ai.app.quest_recommend.state import RecommendState
 from ai.app.quest_recommend.nodes.validation_agent import validate_candidates, route_validation
@@ -48,9 +50,15 @@ def patch_critic(report):
     """비평가 LLM 호출 체인을 지정한 보고서로 대체하는 컨텍스트 매니저 헬퍼"""
     patcher = patch(f"{MODULE}.get_openai_model")
     mock_get_openai = patcher.start()
-    mock_chain = MagicMock()
-    mock_chain.invoke.return_value = report
-    mock_get_openai.return_value.with_structured_output.return_value = mock_chain
+
+    # 프로덕션은 `validation_prompt | structured_llm` 으로 체인을 조립한 뒤
+    # 그 체인을 invoke 한다(validation_agent.py:214).
+    # 따라서 with_structured_output 의 반환값은 LangChain Runnable 이어야 한다.
+    # MagicMock 을 넣으면 `|` 가 만들어낸 새 체인이 mock.invoke 를 타지 않아
+    # 보고서가 전달되지 않고 후보가 전부 사라진다.
+    mock_get_openai.return_value.with_structured_output.return_value = RunnableLambda(
+        lambda _: report
+    )
     return patcher
 
 
@@ -102,13 +110,16 @@ class TestValidateCandidates(unittest.TestCase):
         self.assertEqual(candidates[1]["quest_type"], "GOOD_DEED")
 
     def test_volunteer_mapping_uses_actual_keys(self):
-        """봉사 데이터의 content/location 키가 설명과 장소에 정확히 매핑되어야 함"""
+        """봉사 데이터의 quest_summary/location 키가 설명과 장소에 정확히 매핑되어야 함"""
         state = build_state(
             retrieved_volunteers=[
                 {
                     "id": 514690,
                     "title": "과천종합사회복지관 청소년 성장멘토링 멘토 자원봉사자 모집",
                     "content": "과천종합사회복지관 청소년 성장멘토링 멘토 자원봉사자 모집\n청소년 대상 1:1 학습 지원 멘토를 모집합니다.",
+                    # 검증 노드는 content 가 아니라 quest_summary 를 설명으로 쓴다
+                    # (validation_agent.py:88). volunteer_agent 도 두 키를 함께 내보낸다.
+                    "quest_summary": "청소년 대상 1:1 학습 지원 멘토로 참여합니다.",
                     "category": "아동청소년",
                     "location": "경기 과천시 별양상가1로 10",
                     "url": "https://www.vms.or.kr",
@@ -130,7 +141,7 @@ class TestValidateCandidates(unittest.TestCase):
         # 설명이 기본값이 아닌 실제 공고 본문이어야 함
         self.assertNotEqual(quest["quest_description"], "지역 봉사활동 참여")
         self.assertIn("청소년 대상 1:1 학습 지원", quest["quest_description"])
-        # content 앞줄의 제목이 설명에 중복 포함되지 않아야 함
+        # 요약문 앞에 제목이 중복으로 붙지 않아야 함
         self.assertFalse(quest["quest_description"].startswith(quest["quest_title"]))
         # 장소가 None이 아닌 실제 주소여야 함
         self.assertEqual(quest["location"], "경기 과천시 별양상가1로 10")

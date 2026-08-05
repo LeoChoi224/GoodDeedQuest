@@ -1,5 +1,8 @@
 import unittest
 from unittest.mock import patch
+
+from langchain_core.runnables import RunnableLambda
+
 from ai.app.quest_recommend.state import RecommendState
 from ai.app.quest_recommend.nodes.validation_agent import validate_candidates, route_validation
 
@@ -22,10 +25,13 @@ class TestSelfCorrectionLoop(unittest.TestCase):
             "request_context": {},
             "recommendation_strategy": {"strategy": "Must be indoor", "llm_constraints": ["must be indoor"]},
             "retrieved_volunteers": [
+                # volunteer_agent 가 실제로 내보내는 키를 그대로 쓴다(volunteer_agent.py:152~164).
+                # DB 컬럼명(vol_name/vol_act/vol_address)이 아니라 조립된 문서의 키다.
                 {
-                    "vol_name": "야외 플로깅",
-                    "vol_act": "야외 정화 활동",
-                    "vol_address": "서울시 마포구"
+                    "id": 1,
+                    "title": "야외 플로깅",
+                    "quest_summary": "야외 정화 활동",
+                    "location": "서울시 마포구"
                 }
             ],
             "ai_good_deeds": [
@@ -64,9 +70,13 @@ class TestSelfCorrectionLoop(unittest.TestCase):
             ]
 
         with patch("ai.app.quest_recommend.nodes.validation_agent.get_openai_model") as mock_get_openai:
-            mock_chain = unittest.mock.MagicMock()
-            mock_chain.invoke.return_value = DummyReport()
-            mock_get_openai.return_value.with_structured_output.return_value = mock_chain
+            # 프로덕션은 `validation_prompt | structured_llm` 으로 체인을 조립한 뒤
+            # 그 체인을 invoke 한다(validation_agent.py:214).
+            # 따라서 with_structured_output 의 반환값은 LangChain Runnable 이어야 한다.
+            # MagicMock 을 넣으면 `|` 가 만든 새 체인이 mock.invoke 를 타지 않는다.
+            mock_get_openai.return_value.with_structured_output.return_value = RunnableLambda(
+                lambda _: DummyReport()
+            )
 
             result = validate_candidates(mock_state)
 

@@ -67,6 +67,7 @@ def make_user(
     is_active: bool = True,
     category: list[int | str] | None = None,
     region_id: int | None = 1,
+    trust_score: int = 50,
 ) -> SimpleNamespace:
     """테스트용 사용자 객체를 생성합니다."""
 
@@ -77,6 +78,9 @@ def make_user(
         is_active=is_active,
         category=category if category is not None else [1],
         region_id=region_id,
+        # User.trust_score는 기본값 50인 필수 컬럼이다.
+        # 개인화 피드가 작성자 신뢰도를 추천 점수에 반영하므로 가짜 객체에도 필요하다.
+        trust_score=trust_score,
     )
 
 
@@ -347,12 +351,14 @@ class CommunityScoringTest(TestCase):
     def test_engagement_score_applies_comment_weight(self) -> None:
         """댓글 가중치를 반영하여 반응도 점수를 계산합니다."""
 
+        # 좋아요 1 + 댓글 2×2 = 5 → 5점 이상 구간이므로 8점.
+        # (같은 반응 수라도 좋아요만 3개면 3 → 4점 구간에 머문다)
         self.assertEqual(
             calculate_engagement_score(
                 like_count=1,
                 comment_count=2,
             ),
-            10,
+            8,
         )
 
     def test_engagement_score_caps_at_maximum(self) -> None:
@@ -388,6 +394,8 @@ class CommunityScoringTest(TestCase):
             created_at=REFERENCE_TIME,
             like_count=100,
             comment_count=100,
+            # 작성자 신뢰도 100 → 신뢰 점수 15점 만점
+            author_trust_score=100,
             reference_time=REFERENCE_TIME,
         )
 
@@ -689,6 +697,9 @@ class RecentAcceptedSubmissionServiceTest(TestCase):
             submission_id=100,
             quest_id=50,
             media_url="https://example.com/submission.jpg",
+            # 응답 변환 시 media_type을 읽는다(service.py:336).
+            # None이면 media_url 확장자로 종류를 추론한다.
+            media_type=None,
             submitted_at=REFERENCE_TIME,
         )
 
