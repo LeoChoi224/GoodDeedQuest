@@ -56,6 +56,7 @@
         "expo-build-properties",
         {
           "android": {
+            "usesCleartextTraffic": true,
             "extraMavenRepos": [
               "https://devrepo.kakao.com/nexus/content/groups/public/"
             ]
@@ -65,6 +66,7 @@
       "@react-native-google-signin/google-signin"
     ],
     "extra": {
+      "apiUrl": "https://gooddeedquest.duckdns.org",
       "eas": {
         "projectId": "74b14754-ad3e-4fdb-8e16-c06b559f4846"
       }

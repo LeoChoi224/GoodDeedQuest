@@ -9,8 +9,15 @@ declare module 'axios' {
   }
 }
 
-const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0] ?? 'localhost';
-const BASE_URL = `http://${debuggerHost}:8000/api/v1`;
+// Metro(개발 서버)로 실행 중이면 hostUri 에 개발 PC 주소가 들어온다.
+// APK 로 빌드하면 hostUri 가 undefined 라 app.json 의 extra.apiUrl 을 쓴다.
+// (예전에는 'localhost' 로 떨어져서 앱이 자기 자신에게 요청을 보냈다)
+const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0];
+const configuredApiUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
+
+const BASE_URL = debuggerHost
+  ? `http://${debuggerHost}:8000/api/v1`
+  : `${configuredApiUrl}/api/v1`;
 
 export const TOKEN_KEY = 'access_token';
 export const REFRESH_TOKEN_KEY = 'refresh_token';
