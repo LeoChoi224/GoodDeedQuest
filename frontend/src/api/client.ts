@@ -15,9 +15,18 @@ declare module 'axios' {
 const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0];
 const configuredApiUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
 
-const BASE_URL = debuggerHost
-  ? `http://${debuggerHost}:8000/api/v1`
-  : `${configuredApiUrl}/api/v1`;
+// 【판단】 세 단계로 찾는다. 앞에 있는 것이 이기고, 없으면 다음으로 넘어간다.
+//   ① EXPO_PUBLIC_API_URL — eas.json 이 빌드할 때 주입 (preview/production)
+//   ② Metro 의 hostUri — 개발 중이면 개발 PC 를 본다
+//   ③ app.json 의 extra.apiUrl — Metro 도 없는 배포 빌드의 안전망
+//
+// ②를 ③보다 앞에 둬야 한다. extra.apiUrl 은 app.json 에 늘 값이 있어서,
+// ③이 먼저면 Metro 를 켜고 개발하는 중에도 배포 서버를 부르게 된다.
+// ①을 맨 앞에 둔 덕에, 개발 빌드로도 배포 서버를 보게 할 수 있다(시연용).
+const BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL
+  ?? (debuggerHost ? `http://${debuggerHost}:8000/api/v1` : undefined)
+  ?? `${(configuredApiUrl ?? '').replace(/\/$/, '')}/api/v1`;
 
 export const TOKEN_KEY = 'access_token';
 export const REFRESH_TOKEN_KEY = 'refresh_token';
